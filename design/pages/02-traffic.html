@@ -1,0 +1,222 @@
+<style>
+#page-traffic > * + *{margin-top:14px}
+
+/* ---- 实时速率 ---- */
+#page-traffic .rt-wrap{display:flex;align-items:stretch;gap:26px}
+#page-traffic .rt-stats{display:flex;flex-direction:column;justify-content:center;gap:20px;
+  flex-shrink:0;min-width:158px}
+#page-traffic .rt-big{font-size:30px;font-weight:700;line-height:1.12;letter-spacing:-.5px;margin-top:3px}
+#page-traffic .rt-big span{font-size:12.5px;font-weight:600;color:var(--text-2);margin-left:5px;letter-spacing:0}
+#page-traffic .rt-sub{font-size:11px;color:var(--text-3);margin-top:2px}
+#page-traffic .rt-chartcol{flex:1;min-width:0;display:flex;flex-direction:column}
+#page-traffic .rt-chart{position:relative;height:120px;border-bottom:1px solid var(--line);
+  background:repeating-linear-gradient(to top,transparent 0,transparent 29px,var(--line) 29px,var(--line) 30px)}
+#page-traffic .rt-chart .spark{position:absolute;inset:0}
+#page-traffic .rt-axis{display:flex;justify-content:space-between;font-size:10px;color:var(--text-3);
+  padding-top:5px}
+#page-traffic .rt-legend{display:flex;align-items:center;gap:12px;margin-right:2px}
+#page-traffic .lg{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--text-2)}
+#page-traffic .lg i{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+
+/* ---- 今日小卡 ---- */
+#page-traffic .t-mini{padding:14px 16px}
+#page-traffic .t-mini-head{display:flex;align-items:center;gap:8px;font-size:11.5px;font-weight:500;
+  color:var(--text-2);margin-bottom:9px}
+#page-traffic .t-mini .stat-num small{font-size:12px;font-weight:600;color:var(--text-2);margin-left:2px}
+#page-traffic .t-cmp{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text-3);margin-top:4px}
+#page-traffic .t-cmp .up{display:inline-flex;align-items:center;gap:3px;color:var(--green);
+  font-weight:600;font-family:var(--mono)}
+#page-traffic .t-cmp svg{width:12px;height:12px;stroke:currentColor;stroke-width:2;fill:none;
+  stroke-linecap:round;stroke-linejoin:round}
+
+/* ---- 订阅配额 ---- */
+#page-traffic .q-row{display:flex;align-items:center;gap:24px}
+#page-traffic .q-left{flex-shrink:0;min-width:148px}
+#page-traffic .q-name{display:flex;align-items:center;gap:8px;font-size:13.5px;font-weight:700}
+#page-traffic .q-sub{font-size:11px;color:var(--text-3);margin-top:3px}
+#page-traffic .q-mid{flex:1;min-width:0;padding:0 24px;border-left:1px solid var(--line);
+  border-right:1px solid var(--line)}
+#page-traffic .q-num{display:flex;align-items:baseline;margin-bottom:8px}
+#page-traffic .q-num b{font-size:15px;font-weight:700}
+#page-traffic .q-num span{font-size:12px;color:var(--text-2);margin-left:4px}
+#page-traffic .q-num em{font-style:normal;margin-left:auto;font-size:11.5px;font-weight:600;color:var(--green)}
+#page-traffic .q-bar{height:8px;border-radius:4px;background:var(--card-3);overflow:hidden}
+#page-traffic .q-bar i{display:block;height:100%;border-radius:4px;
+  background:linear-gradient(90deg,#32D74B,#40C8E0);box-shadow:0 0 10px rgba(50,215,75,.35)}
+#page-traffic .q-right{flex-shrink:0;text-align:right;min-width:136px}
+#page-traffic .q-right .q-label{font-size:11px;color:var(--text-2)}
+#page-traffic .q-days{font-size:22px;font-weight:700;line-height:1.25;margin:1px 0}
+#page-traffic .q-days small{font-size:12px;font-weight:600;color:var(--text-2);margin-left:2px}
+
+/* ---- 多维统计表格 ---- */
+#page-traffic .nopad{padding:0}
+#page-traffic .tbl .r{text-align:right}
+#page-traffic .t-name{display:flex;align-items:center;gap:9px;font-weight:600}
+#page-traffic .tdot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+#page-traffic .t-total{font-weight:600}
+#page-traffic .pct{display:flex;align-items:center;gap:10px}
+#page-traffic .pct .bar{width:120px;height:6px;border-radius:3px;background:var(--card-3);
+  overflow:hidden;flex-shrink:0}
+#page-traffic .pct .bar i{display:block;height:100%;border-radius:3px}
+#page-traffic .pct > span{font-size:11.5px;color:var(--text-2)}
+</style>
+<section class="page" id="page-traffic" data-title="流量统计">
+
+  <!-- 实时速率 -->
+  <div class="card">
+    <div class="card-head">
+      <span class="card-ic" style="color:var(--cyan)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 12h4.2l2.8-8.5 5 17 2.8-8.5h4.2"/></svg></span>
+      <h3>实时速率</h3>
+      <div class="card-actions">
+        <div class="rt-legend">
+          <span class="lg"><i style="background:var(--purple)"></i>上传</span>
+          <span class="lg"><i style="background:var(--cyan)"></i>下载</span>
+        </div>
+        <span class="chip">60 秒窗口</span>
+      </div>
+    </div>
+    <div class="card-body rt-wrap">
+      <div class="rt-stats">
+        <div>
+          <div class="stat-label" style="color:var(--purple)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="M5 12l7-7 7 7"/></svg>上传</div>
+          <div class="rt-big num" style="color:var(--purple)">1.2<span>MB/s</span></div>
+          <div class="rt-sub num">峰值 2.1 MB/s</div>
+        </div>
+        <div>
+          <div class="stat-label" style="color:var(--cyan)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M19 12l-7 7-7-7"/></svg>下载</div>
+          <div class="rt-big num" style="color:var(--cyan)">8.6<span>MB/s</span></div>
+          <div class="rt-sub num">峰值 10.4 MB/s</div>
+        </div>
+      </div>
+      <div class="rt-chartcol">
+        <div class="rt-chart">
+          <div class="spark" data-pts="4.2,5.1,4.8,6.3,7.2,6.8,5.9,6.4,7.8,8.4,7.6,6.9,7.4,8.9,9.6,8.2,7.1,6.5,7.0,8.3,9.1,8.7,7.9,8.5,9.8,10.4,9.2,8.0,7.4,8.1,8.8,8.6" data-color="#64D2FF" data-h="120" data-fill="1" data-dot="1"></div>
+          <div class="spark" data-pts="0.6,0.8,0.7,1.1,0.9,1.3,1.6,1.2,1.0,1.4,1.8,1.5,1.1,0.9,1.2,1.6,2.1,1.7,1.3,1.5,1.9,1.4,1.0,1.2,1.7,2.0,1.6,1.3,1.1,1.4,1.3,1.2" data-color="#BF5AF2" data-h="120" data-fill="1" data-dot="1"></div>
+        </div>
+        <div class="rt-axis num"><span>60s</span><span>45s</span><span>30s</span><span>15s</span><span>现在</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 今日统计 -->
+  <div class="grid3">
+    <div class="card t-mini">
+      <div class="t-mini-head">
+        <span class="card-ic" style="color:var(--purple)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="M5 12l7-7 7 7"/></svg></span>
+        今日上传
+      </div>
+      <div class="stat-num">1.8<small>GB</small></div>
+      <div class="t-cmp"><span class="up"><svg viewBox="0 0 24 24"><path d="M3 17l6-6 4 4 8-8"/><path d="M14 7h7v7"/></svg>12%</span>较昨日 1.6 GB</div>
+    </div>
+    <div class="card t-mini">
+      <div class="t-mini-head">
+        <span class="card-ic" style="color:var(--cyan)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M19 12l-7 7-7-7"/></svg></span>
+        今日下载
+      </div>
+      <div class="stat-num">12.4<small>GB</small></div>
+      <div class="t-cmp"><span class="up"><svg viewBox="0 0 24 24"><path d="M3 17l6-6 4 4 8-8"/><path d="M14 7h7v7"/></svg>8%</span>较昨日 11.5 GB</div>
+    </div>
+    <div class="card t-mini">
+      <div class="t-mini-head">
+        <span class="card-ic" style="color:var(--accent)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 20V10"/><path d="M12 20V4"/><path d="M18 20v-6"/></svg></span>
+        今日总计
+      </div>
+      <div class="stat-num">14.2<small>GB</small></div>
+      <div class="t-cmp"><span class="up"><svg viewBox="0 0 24 24"><path d="M3 17l6-6 4 4 8-8"/><path d="M14 7h7v7"/></svg>9%</span>较昨日 13.1 GB</div>
+    </div>
+  </div>
+
+  <!-- 订阅配额 -->
+  <div class="card">
+    <div class="card-head">
+      <span class="card-ic" style="color:var(--green)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15l3.5-3.5"/><path d="M20.2 15.5a9 9 0 1 0-16.4 0"/></svg></span>
+      <h3>订阅配额</h3>
+      <div class="card-actions"><span style="font-size:11px;color:var(--text-3)">更新于 2 小时前</span></div>
+    </div>
+    <div class="card-body q-row">
+      <div class="q-left">
+        <div class="q-name">BigAirport <span class="chip">远程</span></div>
+        <div class="q-sub">Pro 套餐 · 每月 500 GB</div>
+      </div>
+      <div class="q-mid">
+        <div class="q-num"><b class="num">162.4 GB</b><span class="num">/ 500 GB</span><em class="num">已用 32%</em></div>
+        <div class="q-bar"><i style="width:32%"></i></div>
+      </div>
+      <div class="q-right">
+        <div class="q-label">到期剩余</div>
+        <div class="q-days num">37<small>天</small></div>
+        <div class="q-sub">重置于每月 1 日</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 多维统计 -->
+  <div class="card">
+    <div class="card-head">
+      <span class="card-ic" style="color:var(--orange)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.2 15.9A10 10 0 1 1 8 2.8"/><path d="M22 12A10 10 0 0 0 12 2v10z"/></svg></span>
+      <h3>多维统计</h3>
+      <div class="card-actions">
+        <div class="seg">
+          <button class="seg-item on">按代理</button>
+          <button class="seg-item">按进程</button>
+          <button class="seg-item">按域名</button>
+        </div>
+        <div class="seg">
+          <button class="seg-item on">今日</button>
+          <button class="seg-item">本周</button>
+          <button class="seg-item">本月</button>
+        </div>
+      </div>
+    </div>
+    <div class="card-body nopad">
+      <table class="tbl">
+        <thead>
+          <tr><th>名称</th><th class="r">上传</th><th class="r">下载</th><th class="r">总计</th><th>占比</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><div class="t-name"><span class="tdot" style="background:#0A84FF"></span>HK-PCCW</div></td>
+            <td class="r num">386 MB</td><td class="r num">3.8 GB</td><td class="r num t-total">4.2 GB</td>
+            <td><div class="pct"><div class="bar"><i style="width:100%;background:linear-gradient(90deg,#0A84FF,#64D2FF)"></i></div><span class="num">38%</span></div></td>
+          </tr>
+          <tr>
+            <td><div class="t-name"><span class="tdot" style="background:#BF5AF2"></span>US-Streaming</div></td>
+            <td class="r num">128 MB</td><td class="r num">3.0 GB</td><td class="r num t-total">3.1 GB</td>
+            <td><div class="pct"><div class="bar"><i style="width:74%;background:linear-gradient(90deg,#BF5AF2,#FF375F)"></i></div><span class="num">28%</span></div></td>
+          </tr>
+          <tr>
+            <td><div class="t-name"><span class="tdot" style="background:#32D74B"></span>DIRECT</div></td>
+            <td class="r num">612 MB</td><td class="r num">1.6 GB</td><td class="r num t-total">2.2 GB</td>
+            <td><div class="pct"><div class="bar"><i style="width:53%;background:linear-gradient(90deg,#32D74B,#40C8E0)"></i></div><span class="num">20%</span></div></td>
+          </tr>
+          <tr>
+            <td><div class="t-name"><span class="tdot" style="background:#64D2FF"></span>JP-AbemaTV</div></td>
+            <td class="r num">42 MB</td><td class="r num">858 MB</td><td class="r num t-total">0.9 GB</td>
+            <td><div class="pct"><div class="bar"><i style="width:21%;background:linear-gradient(90deg,#64D2FF,#0A84FF)"></i></div><span class="num">8%</span></div></td>
+          </tr>
+          <tr>
+            <td><div class="t-name"><span class="tdot" style="background:#40C8E0"></span>US-OpenAI</div></td>
+            <td class="r num">213 MB</td><td class="r num">401 MB</td><td class="r num t-total">0.6 GB</td>
+            <td><div class="pct"><div class="bar"><i style="width:13%;background:linear-gradient(90deg,#40C8E0,#64D2FF)"></i></div><span class="num">5%</span></div></td>
+          </tr>
+          <tr>
+            <td><div class="t-name"><span class="tdot" style="background:#FF9F0A"></span>SG-AWS</div></td>
+            <td class="r num">167 MB</td><td class="r num">233 MB</td><td class="r num t-total">0.4 GB</td>
+            <td><div class="pct"><div class="bar"><i style="width:8%;background:linear-gradient(90deg,#FF9F0A,#FFD60A)"></i></div><span class="num">3%</span></div></td>
+          </tr>
+          <tr>
+            <td><div class="t-name"><span class="tdot" style="background:#FF375F"></span>HK-ViuTV</div></td>
+            <td class="r num">9.6 MB</td><td class="r num">195 MB</td><td class="r num t-total">0.2 GB</td>
+            <td><div class="pct"><div class="bar"><i style="width:5%;background:linear-gradient(90deg,#FF375F,#BF5AF2)"></i></div><span class="num">2%</span></div></td>
+          </tr>
+          <tr>
+            <td><div class="t-name"><span class="tdot" style="background:#FF453A"></span>REJECT</div></td>
+            <td class="r num">86 MB</td><td class="r num">16 MB</td><td class="r num t-total">0.1 GB</td>
+            <td><div class="pct"><div class="bar"><i style="width:3%;background:linear-gradient(90deg,#FF453A,#FF9F0A)"></i></div><span class="num">1%</span></div></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</section>

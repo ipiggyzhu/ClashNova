@@ -18,6 +18,11 @@ items.forEach(it=>it.addEventListener('click',()=>{
 (()=>{const first=document.querySelector('.nav-item.on');
   if(first){const sec=document.getElementById('page-'+first.dataset.page);
   if(sec){sec.classList.add('on');title.textContent=sec.dataset.title||'';}}})();
+/* URL hash 直达页面 (截图/分享用): mockup.html#proxies ; ?theme=light 切浅色 */
+const q=new URLSearchParams(location.search);
+if(q.get('theme'))document.documentElement.dataset.theme=q.get('theme');
+if(location.hash){const k=location.hash.slice(1).replace(/^page-/,'');
+  const it=[...items].find(i=>i.dataset.page===k);if(it)it.click();}
 
 /* ---- 主题切换 ---- */
 document.getElementById('theme-btn').addEventListener('click',()=>{

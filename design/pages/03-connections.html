@@ -1,0 +1,200 @@
+<style>
+  #page-connections .conn-toolbar{display:flex;align-items:center;gap:12px;margin-bottom:14px}
+  #page-connections .conn-toolbar .search-wrap{width:260px}
+  #page-connections .conn-toolbar .sp{flex:1}
+  #page-connections .conn-toolbar .btn svg{width:14px;height:14px;margin-right:5px;vertical-align:-2px}
+  #page-connections .conn-card{padding:0;overflow:hidden}
+  #page-connections .conn-card .tbl{width:100%}
+  #page-connections .tbl td{vertical-align:middle}
+  #page-connections .tbl .r{text-align:right}
+  #page-connections .tbl .c{text-align:center;width:36px}
+  #page-connections .conn-host{line-height:1.35;min-width:180px}
+  #page-connections .conn-host .hn{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--text);font-weight:500}
+  #page-connections .conn-host .hn .port{color:var(--text-3);font-weight:400}
+  #page-connections .conn-host .ip{display:block;font-size:10.5px;color:var(--text-3);margin-top:1px}
+  #page-connections .proto-tag{font-size:9px;font-weight:700;letter-spacing:.5px;padding:1px 5px;border-radius:4px;border:1px solid var(--line-2);color:var(--text-3);line-height:1.4}
+  #page-connections .proc{display:inline-flex;align-items:center;gap:7px;font-size:12px;color:var(--text-2);white-space:nowrap}
+  #page-connections .proc .dot{width:7px;height:7px;border-radius:50%;flex:none;background:currentColor;box-shadow:0 0 0 3px color-mix(in srgb,currentColor 16%,transparent)}
+  #page-connections .proc b{font-weight:400;color:var(--text-2)}
+  #page-connections .chain{font-size:12px;color:var(--text-2);white-space:nowrap}
+  #page-connections .chain .arr{color:var(--text-3);margin:0 5px;font-size:11px}
+  #page-connections .chain.rj{color:var(--red);font-weight:600;font-size:11px;letter-spacing:.4px}
+  #page-connections .chip.rj{color:var(--red);border-color:color-mix(in srgb,var(--red) 35%,transparent);background:color-mix(in srgb,var(--red) 10%,transparent)}
+  #page-connections .t-dur{font-size:11.5px;color:var(--text-3)}
+  #page-connections .t-num{font-size:12px;color:var(--text-2)}
+  #page-connections .icon-btn.kill{width:24px;height:24px;color:var(--text-3)}
+  #page-connections .icon-btn.kill:hover{color:var(--red)}
+  #page-connections .icon-btn.kill svg{width:13px;height:13px}
+</style>
+<section class="page" id="page-connections" data-title="连接">
+  <div class="conn-toolbar">
+    <div class="search-wrap">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+      <input type="text" class="input" style="width:100%" placeholder="搜索主机 / 进程 / 规则">
+    </div>
+    <span class="chip"><span class="num">51</span> 个连接</span>
+    <span class="badge b-purple">↑ <span class="num">0.4</span> KB/s</span>
+    <span class="badge b-cyan">↓ <span class="num">15.3</span> KB/s</span>
+    <span class="sp"></span>
+    <div class="seg">
+      <button class="seg-item on" type="button">全部</button>
+      <button class="seg-item" type="button">TCP</button>
+      <button class="seg-item" type="button">UDP</button>
+    </div>
+    <button class="btn btn-danger" type="button">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>关闭全部
+    </button>
+  </div>
+
+  <div class="card conn-card">
+    <table class="tbl">
+      <thead>
+        <tr>
+          <th>主机</th>
+          <th>进程</th>
+          <th>规则</th>
+          <th>代理链</th>
+          <th class="r">上传</th>
+          <th class="r">下载</th>
+          <th class="r">速率</th>
+          <th class="r">时长</th>
+          <th class="c"></th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><div class="conn-host"><span class="hn">www.youtube.com<span class="port num">:443</span></span><span class="ip num">142.250.196.110</span></div></td>
+          <td><span class="proc" style="color:var(--green)"><i class="dot"></i><b>chrome.exe</b></span></td>
+          <td><span class="chip">RuleSet:Streaming</span></td>
+          <td><span class="chain">US-Streaming<span class="arr">→</span>HK-PCCW</span></td>
+          <td class="r t-num num">1.2 MB</td>
+          <td class="r t-num num">86.4 MB</td>
+          <td class="r"><span class="badge b-cyan num">12.6 KB/s</span></td>
+          <td class="r t-dur num">12:08</td>
+          <td class="c"><button class="icon-btn kill" type="button" title="关闭连接"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button></td>
+        </tr>
+        <tr>
+          <td><div class="conn-host"><span class="hn">api.openai.com<span class="port num">:443</span></span><span class="ip num">104.18.33.45</span></div></td>
+          <td><span class="proc" style="color:var(--accent)"><i class="dot"></i><b>Code.exe</b></span></td>
+          <td><span class="chip">RuleSet:AI</span></td>
+          <td><span class="chain">AI-Service<span class="arr">→</span>US-OpenAI</span></td>
+          <td class="r t-num num">18.6 KB</td>
+          <td class="r t-num num">384 KB</td>
+          <td class="r"><span class="badge b-cyan num">0.9 KB/s</span></td>
+          <td class="r t-dur num">05:32</td>
+          <td class="c"><button class="icon-btn kill" type="button" title="关闭连接"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button></td>
+        </tr>
+        <tr>
+          <td><div class="conn-host"><span class="hn">mtalk.google.com<span class="port num">:5228</span></span><span class="ip num">108.177.125.188</span></div></td>
+          <td><span class="proc" style="color:var(--green)"><i class="dot"></i><b>chrome.exe</b></span></td>
+          <td><span class="chip">RuleSet:Google</span></td>
+          <td><span class="chain">Proxy<span class="arr">→</span>HK-PCCW</span></td>
+          <td class="r t-num num">4.2 KB</td>
+          <td class="r t-num num">12.8 KB</td>
+          <td class="r"><span class="badge b-cyan num">0.4 KB/s</span></td>
+          <td class="r t-dur num">47:21</td>
+          <td class="c"><button class="icon-btn kill" type="button" title="关闭连接"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button></td>
+        </tr>
+        <tr>
+          <td><div class="conn-host"><span class="hn">web.telegram.org<span class="port num">:443</span></span><span class="ip num">149.154.167.99</span></div></td>
+          <td><span class="proc" style="color:var(--cyan)"><i class="dot"></i><b>Telegram.exe</b></span></td>
+          <td><span class="chip">RuleSet:Telegram</span></td>
+          <td><span class="chain">Proxy<span class="arr">→</span>SG-AWS</span></td>
+          <td class="r t-num num">96 KB</td>
+          <td class="r t-num num">2.4 MB</td>
+          <td class="r"><span class="badge b-cyan num">1.4 KB/s</span></td>
+          <td class="r t-dur num">18:44</td>
+          <td class="c"><button class="icon-btn kill" type="button" title="关闭连接"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button></td>
+        </tr>
+        <tr>
+          <td><div class="conn-host"><span class="hn">steamcdn-a.akamaihd.net<span class="port num">:443</span></span><span class="ip num">184.25.204.7</span></div></td>
+          <td><span class="proc" style="color:var(--purple)"><i class="dot"></i><b>steam.exe</b></span></td>
+          <td><span class="chip">RuleSet:SteamCN</span></td>
+          <td><span class="chain">DIRECT</span></td>
+          <td class="r t-num num">320 KB</td>
+          <td class="r t-num num">1.21 GB</td>
+          <td class="r"><span class="badge b-gray num">0 B/s</span></td>
+          <td class="r t-dur num">26:15</td>
+          <td class="c"><button class="icon-btn kill" type="button" title="关闭连接"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button></td>
+        </tr>
+        <tr>
+          <td><div class="conn-host"><span class="hn">weather-data.apple.com<span class="port num">:443</span></span><span class="ip num">17.253.85.204</span></div></td>
+          <td><span class="proc" style="color:var(--orange)"><i class="dot"></i><b>Widgets.exe</b></span></td>
+          <td><span class="chip">RuleSet:Apple</span></td>
+          <td><span class="chain">DIRECT</span></td>
+          <td class="r t-num num">2.1 KB</td>
+          <td class="r t-num num">38 KB</td>
+          <td class="r"><span class="badge b-gray num">0 B/s</span></td>
+          <td class="r t-dur num">09:03</td>
+          <td class="c"><button class="icon-btn kill" type="button" title="关闭连接"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button></td>
+        </tr>
+        <tr>
+          <td><div class="conn-host"><span class="hn">alive.github.com<span class="port num">:443</span></span><span class="ip num">140.82.113.26</span></div></td>
+          <td><span class="proc" style="color:var(--accent)"><i class="dot"></i><b>Code.exe</b></span></td>
+          <td><span class="chip">RuleSet:GitHub</span></td>
+          <td><span class="chain">Proxy<span class="arr">→</span>DE-Server</span></td>
+          <td class="r t-num num">6.8 KB</td>
+          <td class="r t-num num">12.4 KB</td>
+          <td class="r"><span class="badge b-gray num">0 B/s</span></td>
+          <td class="r t-dur num">02:41</td>
+          <td class="c"><button class="icon-btn kill" type="button" title="关闭连接"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button></td>
+        </tr>
+        <tr>
+          <td><div class="conn-host"><span class="hn">cdn.jsdelivr.net<span class="port num">:443</span></span><span class="ip num">151.101.77.229</span></div></td>
+          <td><span class="proc" style="color:var(--green)"><i class="dot"></i><b>chrome.exe</b></span></td>
+          <td><span class="chip">RuleSet:CDN</span></td>
+          <td><span class="chain">Auto-Select<span class="arr">→</span>HK-PCCW</span></td>
+          <td class="r t-num num">9.4 KB</td>
+          <td class="r t-num num">648 KB</td>
+          <td class="r"><span class="badge b-gray num">0 B/s</span></td>
+          <td class="r t-dur num">03:57</td>
+          <td class="c"><button class="icon-btn kill" type="button" title="关闭连接"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button></td>
+        </tr>
+        <tr>
+          <td><div class="conn-host"><span class="hn">tracker.example.org<span class="port num">:443</span></span><span class="ip num">203.0.113.18</span></div></td>
+          <td><span class="proc" style="color:var(--teal)"><i class="dot"></i><b>msedge.exe</b></span></td>
+          <td><span class="chip rj">RuleSet:AdBlock</span></td>
+          <td><span class="chain rj">REJECT</span></td>
+          <td class="r t-num num">0 B</td>
+          <td class="r t-num num">0 B</td>
+          <td class="r"><span class="badge b-gray num">0 B/s</span></td>
+          <td class="r t-dur num">00:12</td>
+          <td class="c"><button class="icon-btn kill" type="button" title="关闭连接"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button></td>
+        </tr>
+        <tr>
+          <td><div class="conn-host"><span class="hn">guanggao.cn<span class="port num">:80</span></span><span class="ip num">47.95.12.34</span></div></td>
+          <td><span class="proc" style="color:var(--teal)"><i class="dot"></i><b>msedge.exe</b></span></td>
+          <td><span class="chip rj">RuleSet:AdBlock</span></td>
+          <td><span class="chain rj">REJECT</span></td>
+          <td class="r t-num num">0 B</td>
+          <td class="r t-num num">0 B</td>
+          <td class="r"><span class="badge b-gray num">0 B/s</span></td>
+          <td class="r t-dur num">00:05</td>
+          <td class="c"><button class="icon-btn kill" type="button" title="关闭连接"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button></td>
+        </tr>
+        <tr>
+          <td><div class="conn-host"><span class="hn">www.bilibili.com<span class="port num">:443</span></span><span class="ip num">119.3.70.188</span></div></td>
+          <td><span class="proc" style="color:var(--green)"><i class="dot"></i><b>chrome.exe</b></span></td>
+          <td><span class="chip">GeoIP:CN</span></td>
+          <td><span class="chain">DIRECT</span></td>
+          <td class="r t-num num">42 KB</td>
+          <td class="r t-num num">5.6 MB</td>
+          <td class="r"><span class="badge b-gray num">0 B/s</span></td>
+          <td class="r t-dur num">15:26</td>
+          <td class="c"><button class="icon-btn kill" type="button" title="关闭连接"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button></td>
+        </tr>
+        <tr>
+          <td><div class="conn-host"><span class="hn">dns.alidns.com<span class="port num">:53</span><span class="proto-tag">UDP</span></span><span class="ip num">223.5.5.5</span></div></td>
+          <td><span class="proc" style="color:var(--text-3)"><i class="dot"></i><b>System</b></span></td>
+          <td><span class="chip">RuleSet:ChinaDNS</span></td>
+          <td><span class="chain">DIRECT</span></td>
+          <td class="r t-num num">1.4 KB</td>
+          <td class="r t-num num">3.2 KB</td>
+          <td class="r"><span class="badge b-gray num">0 B/s</span></td>
+          <td class="r t-dur num">01:48</td>
+          <td class="c"><button class="icon-btn kill" type="button" title="关闭连接"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>

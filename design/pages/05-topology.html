@@ -1,0 +1,151 @@
+<style>
+  #page-topology .topo-card{display:flex;flex-direction:column;height:620px;padding:0;overflow:hidden}
+  #page-topology .topo-card .card-head{flex:none}
+  #page-topology .topo-wrap{flex:1;min-height:0;padding:10px 16px 4px}
+  #page-topology .topo-svg{width:100%;height:100%;display:block}
+  #page-topology .topo-svg text{font-size:12px;font-weight:500;fill:var(--text)}
+  #page-topology .topo-svg text.sub{font-size:10px;font-weight:400;fill:var(--text-3);font-variant-numeric:tabular-nums;letter-spacing:.2px}
+  #page-topology .topo-legend{flex:none;display:flex;align-items:center;gap:20px;padding:11px 18px;border-top:1px solid var(--line);font-size:11px;color:var(--text-2)}
+  #page-topology .topo-legend .lg{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+  #page-topology .topo-legend .lg i{width:8px;height:8px;border-radius:50%;flex:none}
+  #page-topology .topo-legend .lg-hint{margin-left:auto;color:var(--text-3);font-size:10.5px}
+  #page-topology .card-actions .icon-btn svg{width:14px;height:14px}
+</style>
+<section class="page" id="page-topology" data-title="拓扑">
+  <div class="card topo-card">
+    <div class="card-head">
+      <span class="card-ic" style="color:var(--green)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="6" r="2.4"/><circle cx="5" cy="18" r="2.4"/><circle cx="19" cy="12" r="2.4"/><path d="M7.4 6.6c4 1.2 5.2 3.4 9.2 4.6M7.4 17.4c4-1.2 5.2-3.4 9.2-4.6"/></svg>
+      </span>
+      <h3>连接拓扑</h3>
+      <div class="card-actions">
+        <span class="chip"><span class="num">33</span> 条链路 · 实时</span>
+        <button class="icon-btn" type="button" title="刷新拓扑">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="topo-wrap">
+      <svg class="topo-svg" viewBox="0 0 1100 560" preserveAspectRatio="xMidYMid meet" aria-label="连接拓扑桑基图">
+        <defs>
+          <linearGradient id="tp-bc" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#0A84FF"/><stop offset="1" stop-color="#64D2FF"/></linearGradient>
+          <linearGradient id="tp-cg" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#64D2FF"/><stop offset="1" stop-color="#32D74B"/></linearGradient>
+          <linearGradient id="tp-gy" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#32D74B"/><stop offset="1" stop-color="#FFD60A"/></linearGradient>
+          <linearGradient id="tp-gr" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#32D74B"/><stop offset="1" stop-color="#FF453A"/></linearGradient>
+          <linearGradient id="tp-yo" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#FFD60A"/><stop offset="1" stop-color="#FF9F0A"/></linearGradient>
+          <linearGradient id="tp-or" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#FF9F0A"/><stop offset="1" stop-color="#FF453A"/></linearGradient>
+        </defs>
+
+        <!-- ribbons: 源IP → 进程 -->
+        <path d="M80,150 C165,150 165,47 250,47 L250,135 C165,135 165,210 80,210 Z" fill="url(#tp-bc)" fill-opacity=".34"/>
+        <path d="M80,210 C165,210 165,153 250,153 L250,215 C165,215 165,246 80,246 Z" fill="url(#tp-bc)" fill-opacity=".30"/>
+        <path d="M80,246 C165,246 165,233 250,233 L250,288.6 C165,288.6 165,280 80,280 Z" fill="url(#tp-bc)" fill-opacity=".30"/>
+        <path d="M80,280 C165,280 165,323 250,323 L250,360.1 C165,360.1 165,300 80,300 Z" fill="url(#tp-bc)" fill-opacity=".26"/>
+        <path d="M80,340 C165,340 165,288.6 250,288.6 L250,305 C165,305 165,351.4 80,351.4 Z" fill="url(#tp-bc)" fill-opacity=".24"/>
+        <path d="M80,351.4 C165,351.4 165,360.1 250,360.1 L250,375 C165,375 165,360.5 80,360.5 Z" fill="url(#tp-bc)" fill-opacity=".24"/>
+        <path d="M80,360.5 C165,360.5 165,393 250,393 L250,451 C165,451 165,397.1 80,397.1 Z" fill="url(#tp-bc)" fill-opacity=".32"/>
+        <path d="M80,397.1 C165,397.1 165,469 250,469 L250,513 C165,513 165,420 80,420 Z" fill="url(#tp-bc)" fill-opacity=".26"/>
+
+        <!-- ribbons: 进程 → 规则集 -->
+        <path d="M260,47 C357.5,47 357.5,60 455,60 L455,96 C357.5,96 357.5,82.2 260,82.2 Z" fill="url(#tp-cg)" fill-opacity=".34"/>
+        <path d="M260,82.2 C357.5,82.2 357.5,252 455,252 L455,274.3 C357.5,274.3 357.5,102.7 260,102.7 Z" fill="url(#tp-cg)" fill-opacity=".26"/>
+        <path d="M260,102.7 C357.5,102.7 357.5,344 455,344 L455,377 C357.5,377 357.5,135 260,135 Z" fill="url(#tp-cg)" fill-opacity=".28"/>
+        <path d="M260,153 C357.5,153 357.5,96 455,96 L455,120 C357.5,120 357.5,180.6 260,180.6 Z" fill="url(#tp-cg)" fill-opacity=".30"/>
+        <path d="M260,180.6 C357.5,180.6 357.5,274.3 455,274.3 L455,293.4 C357.5,293.4 357.5,201.2 260,201.2 Z" fill="url(#tp-cg)" fill-opacity=".24"/>
+        <path d="M260,201.2 C357.5,201.2 357.5,377 455,377 L455,389 C357.5,389 357.5,215 260,215 Z" fill="url(#tp-cg)" fill-opacity=".22"/>
+        <path d="M260,233 C357.5,233 357.5,120 455,120 L455,144 C357.5,144 357.5,259.2 260,259.2 Z" fill="url(#tp-cg)" fill-opacity=".30"/>
+        <path d="M260,259.2 C357.5,259.2 357.5,166 455,166 L455,203.1 C357.5,203.1 357.5,295.2 260,295.2 Z" fill="url(#tp-cg)" fill-opacity=".32"/>
+        <path d="M260,295.2 C357.5,295.2 357.5,293.4 455,293.4 L455,302.9 C357.5,302.9 357.5,305 260,305 Z" fill="url(#tp-cg)" fill-opacity=".22"/>
+        <path d="M260,323 C357.5,323 357.5,389 455,389 L455,413 C357.5,413 357.5,352.7 260,352.7 Z" fill="url(#tp-cg)" fill-opacity=".28"/>
+        <path d="M260,352.7 C357.5,352.7 357.5,444 455,444 L455,466.4 C357.5,466.4 357.5,375 260,375 Z" fill="url(#tp-cg)" fill-opacity=".24"/>
+        <path d="M260,393 C357.5,393 357.5,302.9 455,302.9 L455,322 C357.5,322 357.5,414.8 260,414.8 Z" fill="url(#tp-cg)" fill-opacity=".28"/>
+        <path d="M260,414.8 C357.5,414.8 357.5,413 455,413 L455,422 C357.5,422 357.5,425.6 260,425.6 Z" fill="url(#tp-cg)" fill-opacity=".22"/>
+        <path d="M260,425.6 C357.5,425.6 357.5,466.4 455,466.4 L455,492.5 C357.5,492.5 357.5,451 260,451 Z" fill="url(#tp-cg)" fill-opacity=".28"/>
+        <path d="M260,469 C357.5,469 357.5,203.1 455,203.1 L455,230 C357.5,230 357.5,504.2 260,504.2 Z" fill="url(#tp-cg)" fill-opacity=".30"/>
+        <path d="M260,504.2 C357.5,504.2 357.5,492.5 455,492.5 L455,500 C357.5,500 357.5,513 260,513 Z" fill="url(#tp-cg)" fill-opacity=".22"/>
+
+        <!-- ribbons: 规则集 → 落地节点 -->
+        <path d="M465,60 C562.5,60 562.5,190 660,190 L660,254 C562.5,254 562.5,108 465,108 Z" fill="url(#tp-gy)" fill-opacity=".34"/>
+        <path d="M465,108 C562.5,108 562.5,284 660,284 L660,336 C562.5,336 562.5,144 465,144 Z" fill="url(#tp-gy)" fill-opacity=".30"/>
+
+        <!-- ribbons: 规则集 → DIRECT (长跨度) -->
+        <path d="M465,166 C752.5,166 752.5,300 1040,300 L1040,327.8 C752.5,327.8 752.5,230 465,230 Z" fill="url(#tp-gr)" fill-opacity=".24"/>
+        <path d="M465,252 C752.5,252 752.5,327.8 1040,327.8 L1040,360 C752.5,360 752.5,322 465,322 Z" fill="url(#tp-gr)" fill-opacity=".26"/>
+        <path d="M465,344 C752.5,344 752.5,360 1040,360 L1040,398 C752.5,398 752.5,422 465,422 Z" fill="url(#tp-gr)" fill-opacity=".30"/>
+        <path d="M465,444 C752.5,444 752.5,398 1040,398 L1040,420 C752.5,420 752.5,500 465,500 Z" fill="url(#tp-gr)" fill-opacity=".24"/>
+
+        <!-- ribbons: 落地节点 → 策略组 -->
+        <path d="M670,190 C757.5,190 757.5,204 845,204 L845,245.1 C757.5,245.1 757.5,254 670,254 Z" fill="url(#tp-yo)" fill-opacity=".38"/>
+        <path d="M670,284 C757.5,284 757.5,245.1 845,245.1 L845,276 C757.5,276 757.5,336 670,336 Z" fill="url(#tp-yo)" fill-opacity=".34"/>
+
+        <!-- ribbon: 策略组 → 出站 -->
+        <path d="M855,204 C947.5,204 947.5,180 1040,180 L1040,250 C947.5,250 947.5,276 855,276 Z" fill="url(#tp-or)" fill-opacity=".38"/>
+
+        <!-- nodes: ① 源 IP -->
+        <rect x="70" y="150" width="10" height="150" rx="4" fill="#0A84FF"/>
+        <rect x="70" y="340" width="10" height="80" rx="4" fill="#0A84FF"/>
+        <!-- nodes: ② 进程 -->
+        <rect x="250" y="47" width="10" height="88" rx="4" fill="#64D2FF"/>
+        <rect x="250" y="153" width="10" height="62" rx="4" fill="#64D2FF"/>
+        <rect x="250" y="233" width="10" height="72" rx="4" fill="#64D2FF"/>
+        <rect x="250" y="323" width="10" height="52" rx="4" fill="#64D2FF"/>
+        <rect x="250" y="393" width="10" height="58" rx="4" fill="#64D2FF"/>
+        <rect x="250" y="469" width="10" height="44" rx="4" fill="#64D2FF"/>
+        <!-- nodes: ③ 规则集 -->
+        <rect x="455" y="60" width="10" height="84" rx="4" fill="#32D74B"/>
+        <rect x="455" y="166" width="10" height="64" rx="4" fill="#32D74B"/>
+        <rect x="455" y="252" width="10" height="70" rx="4" fill="#32D74B"/>
+        <rect x="455" y="344" width="10" height="78" rx="4" fill="#32D74B"/>
+        <rect x="455" y="444" width="10" height="56" rx="4" fill="#32D74B"/>
+        <!-- nodes: ④ 落地节点 -->
+        <rect x="660" y="190" width="10" height="64" rx="4" fill="#FFD60A"/>
+        <rect x="660" y="284" width="10" height="52" rx="4" fill="#FFD60A"/>
+        <!-- nodes: ⑤ 策略组 -->
+        <rect x="845" y="204" width="10" height="72" rx="4" fill="#FF9F0A"/>
+        <!-- nodes: ⑥ 出站 -->
+        <rect x="1040" y="180" width="10" height="70" rx="4" fill="#FF453A"/>
+        <rect x="1040" y="300" width="10" height="120" rx="4" fill="#FF453A"/>
+
+        <!-- labels: 源 IP (左) -->
+        <text x="62" y="220" text-anchor="end">127.0.0.1</text>
+        <text x="62" y="236" text-anchor="end" class="sub">466 MB</text>
+        <text x="62" y="375" text-anchor="end">198.18.0.1</text>
+        <text x="62" y="391" text-anchor="end" class="sub">218 MB</text>
+        <!-- labels: 进程 (上) -->
+        <text x="255" y="39" text-anchor="middle">chrome.exe</text>
+        <text x="255" y="145" text-anchor="middle">Telegram.exe</text>
+        <text x="255" y="225" text-anchor="middle">Code.exe</text>
+        <text x="255" y="315" text-anchor="middle">Spotify.exe</text>
+        <text x="255" y="385" text-anchor="middle">steam.exe</text>
+        <text x="255" y="461" text-anchor="middle">Outlook.exe</text>
+        <!-- labels: 规则集 (上) -->
+        <text x="460" y="52" text-anchor="middle">RuleSet:AI</text>
+        <text x="460" y="158" text-anchor="middle">RuleSet:MicrosoftCN</text>
+        <text x="460" y="244" text-anchor="middle">RuleSet:Direct</text>
+        <text x="460" y="336" text-anchor="middle">RuleSet:China</text>
+        <text x="460" y="436" text-anchor="middle">RuleSet:ChinaIP</text>
+        <!-- labels: 落地节点 (上) -->
+        <text x="665" y="182" text-anchor="middle">HK-ViuTV</text>
+        <text x="665" y="276" text-anchor="middle">JP-AbemaTV</text>
+        <!-- labels: 策略组 (上) -->
+        <text x="850" y="196" text-anchor="middle">US-Streaming</text>
+        <!-- labels: 出站 (上 + 流量) -->
+        <text x="1045" y="172" text-anchor="middle">HK-PCCW</text>
+        <text x="1045" y="266" text-anchor="middle" class="sub">174 MB</text>
+        <text x="1045" y="292" text-anchor="middle">DIRECT</text>
+        <text x="1045" y="436" text-anchor="middle" class="sub">509 MB</text>
+      </svg>
+    </div>
+
+    <div class="topo-legend">
+      <span class="lg"><i style="background:var(--accent)"></i>源 IP</span>
+      <span class="lg"><i style="background:var(--cyan)"></i>进程</span>
+      <span class="lg"><i style="background:var(--green)"></i>规则集</span>
+      <span class="lg"><i style="background:var(--yellow)"></i>落地节点</span>
+      <span class="lg"><i style="background:var(--orange)"></i>策略组</span>
+      <span class="lg"><i style="background:var(--red)"></i>出站</span>
+      <span class="lg-hint">带宽与流量成比例 · 每 <span class="num">2s</span> 采样</span>
+    </div>
+  </div>
+</section>

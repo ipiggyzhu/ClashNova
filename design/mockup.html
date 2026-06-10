@@ -1,0 +1,2777 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ClashNova v2 · 高保真设计稿</title>
+<style>
+/* ============ 设计令牌 ============ */
+:root{
+  --bg:#161618; --bg-deep:#101012; --card:#232326; --card-2:#2a2a2e; --card-3:#313136;
+  --line:rgba(255,255,255,.07); --line-2:rgba(255,255,255,.12);
+  --text:#ececf0; --text-2:#9b9ba3; --text-3:#6e6e76;
+  --accent:#0A84FF; --accent-dim:rgba(10,132,255,.14);
+  --green:#32D74B; --red:#FF453A; --orange:#FF9F0A; --yellow:#FFD60A;
+  --purple:#BF5AF2; --cyan:#64D2FF; --pink:#FF375F; --teal:#40C8E0;
+  --radius:12px; --radius-sm:8px;
+  --shadow:0 8px 28px rgba(0,0,0,.36);
+  --sans:-apple-system,"SF Pro Display","SF Pro Text","Segoe UI Variable Display","Segoe UI","PingFang SC","Microsoft YaHei UI",sans-serif;
+  --mono:"SF Mono","Cascadia Code","JetBrains Mono",Consolas,monospace;
+}
+[data-theme="light"]{
+  --bg:#f2f2f6; --bg-deep:#e9e9ee; --card:#ffffff; --card-2:#f5f5f8; --card-3:#ececf1;
+  --line:rgba(0,0,0,.08); --line-2:rgba(0,0,0,.14);
+  --text:#1c1c1e; --text-2:#6e6e76; --text-3:#9b9ba3;
+  --accent-dim:rgba(10,132,255,.10);
+  --shadow:0 8px 28px rgba(0,0,0,.10);
+}
+/* ============ 基础 ============ */
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%}
+body{font-family:var(--sans);background:var(--bg-deep);color:var(--text);
+  font-size:13px;line-height:1.5;-webkit-font-smoothing:antialiased;overflow:hidden}
+::-webkit-scrollbar{width:8px;height:8px}
+::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:4px}
+::-webkit-scrollbar-track{background:transparent}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+svg{display:block}
+
+/* ============ 应用框架 ============ */
+.app{display:flex;height:100vh;background:var(--bg)}
+/* ---- 侧边栏 ---- */
+.sidebar{width:210px;flex-shrink:0;background:var(--bg-deep);border-right:1px solid var(--line);
+  display:flex;flex-direction:column;padding:14px 10px 12px}
+.brand{display:flex;align-items:center;gap:10px;padding:4px 8px 14px}
+.brand-logo{width:30px;height:30px;border-radius:9px;flex-shrink:0;
+  background:linear-gradient(135deg,#0A84FF,#64D2FF);display:flex;align-items:center;justify-content:center;
+  box-shadow:0 4px 14px rgba(10,132,255,.35)}
+.brand-logo svg{width:17px;height:17px;stroke:#fff;stroke-width:2.4;fill:none;stroke-linecap:round;stroke-linejoin:round}
+.brand-name{font-size:15px;font-weight:700;letter-spacing:.2px}
+.brand-ver{font-size:10px;color:var(--text-3);font-family:var(--mono)}
+.nav{flex:1;overflow-y:auto}
+.nav-group{margin-bottom:6px}
+.nav-title{font-size:10px;font-weight:600;color:var(--text-3);text-transform:uppercase;
+  letter-spacing:.8px;padding:10px 10px 4px}
+.nav-item{display:flex;align-items:center;gap:9px;padding:7px 10px;border-radius:var(--radius-sm);
+  color:var(--text-2);cursor:pointer;user-select:none;font-weight:500;margin-bottom:1px;
+  transition:background .15s,color .15s}
+.nav-item svg{width:16px;height:16px;stroke:currentColor;stroke-width:1.8;fill:none;
+  stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
+.nav-item:hover{background:var(--card);color:var(--text)}
+.nav-item.on{background:var(--card-2);color:var(--accent)}
+.side-foot{border-top:1px solid var(--line);padding:10px 8px 2px;margin-top:8px}
+.kernel-chip{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:var(--radius-sm);
+  background:var(--card)}
+.kernel-chip .dot{width:7px;height:7px;border-radius:50%;background:var(--green);
+  box-shadow:0 0 6px var(--green);flex-shrink:0}
+.kernel-chip b{font-size:11.5px;font-weight:600}
+.kernel-chip span{font-size:10px;color:var(--text-3);font-family:var(--mono)}
+
+/* ---- 主区 ---- */
+.main{flex:1;display:flex;flex-direction:column;min-width:0}
+.topbar{height:52px;flex-shrink:0;display:flex;align-items:center;gap:14px;
+  padding:0 14px 0 20px;border-bottom:1px solid var(--line)}
+.topbar h1{font-size:15px;font-weight:700;flex-shrink:0}
+.topbar .spacer{flex:1}
+.icon-btn{width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;
+  color:var(--text-2);cursor:pointer;border:none;background:transparent;transition:background .15s}
+.icon-btn:hover{background:var(--card-2);color:var(--text)}
+.icon-btn svg{width:16px;height:16px;stroke:currentColor;stroke-width:1.8;fill:none;
+  stroke-linecap:round;stroke-linejoin:round}
+.win-ctrl{display:flex;margin-left:4px}
+.win-ctrl button{width:38px;height:30px;border:none;background:transparent;color:var(--text-3);
+  display:flex;align-items:center;justify-content:center;cursor:pointer;border-radius:6px}
+.win-ctrl button:hover{background:var(--card-2);color:var(--text)}
+.win-ctrl button.close:hover{background:var(--red);color:#fff}
+.win-ctrl svg{width:11px;height:11px;stroke:currentColor;stroke-width:1.6;fill:none;stroke-linecap:round}
+.content{flex:1;overflow-y:auto;padding:18px 20px 28px;scroll-behavior:smooth}
+.page{display:none;max-width:1180px;margin:0 auto;animation:pagein .25s ease}
+.page.on{display:block}
+@keyframes pagein{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+/* ============ 通用组件 ============ */
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius)}
+.card-head{display:flex;align-items:center;gap:9px;padding:13px 16px;border-bottom:1px solid var(--line)}
+.card-head h3{font-size:13px;font-weight:600;flex-shrink:0}
+.card-head .card-actions{margin-left:auto;display:flex;align-items:center;gap:8px}
+.card-ic{width:24px;height:24px;border-radius:7px;display:flex;align-items:center;justify-content:center;
+  background:color-mix(in srgb,currentColor 14%,transparent);flex-shrink:0}
+.card-ic svg{width:14px;height:14px;stroke:currentColor;stroke-width:2;fill:none;
+  stroke-linecap:round;stroke-linejoin:round}
+.card-body{padding:16px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}
+
+.seg{display:inline-flex;background:var(--card-2);border:1px solid var(--line);
+  border-radius:9px;padding:2px;gap:2px}
+.seg-item{border:none;background:transparent;color:var(--text-2);font-size:12px;font-weight:500;
+  padding:4px 12px;border-radius:7px;cursor:pointer;font-family:var(--sans);transition:all .15s;white-space:nowrap}
+.seg-item:hover{color:var(--text)}
+.seg-item.on{background:var(--card-3);color:var(--text);box-shadow:0 1px 4px rgba(0,0,0,.25)}
+[data-theme="light"] .seg-item.on{background:#fff}
+
+.btn{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line-2);
+  background:var(--card-2);color:var(--text);font-size:12px;font-weight:500;font-family:var(--sans);
+  padding:5px 12px;border-radius:8px;cursor:pointer;transition:all .15s;white-space:nowrap}
+.btn:hover{background:var(--card-3)}
+.btn svg{width:13px;height:13px;stroke:currentColor;stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round}
+.btn-primary{background:var(--accent);border-color:transparent;color:#fff}
+.btn-primary:hover{background:#2b94ff}
+.btn-danger{color:var(--red)}
+.btn-sm{padding:3px 9px;font-size:11.5px}
+
+.badge{display:inline-flex;align-items:center;font-family:var(--mono);font-size:10.5px;font-weight:600;
+  padding:1.5px 7px;border-radius:20px;line-height:1.5}
+.b-green{color:var(--green);background:rgba(50,215,75,.13)}
+.b-yellow{color:var(--yellow);background:rgba(255,214,10,.13)}
+.b-orange{color:var(--orange);background:rgba(255,159,10,.13)}
+.b-red{color:var(--red);background:rgba(255,69,58,.13)}
+.b-gray{color:var(--text-3);background:var(--card-2)}
+.b-blue{color:var(--accent);background:var(--accent-dim)}
+.b-purple{color:var(--purple);background:rgba(191,90,242,.13)}
+.b-cyan{color:var(--cyan);background:rgba(100,210,255,.13)}
+.chip{display:inline-flex;align-items:center;font-size:10.5px;font-weight:600;padding:1.5px 8px;
+  border-radius:6px;background:var(--card-2);color:var(--text-2);border:1px solid var(--line)}
+
+.stat-num{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:22px;font-weight:700;line-height:1.2}
+.stat-label{font-size:11px;color:var(--text-2);display:flex;align-items:center;gap:5px}
+.stat-label svg{width:12px;height:12px;stroke:currentColor;stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round}
+
+.toggle{width:38px;height:22px;border-radius:11px;background:var(--card-3);position:relative;
+  cursor:pointer;transition:background .2s;flex-shrink:0;border:1px solid var(--line)}
+.toggle .knob{width:18px;height:18px;border-radius:50%;background:#fff;position:absolute;top:1px;left:1px;
+  transition:left .2s;box-shadow:0 1px 4px rgba(0,0,0,.3)}
+.toggle.on{background:var(--green);border-color:transparent}
+.toggle.on .knob{left:17px}
+
+.tbl{width:100%;border-collapse:collapse;font-size:12px}
+.tbl th{text-align:left;font-size:10.5px;font-weight:600;color:var(--text-3);text-transform:uppercase;
+  letter-spacing:.5px;padding:9px 12px;border-bottom:1px solid var(--line);white-space:nowrap}
+.tbl td{padding:9px 12px;border-bottom:1px solid var(--line);white-space:nowrap;vertical-align:middle}
+.tbl tr:last-child td{border-bottom:none}
+.tbl tbody tr{transition:background .12s}
+.tbl tbody tr:hover{background:var(--card-2)}
+
+.input{background:var(--card-2);border:1px solid var(--line);border-radius:8px;color:var(--text);
+  font-size:12.5px;font-family:var(--sans);padding:6px 11px;outline:none;transition:border .15s}
+.input:focus{border-color:var(--accent)}
+.input::placeholder{color:var(--text-3)}
+.select{background:var(--card-2);border:1px solid var(--line);border-radius:8px;color:var(--text);
+  font-size:12px;font-family:var(--sans);padding:5px 9px;outline:none;cursor:pointer}
+.search-wrap{position:relative;display:inline-flex;align-items:center}
+.search-wrap svg{position:absolute;left:9px;width:13px;height:13px;stroke:var(--text-3);
+  stroke-width:2;fill:none;stroke-linecap:round}
+.search-wrap .input{padding-left:28px}
+
+.set-row{display:flex;align-items:center;gap:14px;padding:12px 16px;border-bottom:1px solid var(--line)}
+.set-row:last-child{border-bottom:none}
+.set-row .set-info{flex:1;min-width:0}
+.set-row h4{font-size:12.5px;font-weight:600}
+.set-row p{font-size:11px;color:var(--text-3);margin-top:1px}
+
+.spark{position:relative}
+.bar-col{background:var(--card-3);border-radius:3px 3px 0 0;transition:background .15s}
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- ================= 侧边栏 ================= -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-logo"><svg viewBox="0 0 24 24"><path d="M5 19V5l9 14h5V5"/></svg></div>
+      <div><div class="brand-name">ClashNova</div><div class="brand-ver">v2.0.0</div></div>
+    </div>
+    <nav class="nav">
+      <div class="nav-group">
+        <div class="nav-title">概览</div>
+        <div class="nav-item on" data-page="dashboard"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>仪表盘</div>
+        <div class="nav-item" data-page="traffic"><svg viewBox="0 0 24 24"><path d="M3 17l5-6 4 3 6-8"/><path d="M16 6h4v4"/></svg>流量统计</div>
+        <div class="nav-item" data-page="connections"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="2.2"/><circle cx="19" cy="6" r="2.2"/><circle cx="19" cy="18" r="2.2"/><path d="M7 11l10-4M7 13l10 4"/></svg>连接</div>
+        <div class="nav-item" data-page="logs"><svg viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/></svg>日志</div>
+      </div>
+      <div class="nav-group">
+        <div class="nav-title">可视化</div>
+        <div class="nav-item" data-page="topology"><svg viewBox="0 0 24 24"><path d="M4 6c6 0 6 6 12 6M4 12h16M4 18c6 0 6-6 12-6"/><circle cx="20" cy="12" r="1.6"/></svg>拓扑</div>
+        <div class="nav-item" data-page="routemap"><svg viewBox="0 0 24 24"><path d="M9 4L3 6.5v13L9 17l6 2.5 6-2.5v-13L15 6.5 9 4z"/><path d="M9 4v13M15 6.5v13"/></svg>路由地图</div>
+      </div>
+      <div class="nav-group">
+        <div class="nav-title">代理</div>
+        <div class="nav-item" data-page="proxies"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3.5 9.5h17M3.5 14.5h17M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>节点</div>
+        <div class="nav-item" data-page="rules"><svg viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13"/><circle cx="4" cy="6" r="1.3"/><circle cx="4" cy="12" r="1.3"/><circle cx="4" cy="18" r="1.3"/></svg>规则</div>
+        <div class="nav-item" data-page="providers"><svg viewBox="0 0 24 24"><path d="M21 8l-9-5-9 5 9 5 9-5z"/><path d="M3 8v8l9 5 9-5V8"/><path d="M12 13v8"/></svg>提供者</div>
+      </div>
+      <div class="nav-group">
+        <div class="nav-title">配置</div>
+        <div class="nav-item" data-page="profiles"><svg viewBox="0 0 24 24"><path d="M4 7l8-4 8 4-8 4-8-4z"/><path d="M4 12l8 4 8-4M4 17l8 4 8-4"/></svg>订阅</div>
+        <div class="nav-item" data-page="settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14 3h-4l-.5 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 2 1.2L10 21h4l.5-2.6a7 7 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.1-.4.1-.8.1-1.2z"/></svg>设置</div>
+      </div>
+      <div class="nav-group">
+        <div class="nav-title">设计稿附件</div>
+        <div class="nav-item" data-page="tray"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M8 21h8M12 18v3"/></svg>托盘弹窗</div>
+      </div>
+    </nav>
+    <div class="side-foot">
+      <div class="kernel-chip">
+        <span class="dot"></span>
+        <div style="flex:1"><b>Mihomo 运行中</b><br><span>v1.19.2 · 内存 63 MB</span></div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ================= 主区 ================= -->
+  <div class="main">
+    <header class="topbar">
+      <h1 id="page-title">仪表盘</h1>
+      <div class="spacer"></div>
+      <div class="seg" id="mode-seg">
+        <button class="seg-item">直连</button>
+        <button class="seg-item on">规则</button>
+        <button class="seg-item">全局</button>
+      </div>
+      <button class="icon-btn" title="通知"><svg viewBox="0 0 24 24"><path d="M18 9a6 6 0 0 0-12 0c0 7-2 8-2 8h16s-2-1-2-8"/><path d="M10.3 20a2 2 0 0 0 3.4 0"/></svg></button>
+      <button class="icon-btn" id="theme-btn" title="切换主题"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.5"/><path d="M12 2.5v2M12 19.5v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2.5 12h2M19.5 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></button>
+      <div class="win-ctrl">
+        <button title="最小化"><svg viewBox="0 0 24 24"><path d="M5 12h14"/></svg></button>
+        <button title="最大化"><svg viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="1.5"/></svg></button>
+        <button class="close" title="关闭"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+      </div>
+    </header>
+    <div class="content" id="content">
+<style>
+  #page-dashboard.on{display:flex;flex-direction:column;gap:14px}
+
+  /* ---- 通用 stat 网格(上下两排 + 竖分隔) ---- */
+  #page-dashboard .stat-grid{display:grid;grid-template-columns:1fr 1fr 1fr}
+  #page-dashboard .stat-grid>div{padding:1px 14px;display:flex;flex-direction:column;gap:6px;min-width:0}
+  #page-dashboard .stat-grid>div:first-child{padding-left:0}
+  #page-dashboard .stat-grid>div+div{border-left:1px solid var(--line)}
+  #page-dashboard .stat-sub{border-top:1px solid var(--line);margin-top:13px;padding-top:13px}
+  #page-dashboard .sub-val{font-size:12.5px;font-weight:600;color:var(--text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #page-dashboard .unit{font-size:11px;font-weight:600;color:var(--text-3);margin-left:3px;font-family:var(--sans)}
+
+  /* ---- 运行状态: 呼吸圆点 ---- */
+  #page-dashboard .live-dot{width:10px;height:10px;border-radius:50%;background:var(--green);margin-right:2px;animation:pgdash-breath 2.2s ease-in-out infinite}
+  @keyframes pgdash-breath{0%{box-shadow:0 0 0 0 rgba(50,215,75,.45)}70%{box-shadow:0 0 0 7px rgba(50,215,75,0)}100%{box-shadow:0 0 0 0 rgba(50,215,75,0)}}
+
+  /* ---- 实时流量 ---- */
+  #page-dashboard .flow-grid{display:grid;grid-template-columns:1fr 1fr}
+  #page-dashboard .flow-half{padding-right:16px;display:flex;flex-direction:column;gap:7px;min-width:0}
+  #page-dashboard .flow-half+.flow-half{border-left:1px solid var(--line);padding-left:16px;padding-right:0}
+  #page-dashboard .spark-box{height:58px;margin-top:4px}
+  #page-dashboard .flow-foot{display:flex;align-items:center;gap:9px;margin-top:13px;padding-top:11px;border-top:1px solid var(--line);font-size:11px;color:var(--text-3)}
+  #page-dashboard .flow-foot b{font-weight:600;color:var(--text-2)}
+  #page-dashboard .flow-foot svg{width:11px;height:11px;stroke:currentColor;stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round}
+  #page-dashboard .flow-foot .sep{color:var(--text-3);opacity:.6}
+
+  /* ---- 7 天流量趋势 ---- */
+  #page-dashboard .trend-wrap{position:relative;height:168px;padding-top:4px}
+  #page-dashboard .trend-cols{display:flex;gap:14px;height:100%;align-items:flex-end}
+  #page-dashboard .tcol{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:7px;min-width:0}
+  #page-dashboard .tcol .bar{width:68%;max-width:34px;background:var(--card-3);border-radius:4px}
+  #page-dashboard .tcol.hi .bar{background:#5e5e66}
+  #page-dashboard .tcol.sat .bar{background:var(--orange);border-radius:3px}
+  #page-dashboard .tcol em{font-style:normal;font-size:10.5px;color:var(--text-3)}
+  #page-dashboard .tcol.hi em{color:var(--text-2)}
+  #page-dashboard .avg-line{position:absolute;left:0;right:0;bottom:90px;border-top:1.5px dashed var(--orange);opacity:.85}
+  #page-dashboard .avg-tag{position:absolute;left:2px;top:14px}
+  #page-dashboard .avg-tag .lab{font-size:11px;color:var(--text-2);margin-bottom:3px}
+  #page-dashboard .avg-tag .stat-num{font-size:21px}
+
+  /* ---- 流量汇总 ---- */
+  #page-dashboard .sum-grid{display:grid;grid-template-columns:auto 225px 1fr;gap:30px;align-items:center}
+  #page-dashboard .donut-wrap{position:relative;width:150px;height:150px;margin:2px 4px}
+  #page-dashboard .donut-center{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px}
+  #page-dashboard .donut-center .lab{font-size:11px;color:var(--text-3)}
+  #page-dashboard .donut-center .stat-num{font-size:19px}
+  #page-dashboard .legend{display:flex;flex-direction:column;gap:11px}
+  #page-dashboard .lg-row{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-2)}
+  #page-dashboard .lg-row svg{width:13px;height:13px;stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round;flex:none}
+  #page-dashboard .lg-row .lg-val{margin-left:auto;font-weight:600;color:var(--text)}
+  #page-dashboard .lg-dot{width:8px;height:8px;border-radius:50%;flex:none;margin:0 2.5px}
+  #page-dashboard .lg-bar{display:flex;height:6px;border-radius:3px;overflow:hidden;margin-top:2px}
+  #page-dashboard .rank-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:13px}
+  #page-dashboard .rank-title{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--text-2)}
+  #page-dashboard .rank-title svg{width:13px;height:13px;stroke:currentColor;stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round}
+  #page-dashboard .seg-mini .seg-item{padding:2.5px 9px;font-size:11px}
+  #page-dashboard .rank-rows{display:flex;flex-direction:column;gap:9.5px}
+  #page-dashboard .rank-row{display:grid;grid-template-columns:104px 1fr 58px;align-items:center;gap:10px}
+  #page-dashboard .rank-name{display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #page-dashboard .rank-name i{width:7px;height:7px;border-radius:2.5px;background:var(--purple);flex:none}
+  #page-dashboard .rank-row.direct .rank-name i{background:var(--green)}
+  #page-dashboard .rank-bar{height:7px;border-radius:4px;background:linear-gradient(90deg,#7d3ee0,#bf5af2);min-width:8px}
+  #page-dashboard .rank-row.direct .rank-bar{background:linear-gradient(90deg,#1fa33c,#32d74b)}
+  #page-dashboard .rank-val{text-align:right;font-size:11px;color:var(--text-2)}
+</style>
+<section class="page" id="page-dashboard" data-title="仪表盘">
+
+  <!-- ======== 第一行: 运行状态 / 网络状态 ======== -->
+  <div class="grid2">
+    <div class="card">
+      <div class="card-head">
+        <span class="card-ic" style="color:var(--accent)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/></svg>
+        </span>
+        <h3>运行状态</h3>
+        <div class="card-actions"><span class="live-dot"></span></div>
+      </div>
+      <div class="card-body">
+        <div class="stat-grid">
+          <div>
+            <span class="stat-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>在线时长</span>
+            <span class="stat-num">6:07</span>
+          </div>
+          <div>
+            <span class="stat-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 17H7A5 5 0 0 1 7 7h2"/><path d="M15 7h2a5 5 0 1 1 0 10h-2"/><path d="M8 12h8"/></svg>连接数</span>
+            <span class="stat-num" style="color:var(--orange)">51</span>
+          </div>
+          <div>
+            <span class="stat-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 2v2M15 2v2M9 20v2M15 20v2M2 9h2M2 15h2M20 9h2M20 15h2"/></svg>内核内存</span>
+            <span class="stat-num" style="color:var(--accent)">63<span class="unit">MB</span></span>
+          </div>
+        </div>
+        <div class="stat-grid stat-sub">
+          <div>
+            <span class="stat-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="4" width="14" height="11" rx="1.5"/><path d="M3 19h18"/></svg>系统</span>
+            <span class="sub-val">Windows 11 24H2</span>
+          </div>
+          <div>
+            <span class="stat-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2H2v10l9.3 9.3a1.7 1.7 0 0 0 2.4 0l7.6-7.6a1.7 1.7 0 0 0 0-2.4L12 2z"/><circle cx="7" cy="7" r="1.2"/></svg>版本</span>
+            <span class="sub-val num">v2.0.0</span>
+          </div>
+          <div>
+            <span class="stat-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8v8l-9 5-9-5V8l9-5 9 5z"/><path d="M3.3 8.3 12 13l8.7-4.7"/><path d="M12 22v-9"/></svg>内核</span>
+            <span class="sub-val num">mihomo v1.19.2-alpha</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <span class="card-ic" style="color:var(--cyan)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a13.5 13.5 0 0 1 0 18 13.5 13.5 0 0 1 0-18z"/></svg>
+        </span>
+        <h3>网络状态</h3>
+        <div class="card-actions">
+          <button class="icon-btn" title="重新检测"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36L21 8"/><path d="M21 3v5h-5"/></svg></button>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="stat-grid">
+          <div>
+            <span class="stat-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a13.5 13.5 0 0 1 0 18 13.5 13.5 0 0 1 0-18z"/></svg>互联网</span>
+            <span class="stat-num" style="color:var(--orange)">213<span class="unit">ms</span></span>
+          </div>
+          <div>
+            <span class="stat-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="7" rx="2"/><rect x="2" y="14" width="20" height="7" rx="2"/><path d="M6 6.5h.01"/><path d="M6 17.5h.01"/></svg>DNS</span>
+            <span class="stat-num" style="color:var(--green)">48<span class="unit">ms</span></span>
+          </div>
+          <div>
+            <span class="stat-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 11.5a10.5 10.5 0 0 1 15 0"/><path d="M8 15a6 6 0 0 1 8 0"/><circle cx="12" cy="18.5" r="1"/></svg>路由器</span>
+            <span class="stat-num" style="color:var(--cyan)">6<span class="unit">ms</span></span>
+          </div>
+        </div>
+        <div class="stat-grid stat-sub">
+          <div>
+            <span class="stat-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 9a15 15 0 0 1 20 0"/><path d="M5.5 12.8a10 10 0 0 1 13 0"/><path d="M9 16.4a5 5 0 0 1 6 0"/><circle cx="12" cy="19.5" r="1"/></svg>网络</span>
+            <span class="sub-val">Wi-Fi</span>
+          </div>
+          <div>
+            <span class="stat-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z"/><circle cx="12" cy="10" r="3"/></svg>本机 IP</span>
+            <span class="sub-val num">CN 海西…157.83</span>
+          </div>
+          <div>
+            <span class="stat-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 4 5v6c0 5.25 3.4 9.74 8 11 4.6-1.26 8-5.75 8-11V5l-8-3z"/></svg>代理 IP</span>
+            <span class="sub-val num">HK Hong…249.100.80</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ======== 第二行: 实时流量 / 7 天流量趋势 ======== -->
+  <div class="grid2">
+    <div class="card">
+      <div class="card-head">
+        <span class="card-ic" style="color:var(--green)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 8-6-16-3 8H2"/></svg>
+        </span>
+        <h3>实时流量</h3>
+      </div>
+      <div class="card-body">
+        <div class="flow-grid">
+          <div class="flow-half">
+            <span class="stat-label" style="color:var(--purple)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg><span style="color:var(--text-2)">上传速度</span></span>
+            <span class="stat-num" style="color:var(--purple)">0.0<span class="unit">KB/s</span></span>
+            <div class="spark-box">
+              <div class="spark" data-pts="2,3,2,4,6,11,15,12,16,13,8,5,9,14,10,6,4,3,2,3,4,3,2,3,2,2,3,2" data-color="#BF5AF2" data-h="58" data-fill="1" data-dot="1"></div>
+            </div>
+          </div>
+          <div class="flow-half">
+            <span class="stat-label" style="color:var(--cyan)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></svg><span style="color:var(--text-2)">下载速度</span></span>
+            <span class="stat-num" style="color:var(--cyan)">0.0<span class="unit">KB/s</span></span>
+            <div class="spark-box">
+              <div class="spark" data-pts="1,2,1,2,3,2,2,3,2,3,2,3,4,3,2,3,2,3,15,8,4,3,2,3,2,2,2,1" data-color="#64D2FF" data-h="58" data-fill="1" data-dot="1"></div>
+            </div>
+          </div>
+        </div>
+        <div class="flow-foot">
+          <svg viewBox="0 0 24 24"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg>
+          <span>总上传 <b class="num">436 KB</b></span>
+          <span class="sep">·</span>
+          <svg viewBox="0 0 24 24"><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></svg>
+          <span>总下载 <b class="num">15.3 MB</b></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <span class="card-ic" style="color:var(--orange)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 7-7.5 7.5-4-4L2 19"/><path d="M16 7h6v6"/></svg>
+        </span>
+        <h3>7 天流量趋势</h3>
+        <div class="card-actions">
+          <button class="icon-btn" title="刷新"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36L21 8"/><path d="M21 3v5h-5"/></svg></button>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="trend-wrap">
+          <div class="avg-line"></div>
+          <div class="avg-tag">
+            <div class="lab">日均</div>
+            <div class="stat-num">883.5 MB</div>
+          </div>
+          <div class="trend-cols">
+            <div class="tcol sat"><div class="bar" style="height:8px"></div><em>周六</em></div>
+            <div class="tcol"><div class="bar" style="height:36px"></div><em>周五</em></div>
+            <div class="tcol hi"><div class="bar" style="height:120px"></div><em>周四</em></div>
+            <div class="tcol hi"><div class="bar" style="height:108px"></div><em>周三</em></div>
+            <div class="tcol"><div class="bar" style="height:54px"></div><em>周二</em></div>
+            <div class="tcol"><div class="bar" style="height:26px"></div><em>周一</em></div>
+            <div class="tcol"><div class="bar" style="height:5px"></div><em>周日</em></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ======== 第三行: 流量汇总 ======== -->
+  <div class="card">
+    <div class="card-head">
+      <span class="card-ic" style="color:var(--pink)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.2 15.9A10 10 0 1 1 8 2.8"/><path d="M22 12A10 10 0 0 0 12 2v10z"/></svg>
+      </span>
+      <h3>流量汇总</h3>
+      <div class="card-actions">
+        <div class="seg">
+          <button class="seg-item on">今日</button>
+          <button class="seg-item">本月</button>
+          <button class="seg-item">上月</button>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="sum-grid">
+
+        <!-- 环形图 -->
+        <div class="donut-wrap">
+          <svg viewBox="0 0 150 150" width="150" height="150">
+            <g transform="rotate(-90 75 75)">
+              <circle cx="75" cy="75" r="62" fill="none" stroke="#0A84FF" stroke-width="13" stroke-dasharray="362 389.6" stroke-dashoffset="0"/>
+              <circle cx="75" cy="75" r="62" fill="none" stroke="#32D74B" stroke-width="13" stroke-dasharray="19 389.6" stroke-dashoffset="-366.5"/>
+            </g>
+          </svg>
+          <div class="donut-center">
+            <span class="lab">总计</span>
+            <span class="stat-num">49.3 MB</span>
+          </div>
+        </div>
+
+        <!-- 图例 -->
+        <div class="legend">
+          <div class="lg-row">
+            <svg viewBox="0 0 24 24" stroke="var(--accent)"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg>
+            <span>上传</span><span class="lg-val num">16.3 MB</span>
+          </div>
+          <div class="lg-row">
+            <svg viewBox="0 0 24 24" stroke="var(--cyan)"><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></svg>
+            <span>下载</span><span class="lg-val num">33.1 MB</span>
+          </div>
+          <div class="lg-row">
+            <span class="lg-dot" style="background:var(--green)"></span>
+            <span>直连</span><span class="lg-val num">2.5 MB</span>
+          </div>
+          <div class="lg-row">
+            <span class="lg-dot" style="background:var(--accent)"></span>
+            <span>代理</span><span class="lg-val num">46.8 MB</span>
+          </div>
+          <div class="lg-bar">
+            <span style="width:5%;background:#32D74B"></span>
+            <span style="width:95%;background:#0A84FF"></span>
+          </div>
+        </div>
+
+        <!-- 排行 -->
+        <div class="rank">
+          <div class="rank-head">
+            <span class="rank-title">
+              <svg viewBox="0 0 24 24"><path d="M3 5h12"/><path d="M3 12h18"/><path d="M3 19h8"/></svg>
+              排行
+            </span>
+            <div class="seg seg-mini">
+              <button class="seg-item on">代理</button>
+              <button class="seg-item">进程</button>
+              <button class="seg-item">接口</button>
+              <button class="seg-item">主机名</button>
+            </div>
+          </div>
+          <div class="rank-rows">
+            <div class="rank-row">
+              <span class="rank-name"><i></i>DE-Server</span>
+              <span class="rank-bar" style="width:100%"></span>
+              <span class="rank-val num">17.9 MB</span>
+            </div>
+            <div class="rank-row">
+              <span class="rank-name"><i></i>US-OpenAI</span>
+              <span class="rank-bar" style="width:83%"></span>
+              <span class="rank-val num">14.9 MB</span>
+            </div>
+            <div class="rank-row">
+              <span class="rank-name"><i></i>US-Streaming</span>
+              <span class="rank-bar" style="width:41%"></span>
+              <span class="rank-val num">7.3 MB</span>
+            </div>
+            <div class="rank-row">
+              <span class="rank-name"><i></i>SG-AWS</span>
+              <span class="rank-bar" style="width:14%"></span>
+              <span class="rank-val num">2.5 MB</span>
+            </div>
+            <div class="rank-row direct">
+              <span class="rank-name"><i></i>DIRECT</span>
+              <span class="rank-bar" style="width:14%"></span>
+              <span class="rank-val num">2.5 MB</span>
+            </div>
+            <div class="rank-row">
+              <span class="rank-name"><i></i>JP-GPT</span>
+              <span class="rank-bar" style="width:12%"></span>
+              <span class="rank-val num">2.2 MB</span>
+            </div>
+            <div class="rank-row">
+              <span class="rank-name"><i></i>US-Netflix</span>
+              <span class="rank-bar" style="width:8%"></span>
+              <span class="rank-val num">1.3 MB</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+</section>
+<style>
+#page-traffic > * + *{margin-top:14px}
+
+/* ---- 实时速率 ---- */
+#page-traffic .rt-wrap{display:flex;align-items:stretch;gap:26px}
+#page-traffic .rt-stats{display:flex;flex-direction:column;justify-content:center;gap:20px;
+  flex-shrink:0;min-width:158px}
+#page-traffic .rt-big{font-size:30px;font-weight:700;line-height:1.12;letter-spacing:-.5px;margin-top:3px}
+#page-traffic .rt-big span{font-size:12.5px;font-weight:600;color:var(--text-2);margin-left:5px;letter-spacing:0}
+#page-traffic .rt-sub{font-size:11px;color:var(--text-3);margin-top:2px}
+#page-traffic .rt-chartcol{flex:1;min-width:0;display:flex;flex-direction:column}
+#page-traffic .rt-chart{position:relative;height:120px;border-bottom:1px solid var(--line);
+  background:repeating-linear-gradient(to top,transparent 0,transparent 29px,var(--line) 29px,var(--line) 30px)}
+#page-traffic .rt-chart .spark{position:absolute;inset:0}
+#page-traffic .rt-axis{display:flex;justify-content:space-between;font-size:10px;color:var(--text-3);
+  padding-top:5px}
+#page-traffic .rt-legend{display:flex;align-items:center;gap:12px;margin-right:2px}
+#page-traffic .lg{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--text-2)}
+#page-traffic .lg i{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+
+/* ---- 今日小卡 ---- */
+#page-traffic .t-mini{padding:14px 16px}
+#page-traffic .t-mini-head{display:flex;align-items:center;gap:8px;font-size:11.5px;font-weight:500;
+  color:var(--text-2);margin-bottom:9px}
+#page-traffic .t-mini .stat-num small{font-size:12px;font-weight:600;color:var(--text-2);margin-left:2px}
+#page-traffic .t-cmp{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text-3);margin-top:4px}
+#page-traffic .t-cmp .up{display:inline-flex;align-items:center;gap:3px;color:var(--green);
+  font-weight:600;font-family:var(--mono)}
+#page-traffic .t-cmp svg{width:12px;height:12px;stroke:currentColor;stroke-width:2;fill:none;
+  stroke-linecap:round;stroke-linejoin:round}
+
+/* ---- 订阅配额 ---- */
+#page-traffic .q-row{display:flex;align-items:center;gap:24px}
+#page-traffic .q-left{flex-shrink:0;min-width:148px}
+#page-traffic .q-name{display:flex;align-items:center;gap:8px;font-size:13.5px;font-weight:700}
+#page-traffic .q-sub{font-size:11px;color:var(--text-3);margin-top:3px}
+#page-traffic .q-mid{flex:1;min-width:0;padding:0 24px;border-left:1px solid var(--line);
+  border-right:1px solid var(--line)}
+#page-traffic .q-num{display:flex;align-items:baseline;margin-bottom:8px}
+#page-traffic .q-num b{font-size:15px;font-weight:700}
+#page-traffic .q-num span{font-size:12px;color:var(--text-2);margin-left:4px}
+#page-traffic .q-num em{font-style:normal;margin-left:auto;font-size:11.5px;font-weight:600;color:var(--green)}
+#page-traffic .q-bar{height:8px;border-radius:4px;background:var(--card-3);overflow:hidden}
+#page-traffic .q-bar i{display:block;height:100%;border-radius:4px;
+  background:linear-gradient(90deg,#32D74B,#40C8E0);box-shadow:0 0 10px rgba(50,215,75,.35)}
+#page-traffic .q-right{flex-shrink:0;text-align:right;min-width:136px}
+#page-traffic .q-right .q-label{font-size:11px;color:var(--text-2)}
+#page-traffic .q-days{font-size:22px;font-weight:700;line-height:1.25;margin:1px 0}
+#page-traffic .q-days small{font-size:12px;font-weight:600;color:var(--text-2);margin-left:2px}
+
+/* ---- 多维统计表格 ---- */
+#page-traffic .nopad{padding:0}
+#page-traffic .tbl .r{text-align:right}
+#page-traffic .t-name{display:flex;align-items:center;gap:9px;font-weight:600}
+#page-traffic .tdot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+#page-traffic .t-total{font-weight:600}
+#page-traffic .pct{display:flex;align-items:center;gap:10px}
+#page-traffic .pct .bar{width:120px;height:6px;border-radius:3px;background:var(--card-3);
+  overflow:hidden;flex-shrink:0}
+#page-traffic .pct .bar i{display:block;height:100%;border-radius:3px}
+#page-traffic .pct > span{font-size:11.5px;color:var(--text-2)}
+</style>
+<section class="page" id="page-traffic" data-title="流量统计">
+
+  <!-- 实时速率 -->
+  <div class="card">
+    <div class="card-head">
+      <span class="card-ic" style="color:var(--cyan)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 12h4.2l2.8-8.5 5 17 2.8-8.5h4.2"/></svg></span>
+      <h3>实时速率</h3>
+      <div class="card-actions">
+        <div class="rt-legend">
+          <span class="lg"><i style="background:var(--purple)"></i>上传</span>
+          <span class="lg"><i style="background:var(--cyan)"></i>下载</span>
+        </div>
+        <span class="chip">60 秒窗口</span>
+      </div>
+    </div>
+    <div class="card-body rt-wrap">
+      <div class="rt-stats">
+        <div>
+          <div class="stat-label" style="color:var(--purple)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="M5 12l7-7 7 7"/></svg>上传</div>
+          <div class="rt-big num" style="color:var(--purple)">1.2<span>MB/s</span></div>
+          <div class="rt-sub num">峰值 2.1 MB/s</div>
+        </div>
+        <div>
+          <div class="stat-label" style="color:var(--cyan)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M19 12l-7 7-7-7"/></svg>下载</div>
+          <div class="rt-big num" style="color:var(--cyan)">8.6<span>MB/s</span></div>
+          <div class="rt-sub num">峰值 10.4 MB/s</div>
+        </div>
+      </div>
+      <div class="rt-chartcol">
+        <div class="rt-chart">
+          <div class="spark" data-pts="4.2,5.1,4.8,6.3,7.2,6.8,5.9,6.4,7.8,8.4,7.6,6.9,7.4,8.9,9.6,8.2,7.1,6.5,7.0,8.3,9.1,8.7,7.9,8.5,9.8,10.4,9.2,8.0,7.4,8.1,8.8,8.6" data-color="#64D2FF" data-h="120" data-fill="1" data-dot="1"></div>
+          <div class="spark" data-pts="0.6,0.8,0.7,1.1,0.9,1.3,1.6,1.2,1.0,1.4,1.8,1.5,1.1,0.9,1.2,1.6,2.1,1.7,1.3,1.5,1.9,1.4,1.0,1.2,1.7,2.0,1.6,1.3,1.1,1.4,1.3,1.2" data-color="#BF5AF2" data-h="120" data-fill="1" data-dot="1"></div>
+        </div>
+        <div class="rt-axis num"><span>60s</span><span>45s</span><span>30s</span><span>15s</span><span>现在</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 今日统计 -->
+  <div class="grid3">
+    <div class="card t-mini">
+      <div class="t-mini-head">
+        <span class="card-ic" style="color:var(--purple)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="M5 12l7-7 7 7"/></svg></span>
+        今日上传
+      </div>
+      <div class="stat-num">1.8<small>GB</small></div>
+      <div class="t-cmp"><span class="up"><svg viewBox="0 0 24 24"><path d="M3 17l6-6 4 4 8-8"/><path d="M14 7h7v7"/></svg>12%</span>较昨日 1.6 GB</div>
+    </div>
+    <div class="card t-mini">
+      <div class="t-mini-head">
+        <span class="card-ic" style="color:var(--cyan)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M19 12l-7 7-7-7"/></svg></span>
+        今日下载
+      </div>
+      <div class="stat-num">12.4<small>GB</small></div>
+      <div class="t-cmp"><span class="up"><svg viewBox="0 0 24 24"><path d="M3 17l6-6 4 4 8-8"/><path d="M14 7h7v7"/></svg>8%</span>较昨日 11.5 GB</div>
+    </div>
+    <div class="card t-mini">
+      <div class="t-mini-head">
+        <span class="card-ic" style="color:var(--accent)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 20V10"/><path d="M12 20V4"/><path d="M18 20v-6"/></svg></span>
+        今日总计
+      </div>
+      <div class="stat-num">14.2<small>GB</small></div>
+      <div class="t-cmp"><span class="up"><svg viewBox="0 0 24 24"><path d="M3 17l6-6 4 4 8-8"/><path d="M14 7h7v7"/></svg>9%</span>较昨日 13.1 GB</div>
+    </div>
+  </div>
+
+  <!-- 订阅配额 -->
+  <div class="card">
+    <div class="card-head">
+      <span class="card-ic" style="color:var(--green)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15l3.5-3.5"/><path d="M20.2 15.5a9 9 0 1 0-16.4 0"/></svg></span>
+      <h3>订阅配额</h3>
+      <div class="card-actions"><span style="font-size:11px;color:var(--text-3)">更新于 2 小时前</span></div>
+    </div>
+    <div class="card-body q-row">
+      <div class="q-left">
+        <div class="q-name">BigAirport <span class="chip">远程</span></div>
+        <div class="q-sub">Pro 套餐 · 每月 500 GB</div>
+      </div>
+      <div class="q-mid">
+        <div class="q-num"><b class="num">162.4 GB</b><span class="num">/ 500 GB</span><em class="num">已用 32%</em></div>
+        <div class="q-bar"><i style="width:32%"></i></div>
+      </div>
+      <div class="q-right">
+        <div class="q-label">到期剩余</div>
+        <div class="q-days num">37<small>天</small></div>
+        <div class="q-sub">重置于每月 1 日</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 多维统计 -->
+  <div class="card">
+    <div class="card-head">
+      <span class="card-ic" style="color:var(--orange)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.2 15.9A10 10 0 1 1 8 2.8"/><path d="M22 12A10 10 0 0 0 12 2v10z"/></svg></span>
+      <h3>多维统计</h3>
+      <div class="card-actions">
+        <div class="seg">
+          <button class="seg-item on">按代理</button>
+          <button class="seg-item">按进程</button>
+          <button class="seg-item">按域名</button>
+        </div>
+        <div class="seg">
+          <button class="seg-item on">今日</button>
+          <button class="seg-item">本周</button>
+          <button class="seg-item">本月</button>
+        </div>
+      </div>
+    </div>
+    <div class="card-body nopad">
+      <table class="tbl">
+        <thead>
+          <tr><th>名称</th><th class="r">上传</th><th class="r">下载</th><th class="r">总计</th><th>占比</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><div class="t-name"><span class="tdot" style="background:#0A84FF"></span>HK-PCCW</div></td>
+            <td class="r num">386 MB</td><td class="r num">3.8 GB</td><td class="r num t-total">4.2 GB</td>
+            <td><div class="pct"><div class="bar"><i style="width:100%;background:linear-gradient(90deg,#0A84FF,#64D2FF)"></i></div><span class="num">38%</span></div></td>
+          </tr>
+          <tr>
+            <td><div class="t-name"><span class="tdot" style="background:#BF5AF2"></span>US-Streaming</div></td>
+            <td class="r num">128 MB</td><td class="r num">3.0 GB</td><td class="r num t-total">3.1 GB</td>
+            <td><div class="pct"><div class="bar"><i style="width:74%;background:linear-gradient(90deg,#BF5AF2,#FF375F)"></i></div><span class="num">28%</span></div></td>
+          </tr>
+          <tr>
+            <td><div class="t-name"><span class="tdot" style="background:#32D74B"></span>DIRECT</div></td>
+            <td class="r num">612 MB</td><td class="r num">1.6 GB</td><td class="r num t-total">2.2 GB</td>
+            <td><div class="pct"><div class="bar"><i style="width:53%;background:linear-gradient(90deg,#32D74B,#40C8E0)"></i></div><span class="num">20%</span></div></td>
+          </tr>
+          <tr>
+            <td><div class="t-name"><span class="tdot" style="background:#64D2FF"></span>JP-AbemaTV</div></td>
+            <td class="r num">42 MB</td><td class="r num">858 MB</td><td class="r num t-total">0.9 GB</td>
+            <td><div class="pct"><div class="bar"><i style="width:21%;background:linear-gradient(90deg,#64D2FF,#0A84FF)"></i></div><span class="num">8%</span></div></td>
+          </tr>
+          <tr>
+            <td><div class="t-name"><span class="tdot" style="background:#40C8E0"></span>US-OpenAI</div></td>
+            <td class="r num">213 MB</td><td class="r num">401 MB</td><td class="r num t-total">0.6 GB</td>
+            <td><div class="pct"><div class="bar"><i style="width:13%;background:linear-gradient(90deg,#40C8E0,#64D2FF)"></i></div><span class="num">5%</span></div></td>
+          </tr>
+          <tr>
+            <td><div class="t-name"><span class="tdot" style="background:#FF9F0A"></span>SG-AWS</div></td>
+            <td class="r num">167 MB</td><td class="r num">233 MB</td><td class="r num t-total">0.4 GB</td>
+            <td><div class="pct"><div class="bar"><i style="width:8%;background:linear-gradient(90deg,#FF9F0A,#FFD60A)"></i></div><span class="num">3%</span></div></td>
+          </tr>
+          <tr>
+            <td><div class="t-name"><span class="tdot" style="background:#FF375F"></span>HK-ViuTV</div></td>
+            <td class="r num">9.6 MB</td><td class="r num">195 MB</td><td class="r num t-total">0.2 GB</td>
+            <td><div class="pct"><div class="bar"><i style="width:5%;background:linear-gradient(90deg,#FF375F,#BF5AF2)"></i></div><span class="num">2%</span></div></td>
+          </tr>
+          <tr>
+            <td><div class="t-name"><span class="tdot" style="background:#FF453A"></span>REJECT</div></td>
+            <td class="r num">86 MB</td><td class="r num">16 MB</td><td class="r num t-total">0.1 GB</td>
+            <td><div class="pct"><div class="bar"><i style="width:3%;background:linear-gradient(90deg,#FF453A,#FF9F0A)"></i></div><span class="num">1%</span></div></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</section>
+<style>
+  #page-connections .conn-toolbar{display:flex;align-items:center;gap:12px;margin-bottom:14px}
+  #page-connections .conn-toolbar .search-wrap{width:260px}
+  #page-connections .conn-toolbar .sp{flex:1}
+  #page-connections .conn-toolbar .btn svg{width:14px;height:14px;margin-right:5px;vertical-align:-2px}
+  #page-connections .conn-card{padding:0;overflow:hidden}
+  #page-connections .conn-card .tbl{width:100%}
+  #page-connections .tbl td{vertical-align:middle}
+  #page-connections .tbl .r{text-align:right}
+  #page-connections .tbl .c{text-align:center;width:36px}
+  #page-connections .conn-host{line-height:1.35;min-width:180px}
+  #page-connections .conn-host .hn{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--text);font-weight:500}
+  #page-connections .conn-host .hn .port{color:var(--text-3);font-weight:400}
+  #page-connections .conn-host .ip{display:block;font-size:10.5px;color:var(--text-3);margin-top:1px}
+  #page-connections .proto-tag{font-size:9px;font-weight:700;letter-spacing:.5px;padding:1px 5px;border-radius:4px;border:1px solid var(--line-2);color:var(--text-3);line-height:1.4}
+  #page-connections .proc{display:inline-flex;align-items:center;gap:7px;font-size:12px;color:var(--text-2);white-space:nowrap}
+  #page-connections .proc .dot{width:7px;height:7px;border-radius:50%;flex:none;background:currentColor;box-shadow:0 0 0 3px color-mix(in srgb,currentColor 16%,transparent)}
+  #page-connections .proc b{font-weight:400;color:var(--text-2)}
+  #page-connections .chain{font-size:12px;color:var(--text-2);white-space:nowrap}
+  #page-connections .chain .arr{color:var(--text-3);margin:0 5px;font-size:11px}
+  #page-connections .chain.rj{color:var(--red);font-weight:600;font-size:11px;letter-spacing:.4px}
+  #page-connections .chip.rj{color:var(--red);border-color:color-mix(in srgb,var(--red) 35%,transparent);background:color-mix(in srgb,var(--red) 10%,transparent)}
+  #page-connections .t-dur{font-size:11.5px;color:var(--text-3)}
+  #page-connections .t-num{font-size:12px;color:var(--text-2)}
+  #page-connections .icon-btn.kill{width:24px;height:24px;color:var(--text-3)}
+  #page-connections .icon-btn.kill:hover{color:var(--red)}
+  #page-connections .icon-btn.kill svg{width:13px;height:13px}
+</style>
+<section class="page" id="page-connections" data-title="连接">
+  <div class="conn-toolbar">
+    <div class="search-wrap">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+      <input type="text" class="input" style="width:100%" placeholder="搜索主机 / 进程 / 规则">
+    </div>
+    <span class="chip"><span class="num">51</span> 个连接</span>
+    <span class="badge b-purple">↑ <span class="num">0.4</span> KB/s</span>
+    <span class="badge b-cyan">↓ <span class="num">15.3</span> KB/s</span>
+    <span class="sp"></span>
+    <div class="seg">
+      <button class="seg-item on" type="button">全部</button>
+      <button class="seg-item" type="button">TCP</button>
+      <button class="seg-item" type="button">UDP</button>
+    </div>
+    <button class="btn btn-danger" type="button">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>关闭全部
+    </button>
+  </div>
+
+  <div class="card conn-card">
+    <table class="tbl">
+      <thead>
+        <tr>
+          <th>主机</th>
+          <th>进程</th>
+          <th>规则</th>
+          <th>代理链</th>
+          <th class="r">上传</th>
+          <th class="r">下载</th>
+          <th class="r">速率</th>
+          <th class="r">时长</th>
+          <th class="c"></th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><div class="conn-host"><span class="hn">www.youtube.com<span class="port num">:443</span></span><span class="ip num">142.250.196.110</span></div></td>
+          <td><span class="proc" style="color:var(--green)"><i class="dot"></i><b>chrome.exe</b></span></td>
+          <td><span class="chip">RuleSet:Streaming</span></td>
+          <td><span class="chain">US-Streaming<span class="arr">→</span>HK-PCCW</span></td>
+          <td class="r t-num num">1.2 MB</td>
+          <td class="r t-num num">86.4 MB</td>
+          <td class="r"><span class="badge b-cyan num">12.6 KB/s</span></td>
+          <td class="r t-dur num">12:08</td>
+          <td class="c"><button class="icon-btn kill" type="button" title="关闭连接"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button></td>
+        </tr>
+        <tr>
+          <td><div class="conn-host"><span class="hn">api.openai.com<span class="port num">:443</span></span><span class="ip num">104.18.33.45</span></div></td>
+          <td><span class="proc" style="color:var(--accent)"><i class="dot"></i><b>Code.exe</b></span></td>
+          <td><span class="chip">RuleSet:AI</span></td>
+          <td><span class="chain">AI-Service<span class="arr">→</span>US-OpenAI</span></td>
+          <td class="r t-num num">18.6 KB</td>
+          <td class="r t-num num">384 KB</td>
+          <td class="r"><span class="badge b-cyan num">0.9 KB/s</span></td>
+          <td class="r t-dur num">05:32</td>
+          <td class="c"><button class="icon-btn kill" type="button" title="关闭连接"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button></td>
+        </tr>
+        <tr>
+          <td><div class="conn-host"><span class="hn">mtalk.google.com<span class="port num">:5228</span></span><span class="ip num">108.177.125.188</span></div></td>
+          <td><span class="proc" style="color:var(--green)"><i class="dot"></i><b>chrome.exe</b></span></td>
+          <td><span class="chip">RuleSet:Google</span></td>
+          <td><span class="chain">Proxy<span class="arr">→</span>HK-PCCW</span></td>
+          <td class="r t-num num">4.2 KB</td>
+          <td class="r t-num num">12.8 KB</td>
+          <td class="r"><span class="badge b-cyan num">0.4 KB/s</span></td>
+          <td class="r t-dur num">47:21</td>
+          <td class="c"><button class="icon-btn kill" type="button" title="关闭连接"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button></td>
+        </tr>
+        <tr>
+          <td><div class="conn-host"><span class="hn">web.telegram.org<span class="port num">:443</span></span><span class="ip num">149.154.167.99</span></div></td>
+          <td><span class="proc" style="color:var(--cyan)"><i class="dot"></i><b>Telegram.exe</b></span></td>
+          <td><span class="chip">RuleSet:Telegram</span></td>
+          <td><span class="chain">Proxy<span class="arr">→</span>SG-AWS</span></td>
+          <td class="r t-num num">96 KB</td>
+          <td class="r t-num num">2.4 MB</td>
+          <td class="r"><span class="badge b-cyan num">1.4 KB/s</span></td>
+          <td class="r t-dur num">18:44</td>
+          <td class="c"><button class="icon-btn kill" type="button" title="关闭连接"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button></td>
+        </tr>
+        <tr>
+          <td><div class="conn-host"><span class="hn">steamcdn-a.akamaihd.net<span class="port num">:443</span></span><span class="ip num">184.25.204.7</span></div></td>
+          <td><span class="proc" style="color:var(--purple)"><i class="dot"></i><b>steam.exe</b></span></td>
+          <td><span class="chip">RuleSet:SteamCN</span></td>
+          <td><span class="chain">DIRECT</span></td>
+          <td class="r t-num num">320 KB</td>
+          <td class="r t-num num">1.21 GB</td>
+          <td class="r"><span class="badge b-gray num">0 B/s</span></td>
+          <td class="r t-dur num">26:15</td>
+          <td class="c"><button class="icon-btn kill" type="button" title="关闭连接"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button></td>
+        </tr>
+        <tr>
+          <td><div class="conn-host"><span class="hn">weather-data.apple.com<span class="port num">:443</span></span><span class="ip num">17.253.85.204</span></div></td>
+          <td><span class="proc" style="color:var(--orange)"><i class="dot"></i><b>Widgets.exe</b></span></td>
+          <td><span class="chip">RuleSet:Apple</span></td>
+          <td><span class="chain">DIRECT</span></td>
+          <td class="r t-num num">2.1 KB</td>
+          <td class="r t-num num">38 KB</td>
+          <td class="r"><span class="badge b-gray num">0 B/s</span></td>
+          <td class="r t-dur num">09:03</td>
+          <td class="c"><button class="icon-btn kill" type="button" title="关闭连接"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button></td>
+        </tr>
+        <tr>
+          <td><div class="conn-host"><span class="hn">alive.github.com<span class="port num">:443</span></span><span class="ip num">140.82.113.26</span></div></td>
+          <td><span class="proc" style="color:var(--accent)"><i class="dot"></i><b>Code.exe</b></span></td>
+          <td><span class="chip">RuleSet:GitHub</span></td>
+          <td><span class="chain">Proxy<span class="arr">→</span>DE-Server</span></td>
+          <td class="r t-num num">6.8 KB</td>
+          <td class="r t-num num">12.4 KB</td>
+          <td class="r"><span class="badge b-gray num">0 B/s</span></td>
+          <td class="r t-dur num">02:41</td>
+          <td class="c"><button class="icon-btn kill" type="button" title="关闭连接"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button></td>
+        </tr>
+        <tr>
+          <td><div class="conn-host"><span class="hn">cdn.jsdelivr.net<span class="port num">:443</span></span><span class="ip num">151.101.77.229</span></div></td>
+          <td><span class="proc" style="color:var(--green)"><i class="dot"></i><b>chrome.exe</b></span></td>
+          <td><span class="chip">RuleSet:CDN</span></td>
+          <td><span class="chain">Auto-Select<span class="arr">→</span>HK-PCCW</span></td>
+          <td class="r t-num num">9.4 KB</td>
+          <td class="r t-num num">648 KB</td>
+          <td class="r"><span class="badge b-gray num">0 B/s</span></td>
+          <td class="r t-dur num">03:57</td>
+          <td class="c"><button class="icon-btn kill" type="button" title="关闭连接"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button></td>
+        </tr>
+        <tr>
+          <td><div class="conn-host"><span class="hn">tracker.example.org<span class="port num">:443</span></span><span class="ip num">203.0.113.18</span></div></td>
+          <td><span class="proc" style="color:var(--teal)"><i class="dot"></i><b>msedge.exe</b></span></td>
+          <td><span class="chip rj">RuleSet:AdBlock</span></td>
+          <td><span class="chain rj">REJECT</span></td>
+          <td class="r t-num num">0 B</td>
+          <td class="r t-num num">0 B</td>
+          <td class="r"><span class="badge b-gray num">0 B/s</span></td>
+          <td class="r t-dur num">00:12</td>
+          <td class="c"><button class="icon-btn kill" type="button" title="关闭连接"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button></td>
+        </tr>
+        <tr>
+          <td><div class="conn-host"><span class="hn">guanggao.cn<span class="port num">:80</span></span><span class="ip num">47.95.12.34</span></div></td>
+          <td><span class="proc" style="color:var(--teal)"><i class="dot"></i><b>msedge.exe</b></span></td>
+          <td><span class="chip rj">RuleSet:AdBlock</span></td>
+          <td><span class="chain rj">REJECT</span></td>
+          <td class="r t-num num">0 B</td>
+          <td class="r t-num num">0 B</td>
+          <td class="r"><span class="badge b-gray num">0 B/s</span></td>
+          <td class="r t-dur num">00:05</td>
+          <td class="c"><button class="icon-btn kill" type="button" title="关闭连接"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button></td>
+        </tr>
+        <tr>
+          <td><div class="conn-host"><span class="hn">www.bilibili.com<span class="port num">:443</span></span><span class="ip num">119.3.70.188</span></div></td>
+          <td><span class="proc" style="color:var(--green)"><i class="dot"></i><b>chrome.exe</b></span></td>
+          <td><span class="chip">GeoIP:CN</span></td>
+          <td><span class="chain">DIRECT</span></td>
+          <td class="r t-num num">42 KB</td>
+          <td class="r t-num num">5.6 MB</td>
+          <td class="r"><span class="badge b-gray num">0 B/s</span></td>
+          <td class="r t-dur num">15:26</td>
+          <td class="c"><button class="icon-btn kill" type="button" title="关闭连接"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button></td>
+        </tr>
+        <tr>
+          <td><div class="conn-host"><span class="hn">dns.alidns.com<span class="port num">:53</span><span class="proto-tag">UDP</span></span><span class="ip num">223.5.5.5</span></div></td>
+          <td><span class="proc" style="color:var(--text-3)"><i class="dot"></i><b>System</b></span></td>
+          <td><span class="chip">RuleSet:ChinaDNS</span></td>
+          <td><span class="chain">DIRECT</span></td>
+          <td class="r t-num num">1.4 KB</td>
+          <td class="r t-num num">3.2 KB</td>
+          <td class="r"><span class="badge b-gray num">0 B/s</span></td>
+          <td class="r t-dur num">01:48</td>
+          <td class="c"><button class="icon-btn kill" type="button" title="关闭连接"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+<style>
+  #page-logs .logs-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 14px;
+    flex-wrap: wrap;
+  }
+  #page-logs .logs-toolbar .search-wrap {
+    width: 220px;
+  }
+  #page-logs .logs-toolbar .spacer {
+    flex: 1;
+  }
+  #page-logs .logs-toolbar .btn svg {
+    width: 14px;
+    height: 14px;
+    margin-right: 5px;
+    vertical-align: -2px;
+  }
+  #page-logs .console-card {
+    padding: 0;
+    overflow: hidden;
+  }
+  #page-logs .console {
+    padding: 12px 16px;
+    font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+    font-size: 11.5px;
+    line-height: 1.9;
+    overflow-x: auto;
+  }
+  #page-logs .log-line {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    white-space: nowrap;
+  }
+  #page-logs .log-line .ts {
+    color: var(--text-3);
+    flex: 0 0 auto;
+  }
+  #page-logs .log-line .badge {
+    flex: 0 0 auto;
+    width: 52px;
+    justify-content: center;
+    text-align: center;
+    font-family: inherit;
+    font-size: 10px;
+  }
+  #page-logs .log-line .msg {
+    color: var(--text-2);
+  }
+  #page-logs .log-line .hl-node { color: var(--cyan); }
+  #page-logs .log-line .hl-rule { color: var(--green); }
+  #page-logs .log-line .hl-host { color: var(--text); }
+  #page-logs .console-foot {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 9px 16px;
+    border-top: 1px solid var(--line);
+    font-size: 11px;
+    color: var(--text-3);
+  }
+  #page-logs .console-foot .dot-live {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--green);
+    box-shadow: 0 0 6px var(--green);
+    flex: 0 0 auto;
+  }
+</style>
+<section class="page" id="page-logs" data-title="日志">
+  <div class="logs-toolbar">
+    <div class="seg">
+      <span class="seg-item on">全部</span>
+      <span class="seg-item">信息</span>
+      <span class="seg-item">警告</span>
+      <span class="seg-item">错误</span>
+      <span class="seg-item">调试</span>
+    </div>
+    <div class="search-wrap">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+      <input class="input" type="text" placeholder="过滤关键字…">
+    </div>
+    <div class="spacer"></div>
+    <span class="chip">日志等级: info</span>
+    <button class="btn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>暂停
+    </button>
+    <button class="btn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>清空
+    </button>
+  </div>
+
+  <div class="card console-card">
+    <div class="console">
+      <div class="log-line"><span class="ts num">19:42:01.114</span><span class="badge b-blue">INFO</span><span class="msg">[TCP] connection 127.0.0.1:52311 → <span class="hl-host">mtalk.google.com</span>:5228 match <span class="hl-rule">RuleSet(Google)</span> using <span class="hl-node">US-OpenAI</span></span></div>
+      <div class="log-line"><span class="ts num">19:42:01.358</span><span class="badge b-blue">INFO</span><span class="msg">[TCP] connection 127.0.0.1:52316 → <span class="hl-host">youtube.com</span>:443 match <span class="hl-rule">RuleSet(Streaming)</span> using <span class="hl-node">HK-PCCW</span></span></div>
+      <div class="log-line"><span class="ts num">19:42:02.041</span><span class="badge b-gray">DEBUG</span><span class="msg">dns resolve cache hit <span class="hl-host">api.github.com</span> → 140.82.121.4 (ttl 287s)</span></div>
+      <div class="log-line"><span class="ts num">19:42:02.207</span><span class="badge b-blue">INFO</span><span class="msg">[UDP] <span class="hl-host">dns.alidns.com</span>:443 match <span class="hl-rule">GeoIP(CN)</span> using <span class="hl-node">DIRECT</span></span></div>
+      <div class="log-line"><span class="ts num">19:42:02.516</span><span class="badge b-orange">WARN</span><span class="msg">provider BigAirport health-check timeout: <span class="hl-node">HK-03</span> (3082ms)</span></div>
+      <div class="log-line"><span class="ts num">19:42:03.094</span><span class="badge b-blue">INFO</span><span class="msg">[TCP] connection 127.0.0.1:52320 → <span class="hl-host">api.telegram.org</span>:443 match <span class="hl-rule">RuleSet(Telegram)</span> using <span class="hl-node">SG-AWS</span></span></div>
+      <div class="log-line"><span class="ts num">19:42:03.412</span><span class="badge b-gray">DEBUG</span><span class="msg">match process <span class="hl-host">Telegram.exe</span> pid=18244 rule <span class="hl-rule">ProcessName(Telegram)</span> hit</span></div>
+      <div class="log-line"><span class="ts num">19:42:03.890</span><span class="badge b-red">ERROR</span><span class="msg">dial tcp 203.0.113.7:443: connect refused (proxy <span class="hl-node">DE-Server</span>)</span></div>
+      <div class="log-line"><span class="ts num">19:42:04.127</span><span class="badge b-blue">INFO</span><span class="msg">restart selector group <span class="hl-rule">Streaming</span> → fallback <span class="hl-node">JP-AbemaTV</span></span></div>
+      <div class="log-line"><span class="ts num">19:42:04.561</span><span class="badge b-blue">INFO</span><span class="msg">[TCP] connection 127.0.0.1:52331 → <span class="hl-host">steamcdn-a.akamaihd.net</span>:443 match <span class="hl-rule">RuleSet(SteamCDN)</span> using <span class="hl-node">DIRECT</span></span></div>
+      <div class="log-line"><span class="ts num">19:42:05.038</span><span class="badge b-gray">DEBUG</span><span class="msg">sniff tls sni <span class="hl-host">clients4.google.com</span> from <span class="hl-host">chrome.exe</span> (pid 6120)</span></div>
+      <div class="log-line"><span class="ts num">19:42:05.246</span><span class="badge b-orange">WARN</span><span class="msg">udp session 8.8.8.8:53 idle 120s, closing inbound 127.0.0.1:60214</span></div>
+      <div class="log-line"><span class="ts num">19:42:05.733</span><span class="badge b-blue">INFO</span><span class="msg">[TCP] connection 127.0.0.1:52340 → <span class="hl-host">chat.openai.com</span>:443 match <span class="hl-rule">RuleSet(OpenAI)</span> using <span class="hl-node">US-OpenAI</span></span></div>
+      <div class="log-line"><span class="ts num">19:42:06.302</span><span class="badge b-blue">INFO</span><span class="msg">provider BigAirport updated: 86 nodes, 2 unavailable, traffic 412.6 GB / 1024 GB</span></div>
+      <div class="log-line"><span class="ts num">19:42:06.879</span><span class="badge b-gray">DEBUG</span><span class="msg">dns resolve <span class="hl-host">raw.githubusercontent.com</span> → 185.199.108.133 via <span class="hl-host">dns.google</span>:853 (DoT) 42ms</span></div>
+      <div class="log-line"><span class="ts num">19:42:07.448</span><span class="badge b-red">ERROR</span><span class="msg">rule-set <span class="hl-rule">Telegram</span> download failed: context deadline exceeded, retry in 60s</span></div>
+    </div>
+    <div class="console-foot">
+      <span class="dot-live"></span>
+      <span>已缓冲 <span class="num">1,024</span> 行 · WebSocket 已连接</span>
+    </div>
+  </div>
+</section>
+<style>
+  #page-topology .topo-card{display:flex;flex-direction:column;height:620px;padding:0;overflow:hidden}
+  #page-topology .topo-card .card-head{flex:none}
+  #page-topology .topo-wrap{flex:1;min-height:0;padding:10px 16px 4px}
+  #page-topology .topo-svg{width:100%;height:100%;display:block}
+  #page-topology .topo-svg text{font-size:12px;font-weight:500;fill:var(--text)}
+  #page-topology .topo-svg text.sub{font-size:10px;font-weight:400;fill:var(--text-3);font-variant-numeric:tabular-nums;letter-spacing:.2px}
+  #page-topology .topo-legend{flex:none;display:flex;align-items:center;gap:20px;padding:11px 18px;border-top:1px solid var(--line);font-size:11px;color:var(--text-2)}
+  #page-topology .topo-legend .lg{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+  #page-topology .topo-legend .lg i{width:8px;height:8px;border-radius:50%;flex:none}
+  #page-topology .topo-legend .lg-hint{margin-left:auto;color:var(--text-3);font-size:10.5px}
+  #page-topology .card-actions .icon-btn svg{width:14px;height:14px}
+</style>
+<section class="page" id="page-topology" data-title="拓扑">
+  <div class="card topo-card">
+    <div class="card-head">
+      <span class="card-ic" style="color:var(--green)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="6" r="2.4"/><circle cx="5" cy="18" r="2.4"/><circle cx="19" cy="12" r="2.4"/><path d="M7.4 6.6c4 1.2 5.2 3.4 9.2 4.6M7.4 17.4c4-1.2 5.2-3.4 9.2-4.6"/></svg>
+      </span>
+      <h3>连接拓扑</h3>
+      <div class="card-actions">
+        <span class="chip"><span class="num">33</span> 条链路 · 实时</span>
+        <button class="icon-btn" type="button" title="刷新拓扑">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="topo-wrap">
+      <svg class="topo-svg" viewBox="0 0 1100 560" preserveAspectRatio="xMidYMid meet" aria-label="连接拓扑桑基图">
+        <defs>
+          <linearGradient id="tp-bc" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#0A84FF"/><stop offset="1" stop-color="#64D2FF"/></linearGradient>
+          <linearGradient id="tp-cg" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#64D2FF"/><stop offset="1" stop-color="#32D74B"/></linearGradient>
+          <linearGradient id="tp-gy" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#32D74B"/><stop offset="1" stop-color="#FFD60A"/></linearGradient>
+          <linearGradient id="tp-gr" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#32D74B"/><stop offset="1" stop-color="#FF453A"/></linearGradient>
+          <linearGradient id="tp-yo" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#FFD60A"/><stop offset="1" stop-color="#FF9F0A"/></linearGradient>
+          <linearGradient id="tp-or" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#FF9F0A"/><stop offset="1" stop-color="#FF453A"/></linearGradient>
+        </defs>
+
+        <!-- ribbons: 源IP → 进程 -->
+        <path d="M80,150 C165,150 165,47 250,47 L250,135 C165,135 165,210 80,210 Z" fill="url(#tp-bc)" fill-opacity=".34"/>
+        <path d="M80,210 C165,210 165,153 250,153 L250,215 C165,215 165,246 80,246 Z" fill="url(#tp-bc)" fill-opacity=".30"/>
+        <path d="M80,246 C165,246 165,233 250,233 L250,288.6 C165,288.6 165,280 80,280 Z" fill="url(#tp-bc)" fill-opacity=".30"/>
+        <path d="M80,280 C165,280 165,323 250,323 L250,360.1 C165,360.1 165,300 80,300 Z" fill="url(#tp-bc)" fill-opacity=".26"/>
+        <path d="M80,340 C165,340 165,288.6 250,288.6 L250,305 C165,305 165,351.4 80,351.4 Z" fill="url(#tp-bc)" fill-opacity=".24"/>
+        <path d="M80,351.4 C165,351.4 165,360.1 250,360.1 L250,375 C165,375 165,360.5 80,360.5 Z" fill="url(#tp-bc)" fill-opacity=".24"/>
+        <path d="M80,360.5 C165,360.5 165,393 250,393 L250,451 C165,451 165,397.1 80,397.1 Z" fill="url(#tp-bc)" fill-opacity=".32"/>
+        <path d="M80,397.1 C165,397.1 165,469 250,469 L250,513 C165,513 165,420 80,420 Z" fill="url(#tp-bc)" fill-opacity=".26"/>
+
+        <!-- ribbons: 进程 → 规则集 -->
+        <path d="M260,47 C357.5,47 357.5,60 455,60 L455,96 C357.5,96 357.5,82.2 260,82.2 Z" fill="url(#tp-cg)" fill-opacity=".34"/>
+        <path d="M260,82.2 C357.5,82.2 357.5,252 455,252 L455,274.3 C357.5,274.3 357.5,102.7 260,102.7 Z" fill="url(#tp-cg)" fill-opacity=".26"/>
+        <path d="M260,102.7 C357.5,102.7 357.5,344 455,344 L455,377 C357.5,377 357.5,135 260,135 Z" fill="url(#tp-cg)" fill-opacity=".28"/>
+        <path d="M260,153 C357.5,153 357.5,96 455,96 L455,120 C357.5,120 357.5,180.6 260,180.6 Z" fill="url(#tp-cg)" fill-opacity=".30"/>
+        <path d="M260,180.6 C357.5,180.6 357.5,274.3 455,274.3 L455,293.4 C357.5,293.4 357.5,201.2 260,201.2 Z" fill="url(#tp-cg)" fill-opacity=".24"/>
+        <path d="M260,201.2 C357.5,201.2 357.5,377 455,377 L455,389 C357.5,389 357.5,215 260,215 Z" fill="url(#tp-cg)" fill-opacity=".22"/>
+        <path d="M260,233 C357.5,233 357.5,120 455,120 L455,144 C357.5,144 357.5,259.2 260,259.2 Z" fill="url(#tp-cg)" fill-opacity=".30"/>
+        <path d="M260,259.2 C357.5,259.2 357.5,166 455,166 L455,203.1 C357.5,203.1 357.5,295.2 260,295.2 Z" fill="url(#tp-cg)" fill-opacity=".32"/>
+        <path d="M260,295.2 C357.5,295.2 357.5,293.4 455,293.4 L455,302.9 C357.5,302.9 357.5,305 260,305 Z" fill="url(#tp-cg)" fill-opacity=".22"/>
+        <path d="M260,323 C357.5,323 357.5,389 455,389 L455,413 C357.5,413 357.5,352.7 260,352.7 Z" fill="url(#tp-cg)" fill-opacity=".28"/>
+        <path d="M260,352.7 C357.5,352.7 357.5,444 455,444 L455,466.4 C357.5,466.4 357.5,375 260,375 Z" fill="url(#tp-cg)" fill-opacity=".24"/>
+        <path d="M260,393 C357.5,393 357.5,302.9 455,302.9 L455,322 C357.5,322 357.5,414.8 260,414.8 Z" fill="url(#tp-cg)" fill-opacity=".28"/>
+        <path d="M260,414.8 C357.5,414.8 357.5,413 455,413 L455,422 C357.5,422 357.5,425.6 260,425.6 Z" fill="url(#tp-cg)" fill-opacity=".22"/>
+        <path d="M260,425.6 C357.5,425.6 357.5,466.4 455,466.4 L455,492.5 C357.5,492.5 357.5,451 260,451 Z" fill="url(#tp-cg)" fill-opacity=".28"/>
+        <path d="M260,469 C357.5,469 357.5,203.1 455,203.1 L455,230 C357.5,230 357.5,504.2 260,504.2 Z" fill="url(#tp-cg)" fill-opacity=".30"/>
+        <path d="M260,504.2 C357.5,504.2 357.5,492.5 455,492.5 L455,500 C357.5,500 357.5,513 260,513 Z" fill="url(#tp-cg)" fill-opacity=".22"/>
+
+        <!-- ribbons: 规则集 → 落地节点 -->
+        <path d="M465,60 C562.5,60 562.5,190 660,190 L660,254 C562.5,254 562.5,108 465,108 Z" fill="url(#tp-gy)" fill-opacity=".34"/>
+        <path d="M465,108 C562.5,108 562.5,284 660,284 L660,336 C562.5,336 562.5,144 465,144 Z" fill="url(#tp-gy)" fill-opacity=".30"/>
+
+        <!-- ribbons: 规则集 → DIRECT (长跨度) -->
+        <path d="M465,166 C752.5,166 752.5,300 1040,300 L1040,327.8 C752.5,327.8 752.5,230 465,230 Z" fill="url(#tp-gr)" fill-opacity=".24"/>
+        <path d="M465,252 C752.5,252 752.5,327.8 1040,327.8 L1040,360 C752.5,360 752.5,322 465,322 Z" fill="url(#tp-gr)" fill-opacity=".26"/>
+        <path d="M465,344 C752.5,344 752.5,360 1040,360 L1040,398 C752.5,398 752.5,422 465,422 Z" fill="url(#tp-gr)" fill-opacity=".30"/>
+        <path d="M465,444 C752.5,444 752.5,398 1040,398 L1040,420 C752.5,420 752.5,500 465,500 Z" fill="url(#tp-gr)" fill-opacity=".24"/>
+
+        <!-- ribbons: 落地节点 → 策略组 -->
+        <path d="M670,190 C757.5,190 757.5,204 845,204 L845,245.1 C757.5,245.1 757.5,254 670,254 Z" fill="url(#tp-yo)" fill-opacity=".38"/>
+        <path d="M670,284 C757.5,284 757.5,245.1 845,245.1 L845,276 C757.5,276 757.5,336 670,336 Z" fill="url(#tp-yo)" fill-opacity=".34"/>
+
+        <!-- ribbon: 策略组 → 出站 -->
+        <path d="M855,204 C947.5,204 947.5,180 1040,180 L1040,250 C947.5,250 947.5,276 855,276 Z" fill="url(#tp-or)" fill-opacity=".38"/>
+
+        <!-- nodes: ① 源 IP -->
+        <rect x="70" y="150" width="10" height="150" rx="4" fill="#0A84FF"/>
+        <rect x="70" y="340" width="10" height="80" rx="4" fill="#0A84FF"/>
+        <!-- nodes: ② 进程 -->
+        <rect x="250" y="47" width="10" height="88" rx="4" fill="#64D2FF"/>
+        <rect x="250" y="153" width="10" height="62" rx="4" fill="#64D2FF"/>
+        <rect x="250" y="233" width="10" height="72" rx="4" fill="#64D2FF"/>
+        <rect x="250" y="323" width="10" height="52" rx="4" fill="#64D2FF"/>
+        <rect x="250" y="393" width="10" height="58" rx="4" fill="#64D2FF"/>
+        <rect x="250" y="469" width="10" height="44" rx="4" fill="#64D2FF"/>
+        <!-- nodes: ③ 规则集 -->
+        <rect x="455" y="60" width="10" height="84" rx="4" fill="#32D74B"/>
+        <rect x="455" y="166" width="10" height="64" rx="4" fill="#32D74B"/>
+        <rect x="455" y="252" width="10" height="70" rx="4" fill="#32D74B"/>
+        <rect x="455" y="344" width="10" height="78" rx="4" fill="#32D74B"/>
+        <rect x="455" y="444" width="10" height="56" rx="4" fill="#32D74B"/>
+        <!-- nodes: ④ 落地节点 -->
+        <rect x="660" y="190" width="10" height="64" rx="4" fill="#FFD60A"/>
+        <rect x="660" y="284" width="10" height="52" rx="4" fill="#FFD60A"/>
+        <!-- nodes: ⑤ 策略组 -->
+        <rect x="845" y="204" width="10" height="72" rx="4" fill="#FF9F0A"/>
+        <!-- nodes: ⑥ 出站 -->
+        <rect x="1040" y="180" width="10" height="70" rx="4" fill="#FF453A"/>
+        <rect x="1040" y="300" width="10" height="120" rx="4" fill="#FF453A"/>
+
+        <!-- labels: 源 IP (左) -->
+        <text x="62" y="220" text-anchor="end">127.0.0.1</text>
+        <text x="62" y="236" text-anchor="end" class="sub">466 MB</text>
+        <text x="62" y="375" text-anchor="end">198.18.0.1</text>
+        <text x="62" y="391" text-anchor="end" class="sub">218 MB</text>
+        <!-- labels: 进程 (上) -->
+        <text x="255" y="39" text-anchor="middle">chrome.exe</text>
+        <text x="255" y="145" text-anchor="middle">Telegram.exe</text>
+        <text x="255" y="225" text-anchor="middle">Code.exe</text>
+        <text x="255" y="315" text-anchor="middle">Spotify.exe</text>
+        <text x="255" y="385" text-anchor="middle">steam.exe</text>
+        <text x="255" y="461" text-anchor="middle">Outlook.exe</text>
+        <!-- labels: 规则集 (上) -->
+        <text x="460" y="52" text-anchor="middle">RuleSet:AI</text>
+        <text x="460" y="158" text-anchor="middle">RuleSet:MicrosoftCN</text>
+        <text x="460" y="244" text-anchor="middle">RuleSet:Direct</text>
+        <text x="460" y="336" text-anchor="middle">RuleSet:China</text>
+        <text x="460" y="436" text-anchor="middle">RuleSet:ChinaIP</text>
+        <!-- labels: 落地节点 (上) -->
+        <text x="665" y="182" text-anchor="middle">HK-ViuTV</text>
+        <text x="665" y="276" text-anchor="middle">JP-AbemaTV</text>
+        <!-- labels: 策略组 (上) -->
+        <text x="850" y="196" text-anchor="middle">US-Streaming</text>
+        <!-- labels: 出站 (上 + 流量) -->
+        <text x="1045" y="172" text-anchor="middle">HK-PCCW</text>
+        <text x="1045" y="266" text-anchor="middle" class="sub">174 MB</text>
+        <text x="1045" y="292" text-anchor="middle">DIRECT</text>
+        <text x="1045" y="436" text-anchor="middle" class="sub">509 MB</text>
+      </svg>
+    </div>
+
+    <div class="topo-legend">
+      <span class="lg"><i style="background:var(--accent)"></i>源 IP</span>
+      <span class="lg"><i style="background:var(--cyan)"></i>进程</span>
+      <span class="lg"><i style="background:var(--green)"></i>规则集</span>
+      <span class="lg"><i style="background:var(--yellow)"></i>落地节点</span>
+      <span class="lg"><i style="background:var(--orange)"></i>策略组</span>
+      <span class="lg"><i style="background:var(--red)"></i>出站</span>
+      <span class="lg-hint">带宽与流量成比例 · 每 <span class="num">2s</span> 采样</span>
+    </div>
+  </div>
+</section>
+<style>
+#page-routemap .rm-card{overflow:hidden}
+#page-routemap .rm-priv{font-size:11.5px;color:var(--text-2);margin-left:6px}
+
+/* ---- 地图区 ---- */
+#page-routemap .rm-map{position:relative;height:540px;background:var(--bg-deep)}
+#page-routemap .rm-map > svg{position:absolute;inset:0;width:100%;height:100%;display:block}
+#page-routemap .rm-land{fill:var(--card);stroke:var(--line-2);stroke-width:1;stroke-linejoin:round}
+#page-routemap .rm-country{fill:var(--text-3);font-size:11px;font-weight:500;letter-spacing:3px;
+  text-anchor:middle;opacity:.8;text-transform:uppercase}
+#page-routemap .rm-country.big{font-size:28px;font-weight:600;letter-spacing:10px;opacity:.5}
+#page-routemap .rm-city{fill:var(--text-2);font-size:14px;font-weight:600;letter-spacing:.2px}
+#page-routemap .rm-city.origin{fill:var(--green)}
+#page-routemap .rm-arc{fill:none;stroke-linecap:round}
+
+/* ---- 浮层统计 ---- */
+#page-routemap .rm-overlay{position:absolute;top:14px;left:14px;min-width:172px;padding:10px 12px 11px;
+  background:color-mix(in srgb,var(--card) 80%,transparent);border:1px solid var(--line);
+  border-radius:var(--radius-sm);backdrop-filter:blur(10px)}
+#page-routemap .rm-ov-title{font-size:10.5px;font-weight:600;color:var(--text-3);letter-spacing:1px;margin-bottom:7px}
+#page-routemap .rm-ov-row{display:flex;align-items:baseline;justify-content:space-between;gap:18px;
+  font-size:11px;color:var(--text-3);line-height:1.9}
+#page-routemap .rm-ov-row b{font-size:11.5px;font-weight:600;color:var(--text)}
+#page-routemap .rm-stamp{position:absolute;right:14px;bottom:12px;font-size:10.5px;color:var(--text-3);
+  display:flex;align-items:center;gap:5px}
+#page-routemap .rm-stamp i{width:5px;height:5px;border-radius:50%;background:var(--green);flex-shrink:0}
+
+/* ---- 图例 ---- */
+#page-routemap .rm-legend{display:flex;align-items:center;gap:16px;padding:11px 16px;
+  border-top:1px solid var(--line);font-size:11.5px;color:var(--text-2)}
+#page-routemap .rm-lg-cap{font-size:11px;color:var(--text-3);flex-shrink:0}
+#page-routemap .lg-it{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+#page-routemap .lg-it i{width:18px;height:3px;border-radius:2px;flex-shrink:0}
+#page-routemap .lg-it b{font-weight:600;font-size:11px;color:var(--text-3)}
+#page-routemap .lg-it.dim{color:var(--text-3)}
+#page-routemap .rm-lw{margin-left:auto;display:inline-flex;align-items:center;gap:7px;
+  font-size:11px;color:var(--text-3);flex-shrink:0}
+#page-routemap .rm-lw i{width:14px;border-radius:2px;background:var(--text-3);opacity:.7;flex-shrink:0}
+</style>
+<section class="page" id="page-routemap" data-title="路由地图">
+
+  <div class="card rm-card">
+    <div class="card-head">
+      <span class="card-ic" style="color:var(--orange)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4L3.5 6v14L9 18l6 2 5.5-2V4L15 6 9 4z"/><path d="M9 4v14"/><path d="M15 6v14"/></svg></span>
+      <h3>路由地图</h3>
+      <div class="card-actions">
+        <div class="seg">
+          <button class="seg-item">实时</button>
+          <button class="seg-item">今日</button>
+          <button class="seg-item on">本月</button>
+          <button class="seg-item">上月</button>
+        </div>
+        <span class="rm-priv">隐私模式</span>
+        <div class="toggle"><div class="knob"></div></div>
+        <button class="icon-btn" title="刷新"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/></svg></button>
+      </div>
+    </div>
+
+    <div class="rm-map">
+      <svg viewBox="0 0 1100 560" preserveAspectRatio="xMidYMid slice" aria-label="亚太路由地图">
+        <defs>
+          <path id="rm-plane" d="M6.6 0C6.6 -.7 5.8 -1 5 -1L2.2 -1L-.2 -4.6L-1.8 -4.6L-.8 -1L-3.6 -.8L-4.8 -2.4L-5.8 -2.4L-5.2 0L-5.8 2.4L-4.8 2.4L-3.6 .8L-.8 1L-1.8 4.6L-.2 4.6L2.2 1L5 1C5.8 1 6.6 .7 6.6 0Z"/>
+        </defs>
+
+        <!-- ====== 低多边形底图 ====== -->
+        <g class="rm-land">
+          <!-- 亚洲大陆: 西伯利亚/蒙古/中国/朝鲜半岛/中南半岛/印度 -->
+          <path d="M-30 -30 L850 -30 L845 40 L800 70 L790 105 L762 138
+                   L772 152 L780 178 L766 200 L752 196 L748 172 L736 160
+                   L712 168 L700 150 L686 168 L706 190 L726 196 L712 212 L686 214
+                   L664 228 L644 242 L630 262 L618 286 L596 312 L568 332
+                   L540 340 L522 360 L536 386 L546 418 L556 446 L540 458 L522 444 L510 420
+                   L496 432 L488 462 L478 492 L470 506 L458 496 L452 462 L440 424
+                   L426 386 L408 360 L386 344 L360 334
+                   L336 360 L312 408 L290 460 L276 496 L254 470 L234 420 L210 388
+                   L170 372 L120 380 L60 360 L-30 368 Z"/>
+          <!-- 本州 -->
+          <path d="M988 86 L1006 108 L992 138 L962 160 L936 170 L924 184 L906 192 L878 210
+                   L852 220 L842 212 L856 200 L884 186 L908 170 L932 152 L956 122 L972 96 Z"/>
+          <!-- 北海道 / 九州 / 四国 -->
+          <path d="M996 18 L1030 30 L1024 62 L996 68 L980 46 Z
+                   M824 222 L842 230 L834 252 L814 242 Z
+                   M854 228 L882 224 L876 240 L856 238 Z"/>
+          <!-- 菲律宾群岛 -->
+          <path d="M706 388 L726 398 L730 424 L716 444 L704 420 Z
+                   M722 456 L738 464 L730 482 L716 472 Z
+                   M698 468 L710 478 L702 490 L692 478 Z
+                   M718 496 L744 502 L738 528 L712 514 Z"/>
+          <!-- 加里曼丹 -->
+          <path d="M574 478 L622 458 L668 478 L686 516 L654 552 L596 544 L566 510 Z"/>
+          <!-- 苏门答腊 -->
+          <path d="M382 462 L414 484 L458 532 L478 560 L456 568 L410 528 L370 486 Z"/>
+          <!-- 爪哇(局部) -->
+          <path d="M480 560 L560 550 L642 556 L638 572 L482 574 Z"/>
+          <!-- 台湾 / 海南 / 斯里兰卡 / 苏拉威西 -->
+          <path d="M654 308 L668 316 L662 344 L648 334 Z
+                   M540 350 L556 356 L550 372 L536 364 Z
+                   M290 512 L304 524 L296 540 L282 528 Z
+                   M738 534 L758 542 L750 566 L734 556 Z"/>
+        </g>
+
+        <!-- ====== 国名 ====== -->
+        <g>
+          <text class="rm-country" x="430" y="92">MONGOLIA</text>
+          <text class="rm-country big" x="400" y="252">CHINA</text>
+          <text class="rm-country" x="962" y="232">JAPAN</text>
+          <text class="rm-country" x="765" y="226">SOUTH KOREA</text>
+          <text class="rm-country" x="520" y="392">VIETNAM</text>
+          <text class="rm-country" x="466" y="424">THAILAND</text>
+          <text class="rm-country" x="790" y="446">PHILIPPINES</text>
+          <text class="rm-country" x="618" y="498">MALAYSIA</text>
+          <text class="rm-country" x="524" y="546">INDONESIA</text>
+          <text class="rm-country" x="238" y="432">INDIA</text>
+        </g>
+
+        <!-- ====== 航线弧束 ====== -->
+        <!-- 上海 → Tokyo · Streaming · 橙色 6 条 -->
+        <g stroke="#FF9F0A">
+          <path class="rm-arc" d="M644 242 Q736 120 922 166" stroke-width="2"    opacity=".9"/>
+          <path class="rm-arc" d="M644 242 Q745 106 925 169" stroke-width="1.8"  opacity=".72"/>
+          <path class="rm-arc" d="M644 242 Q754 93 928 172"  stroke-width="1.6"  opacity=".58"/>
+          <path class="rm-arc" d="M644 242 Q763 81 931 175"  stroke-width="1.45" opacity=".46"/>
+          <path class="rm-arc" d="M644 242 Q772 70 934 178"  stroke-width="1.3"  opacity=".36"/>
+          <path class="rm-arc" d="M644 242 Q781 60 937 181"  stroke-width="1.2"  opacity=".28"/>
+        </g>
+        <!-- 上海 → Osaka · Google · 粉色 2 条 -->
+        <g stroke="#FF375F">
+          <path class="rm-arc" d="M644 242 Q745 148 866 206" stroke-width="1.8" opacity=".8"/>
+          <path class="rm-arc" d="M644 242 Q753 163 871 213" stroke-width="1.2" opacity=".42"/>
+        </g>
+        <!-- 上海 → Seoul · 其他 · 黄色 -->
+        <path class="rm-arc" d="M644 242 Q664 172 752 163" stroke="#FFD60A" stroke-width="1.4" opacity=".7"/>
+        <!-- 上海 → Hong Kong · AI · 紫色 -->
+        <path class="rm-arc" d="M644 242 Q582 276 568 332" stroke="#BF5AF2" stroke-width="1.6" opacity=".85"/>
+        <!-- 上海 → Singapore · Social · 青色长弧 -->
+        <g stroke="#40C8E0">
+          <path class="rm-arc" d="M644 242 Q482 332 470 506" stroke-width="1.8" opacity=".8"/>
+          <path class="rm-arc" d="M644 242 Q468 318 475 509" stroke-width="1.2" opacity=".38"/>
+        </g>
+
+        <!-- ====== 飞机 ====== -->
+        <g fill="#fff" stroke="rgba(0,0,0,.55)" stroke-width="1" stroke-linejoin="round">
+          <use href="#rm-plane" transform="translate(728 173) rotate(-24)"/>
+          <use href="#rm-plane" transform="translate(793 138) rotate(-8)"/>
+          <use href="#rm-plane" transform="translate(822 144) rotate(2)"/>
+          <use href="#rm-plane" transform="translate(750 186) rotate(-9)"/>
+          <use href="#rm-plane" transform="translate(681 187) rotate(-36)"/>
+          <use href="#rm-plane" transform="translate(594 282) rotate(130)"/>
+          <use href="#rm-plane" transform="translate(560 304) rotate(135)"/>
+          <use href="#rm-plane" transform="translate(501 386) rotate(116)"/>
+        </g>
+
+        <!-- ====== 起点 上海: 同心光晕 ====== -->
+        <g>
+          <circle cx="644" cy="242" r="34"  fill="var(--green)" opacity=".07"/>
+          <circle cx="644" cy="242" r="21"  fill="var(--green)" opacity=".13"/>
+          <circle cx="644" cy="242" r="11"  fill="var(--green)" opacity=".26"/>
+          <circle cx="644" cy="242" r="4.5" fill="var(--green)"/>
+          <circle cx="644" cy="242" r="2"   fill="#fff" opacity=".9"/>
+          <text class="rm-city origin" x="630" y="232" text-anchor="end">Shanghai</text>
+        </g>
+
+        <!-- ====== 目的地城市 ====== -->
+        <g fill="#fff" stroke="rgba(0,0,0,.4)" stroke-width="1">
+          <circle cx="926" cy="172" r="3"/>
+          <circle cx="866" cy="206" r="3"/>
+          <circle cx="752" cy="163" r="3"/>
+          <circle cx="568" cy="332" r="3"/>
+          <circle cx="470" cy="506" r="3"/>
+        </g>
+        <g>
+          <text class="rm-city" x="938" y="177">Tokyo</text>
+          <text class="rm-city" x="877" y="201">Osaka</text>
+          <text class="rm-city" x="740" y="157" text-anchor="end">Seoul</text>
+          <text class="rm-city" x="580" y="343">Hong Kong</text>
+          <text class="rm-city" x="483" y="511">Singapore</text>
+        </g>
+      </svg>
+
+      <!-- 浮层统计 -->
+      <div class="rm-overlay">
+        <div class="rm-ov-title">本月概览</div>
+        <div class="rm-ov-row"><span>出口流量</span><b class="num">286.4 GB</b></div>
+        <div class="rm-ov-row"><span>代理连接</span><b class="num">382,415 次</b></div>
+        <div class="rm-ov-row"><span>活跃航线</span><b class="num">12 条 · 5 城</b></div>
+        <div class="rm-ov-row"><span>平均延迟</span><b class="num">64 ms</b></div>
+      </div>
+      <div class="rm-stamp"><i></i>6 月 1 日 – 6 月 10 日 · 更新于 14:32:08</div>
+    </div>
+
+    <!-- 图例 -->
+    <div class="rm-legend">
+      <span class="rm-lg-cap">线色 = 代理组</span>
+      <span class="lg-it"><i style="background:#FF9F0A"></i>Streaming<b class="num">142.6 GB</b></span>
+      <span class="lg-it"><i style="background:#BF5AF2"></i>AI<b class="num">64.2 GB</b></span>
+      <span class="lg-it"><i style="background:#40C8E0"></i>Social<b class="num">38.9 GB</b></span>
+      <span class="lg-it"><i style="background:#FF375F"></i>Google<b class="num">27.3 GB</b></span>
+      <span class="lg-it dim"><i style="background:#FFD60A;opacity:.8"></i>其他<b class="num">13.4 GB</b></span>
+      <span class="rm-lw"><i style="height:1px"></i><i style="height:2.5px"></i><i style="height:4px"></i>线宽 = 流量大小</span>
+    </div>
+  </div>
+
+</section>
+<style>
+  #page-proxies.on{display:flex;flex-direction:column;gap:14px}
+  #page-proxies .toolbar{display:flex;align-items:center;gap:10px}
+  #page-proxies .toolbar .spacer{flex:1}
+  #page-proxies .toolbar .search-wrap{width:220px}
+  #page-proxies .toolbar .btn-primary{display:inline-flex;align-items:center;gap:6px}
+  #page-proxies .toolbar .btn-primary svg{width:14px;height:14px}
+  #page-proxies .card-head .card-actions{margin-left:auto;display:flex;align-items:center;gap:8px}
+  #page-proxies .cur{font-size:12px;color:var(--text-2)}
+  #page-proxies .cur b{font-weight:600;color:var(--text)}
+  #page-proxies .chev{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:6px;color:var(--text-3)}
+  #page-proxies .chev svg{width:15px;height:15px}
+  #page-proxies .node-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+  #page-proxies .node{background:var(--card-2);border:1px solid var(--line);border-radius:var(--radius-sm);padding:9px 11px;transition:border-color .15s ease,background .15s ease;cursor:default}
+  #page-proxies .node:hover{border-color:var(--line-2);background:var(--card-3)}
+  #page-proxies .node.sel{border-color:var(--accent)}
+  #page-proxies .node-top{display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:7px}
+  #page-proxies .node-name{font-size:12px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #page-proxies .node-check{flex:none;color:var(--accent);display:inline-flex}
+  #page-proxies .node-check svg{width:13px;height:13px}
+  #page-proxies .node-meta{display:flex;align-items:center;justify-content:space-between;gap:6px}
+  #page-proxies .node-meta .chip{font-size:10px;padding:1px 6px;color:var(--text-3)}
+  #page-proxies .node-meta .badge{font-size:10px;padding:1px 6px}
+</style>
+<section class="page" id="page-proxies" data-title="节点">
+
+  <!-- 工具栏 -->
+  <div class="toolbar">
+    <div class="search-wrap">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+      <input class="input" type="text" placeholder="搜索节点 / 代理组">
+    </div>
+    <div class="seg">
+      <span class="seg-item on">全部</span>
+      <span class="seg-item">Selector</span>
+      <span class="seg-item">URLTest</span>
+      <span class="seg-item">Fallback</span>
+    </div>
+    <div class="spacer"></div>
+    <span class="chip">共 <span class="num">128</span> 个节点</span>
+    <button class="btn btn-primary">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h7l-1 8 12-14h-8l1-6z"/></svg>
+      全部测速
+    </button>
+  </div>
+
+  <!-- 组 Streaming · Selector -->
+  <div class="card">
+    <div class="card-head">
+      <span class="card-ic" style="color:var(--accent)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="m17 2-5 5-5-5"/></svg>
+      </span>
+      <h3>Streaming</h3>
+      <span class="chip">Selector</span>
+      <span class="cur">当前: <b>HK-PCCW</b></span>
+      <div class="card-actions">
+        <span class="badge b-green"><span class="num">12</span> 个节点</span>
+        <button class="btn btn-sm">测速</button>
+        <span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m18 15-6-6-6 6"/></svg></span>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="node-grid">
+        <div class="node sel">
+          <div class="node-top"><span class="node-name">HK-PCCW</span><span class="node-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m4 12 5 5L20 6"/></svg></span></div>
+          <div class="node-meta"><span class="chip">Trojan</span><span class="badge b-green num">42 ms</span></div>
+        </div>
+        <div class="node">
+          <div class="node-top"><span class="node-name">HK-ViuTV</span></div>
+          <div class="node-meta"><span class="chip">VLESS</span><span class="badge b-green num">51 ms</span></div>
+        </div>
+        <div class="node">
+          <div class="node-top"><span class="node-name">HK-03</span></div>
+          <div class="node-meta"><span class="chip">SS</span><span class="badge b-green num">86 ms</span></div>
+        </div>
+        <div class="node">
+          <div class="node-top"><span class="node-name">JP-AbemaTV</span></div>
+          <div class="node-meta"><span class="chip">Hysteria2</span><span class="badge b-yellow num">112 ms</span></div>
+        </div>
+        <div class="node">
+          <div class="node-top"><span class="node-name">JP-Tokyo-02</span></div>
+          <div class="node-meta"><span class="chip">Trojan</span><span class="badge b-yellow num">134 ms</span></div>
+        </div>
+        <div class="node">
+          <div class="node-top"><span class="node-name">SG-AWS</span></div>
+          <div class="node-meta"><span class="chip">VLESS</span><span class="badge b-yellow num">183 ms</span></div>
+        </div>
+        <div class="node">
+          <div class="node-top"><span class="node-name">US-Streaming-01</span></div>
+          <div class="node-meta"><span class="chip">Hysteria2</span><span class="badge b-orange num">247 ms</span></div>
+        </div>
+        <div class="node">
+          <div class="node-top"><span class="node-name">US-LA-CN2</span></div>
+          <div class="node-meta"><span class="chip">Trojan</span><span class="badge b-orange num">261 ms</span></div>
+        </div>
+        <div class="node">
+          <div class="node-top"><span class="node-name">DE-Server</span></div>
+          <div class="node-meta"><span class="chip">SS</span><span class="badge b-orange num">312 ms</span></div>
+        </div>
+        <div class="node">
+          <div class="node-top"><span class="node-name">US-Netflix</span></div>
+          <div class="node-meta"><span class="chip">VLESS</span><span class="badge b-red">超时</span></div>
+        </div>
+        <div class="node">
+          <div class="node-top"><span class="node-name">TW-Hinet</span></div>
+          <div class="node-meta"><span class="chip">Trojan</span><span class="badge b-green num">58 ms</span></div>
+        </div>
+        <div class="node">
+          <div class="node-top"><span class="node-name">KR-Seoul</span></div>
+          <div class="node-meta"><span class="chip">Hysteria2</span><span class="badge b-green num">97 ms</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 组 AI · URLTest -->
+  <div class="card">
+    <div class="card-head">
+      <span class="card-ic" style="color:var(--purple)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5 13.8 9.2 19.5 11 13.8 12.8 12 18.5 10.2 12.8 4.5 11 10.2 9.2 12 3.5z"/><path d="M19 17v4"/><path d="M17 19h4"/></svg>
+      </span>
+      <h3>AI</h3>
+      <span class="chip">URLTest</span>
+      <span class="cur">当前: <b>US-OpenAI</b></span>
+      <div class="card-actions">
+        <span class="badge b-green"><span class="num">8</span> 个节点</span>
+        <button class="btn btn-sm">测速</button>
+        <span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m18 15-6-6-6 6"/></svg></span>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="node-grid">
+        <div class="node sel">
+          <div class="node-top"><span class="node-name">US-OpenAI</span><span class="node-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m4 12 5 5L20 6"/></svg></span></div>
+          <div class="node-meta"><span class="chip">Trojan</span><span class="badge b-yellow num">188 ms</span></div>
+        </div>
+        <div class="node">
+          <div class="node-top"><span class="node-name">US-GPT-4</span></div>
+          <div class="node-meta"><span class="chip">VLESS</span><span class="badge b-orange num">201 ms</span></div>
+        </div>
+        <div class="node">
+          <div class="node-top"><span class="node-name">US-Claude</span></div>
+          <div class="node-meta"><span class="chip">Hysteria2</span><span class="badge b-yellow num">195 ms</span></div>
+        </div>
+        <div class="node">
+          <div class="node-top"><span class="node-name">JP-GPT</span></div>
+          <div class="node-meta"><span class="chip">Trojan</span><span class="badge b-yellow num">156 ms</span></div>
+        </div>
+        <div class="node">
+          <div class="node-top"><span class="node-name">SG-OpenAI</span></div>
+          <div class="node-meta"><span class="chip">SS</span><span class="badge b-yellow num">172 ms</span></div>
+        </div>
+        <div class="node">
+          <div class="node-top"><span class="node-name">UK-AI</span></div>
+          <div class="node-meta"><span class="chip">VLESS</span><span class="badge b-orange num">233 ms</span></div>
+        </div>
+        <div class="node">
+          <div class="node-top"><span class="node-name">DE-AI</span></div>
+          <div class="node-meta"><span class="chip">Trojan</span><span class="badge b-orange num">287 ms</span></div>
+        </div>
+        <div class="node">
+          <div class="node-top"><span class="node-name">US-West-AI</span></div>
+          <div class="node-meta"><span class="chip">Hysteria2</span><span class="badge b-red">超时</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 组 Fallback · 折叠态 -->
+  <div class="card">
+    <div class="card-head">
+      <span class="card-ic" style="color:var(--orange)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
+      </span>
+      <h3>Fallback</h3>
+      <span class="chip">Fallback</span>
+      <span class="cur">当前: <b>HK-PCCW</b></span>
+      <div class="card-actions">
+        <span class="badge b-gray"><span class="num">6</span> 个节点</span>
+        <button class="btn btn-sm">测速</button>
+        <span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></span>
+      </div>
+    </div>
+  </div>
+
+</section>
+<style>
+  #page-rules .rules-toolbar{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+  #page-rules .rules-toolbar .search-wrap{width:280px}
+  #page-rules .sp{flex:1}
+
+  #page-rules .fbar{display:flex;align-items:center;gap:8px;margin-bottom:14px;overflow-x:auto;padding-bottom:2px;scrollbar-width:none}
+  #page-rules .fbar::-webkit-scrollbar{display:none}
+  #page-rules .fchip{flex:0 0 auto;padding:5px 12px;border-radius:999px;border:1px solid var(--line);background:var(--card);color:var(--text-2);font-size:12px;line-height:1;white-space:nowrap;cursor:pointer;transition:border-color .15s,color .15s}
+  #page-rules .fchip:hover{border-color:var(--line-2);color:var(--text)}
+  #page-rules .fchip .fn{margin-left:5px;font-size:10.5px;color:var(--text-3)}
+  #page-rules .fchip.on{border-color:var(--accent);color:var(--accent);background:color-mix(in srgb,var(--accent) 10%, transparent)}
+  #page-rules .fchip.on .fn{color:var(--accent);opacity:.7}
+
+  #page-rules .rules-card .card-body{padding:0}
+  #page-rules .rhint{font-size:11px;color:var(--text-3)}
+  #page-rules .rrow{display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid var(--line)}
+  #page-rules .rrow:last-child{border-bottom:none}
+  #page-rules .rrow:hover{background:var(--card-2)}
+  #page-rules .ridx{width:36px;flex:0 0 36px;font-size:11px;color:var(--text-3)}
+  #page-rules .rname{font-family:ui-monospace,"SF Mono","Cascadia Code",Consolas,Menlo,monospace;font-size:11.5px;color:var(--text);letter-spacing:.1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #page-rules .rtype{flex:0 0 auto;font-family:ui-monospace,"SF Mono","Cascadia Code",Consolas,Menlo,monospace;font-size:10px;line-height:1;letter-spacing:.4px;padding:3px 8px;border-radius:5px;background:color-mix(in srgb,currentColor 12%, transparent)}
+  #page-rules .t-dom{color:var(--cyan)}
+  #page-rules .t-ip{color:var(--orange)}
+  #page-rules .t-geo{color:var(--teal)}
+  #page-rules .t-set{color:var(--purple)}
+  #page-rules .t-proc{color:var(--pink)}
+  #page-rules .t-match{color:var(--text-2)}
+  #page-rules .rflag{flex:0 0 auto;font-family:ui-monospace,"SF Mono","Cascadia Code",Consolas,Menlo,monospace;font-size:10px;line-height:1;padding:3px 7px;border-radius:4px;border:1px solid var(--line);color:var(--text-3)}
+  #page-rules .rtarget{flex:0 0 auto;font-size:12px;font-weight:600;letter-spacing:.1px}
+  #page-rules .rhits{min-width:54px;justify-content:flex-end;text-align:right}
+</style>
+<section class="page" id="page-rules" data-title="规则">
+
+  <div class="rules-toolbar">
+    <div class="search-wrap">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <input class="input" type="text" placeholder="搜索规则 / 域名 / IP…">
+    </div>
+    <span class="sp"></span>
+    <span class="chip">共 <span class="num">86,420</span> 条 · 命中 <span class="num">12,381</span> 次</span>
+  </div>
+
+  <div class="fbar">
+    <span class="fchip on">全部 <span class="fn num">86,420</span></span>
+    <span class="fchip">DOMAIN</span>
+    <span class="fchip">DOMAIN-SUFFIX</span>
+    <span class="fchip">DOMAIN-KEYWORD</span>
+    <span class="fchip">IP-CIDR</span>
+    <span class="fchip">GEOIP</span>
+    <span class="fchip">RULE-SET</span>
+    <span class="fchip">PROCESS-NAME</span>
+    <span class="fchip">MATCH</span>
+  </div>
+
+  <div class="card rules-card">
+    <div class="card-head">
+      <span class="card-ic" style="color:var(--accent)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16"/><path d="M6 12h12"/><path d="M9 18h6"/></svg>
+      </span>
+      <h3>规则列表</h3>
+      <div class="card-actions">
+        <span class="rhint">自上而下优先匹配</span>
+      </div>
+    </div>
+    <div class="card-body">
+
+      <div class="rrow">
+        <span class="ridx num">1</span>
+        <span class="rname">openai.com</span>
+        <span class="rtype t-dom">DOMAIN-SUFFIX</span>
+        <span class="sp"></span>
+        <span class="rtarget" style="color:var(--accent)">AI</span>
+        <span class="badge b-gray rhits num">12,381</span>
+      </div>
+
+      <div class="rrow">
+        <span class="ridx num">2</span>
+        <span class="rname">anthropic.com</span>
+        <span class="rtype t-dom">DOMAIN-SUFFIX</span>
+        <span class="sp"></span>
+        <span class="rtarget" style="color:var(--accent)">AI</span>
+        <span class="badge b-gray rhits num">3,962</span>
+      </div>
+
+      <div class="rrow">
+        <span class="ridx num">3</span>
+        <span class="rname">youtube</span>
+        <span class="rtype t-dom">DOMAIN-KEYWORD</span>
+        <span class="sp"></span>
+        <span class="rtarget" style="color:var(--accent)">Streaming</span>
+        <span class="badge b-gray rhits num">8,024</span>
+      </div>
+
+      <div class="rrow">
+        <span class="ridx num">4</span>
+        <span class="rname">*.googlevideo.com</span>
+        <span class="rtype t-dom">DOMAIN-SUFFIX</span>
+        <span class="sp"></span>
+        <span class="rtarget" style="color:var(--accent)">Streaming</span>
+        <span class="badge b-gray rhits num">6,742</span>
+      </div>
+
+      <div class="rrow">
+        <span class="ridx num">5</span>
+        <span class="rname">mtalk.google.com</span>
+        <span class="rtype t-dom">DOMAIN</span>
+        <span class="sp"></span>
+        <span class="rtarget" style="color:var(--green)">DIRECT</span>
+        <span class="badge b-gray rhits num">3,310</span>
+      </div>
+
+      <div class="rrow">
+        <span class="ridx num">6</span>
+        <span class="rname">netflix.com</span>
+        <span class="rtype t-dom">DOMAIN-SUFFIX</span>
+        <span class="sp"></span>
+        <span class="rtarget" style="color:var(--accent)">Streaming</span>
+        <span class="badge b-gray rhits num">1,036</span>
+      </div>
+
+      <div class="rrow">
+        <span class="ridx num">7</span>
+        <span class="rname">Telegram.exe</span>
+        <span class="rtype t-proc">PROCESS-NAME</span>
+        <span class="sp"></span>
+        <span class="rtarget" style="color:var(--accent)">Social</span>
+        <span class="badge b-gray rhits num">2,891</span>
+      </div>
+
+      <div class="rrow">
+        <span class="ridx num">8</span>
+        <span class="rname">steam.exe</span>
+        <span class="rtype t-proc">PROCESS-NAME</span>
+        <span class="sp"></span>
+        <span class="rtarget" style="color:var(--accent)">Gaming</span>
+        <span class="badge b-gray rhits num">947</span>
+      </div>
+
+      <div class="rrow">
+        <span class="ridx num">9</span>
+        <span class="rname">RuleSet:reject</span>
+        <span class="rtype t-set">RULE-SET</span>
+        <span class="sp"></span>
+        <span class="rtarget" style="color:var(--red)">REJECT</span>
+        <span class="badge b-gray rhits num">5,168</span>
+      </div>
+
+      <div class="rrow">
+        <span class="ridx num">10</span>
+        <span class="rname">RuleSet:China</span>
+        <span class="rtype t-set">RULE-SET</span>
+        <span class="sp"></span>
+        <span class="rtarget" style="color:var(--green)">DIRECT</span>
+        <span class="badge b-gray rhits num">21,907</span>
+      </div>
+
+      <div class="rrow">
+        <span class="ridx num">11</span>
+        <span class="rname">198.18.0.0/16</span>
+        <span class="rtype t-ip">IP-CIDR</span>
+        <span class="rflag">no-resolve</span>
+        <span class="sp"></span>
+        <span class="rtarget" style="color:var(--green)">DIRECT</span>
+        <span class="badge b-gray rhits num">1,254</span>
+      </div>
+
+      <div class="rrow">
+        <span class="ridx num">12</span>
+        <span class="rname">10.0.0.0/8</span>
+        <span class="rtype t-ip">IP-CIDR</span>
+        <span class="rflag">no-resolve</span>
+        <span class="sp"></span>
+        <span class="rtarget" style="color:var(--green)">DIRECT</span>
+        <span class="badge b-gray rhits num">0</span>
+      </div>
+
+      <div class="rrow">
+        <span class="ridx num">13</span>
+        <span class="rname">CN</span>
+        <span class="rtype t-geo">GEOIP</span>
+        <span class="sp"></span>
+        <span class="rtarget" style="color:var(--green)">DIRECT</span>
+        <span class="badge b-gray rhits num">18,463</span>
+      </div>
+
+      <div class="rrow">
+        <span class="ridx num">14</span>
+        <span class="rname">—</span>
+        <span class="rtype t-match">MATCH</span>
+        <span class="sp"></span>
+        <span class="rtarget" style="color:var(--accent)">Fallback</span>
+        <span class="badge b-gray rhits num">4,120</span>
+      </div>
+
+    </div>
+  </div>
+
+</section>
+<style>
+  #page-providers.on{display:flex;flex-direction:column;gap:14px}
+  #page-providers .sec-head{display:flex;align-items:center;gap:10px;font-size:12px;font-weight:600;color:var(--text-2);margin-top:6px}
+  #page-providers .sec-head:first-child{margin-top:0}
+  #page-providers .sec-head .spacer{flex:1}
+  #page-providers .sec-head .btn-sm{display:inline-flex;align-items:center;gap:5px}
+  #page-providers .sec-head .btn-sm svg{width:13px;height:13px}
+  #page-providers .pv-meta{font-size:11px;color:var(--text-3);white-space:nowrap}
+  #page-providers .pv-stats{display:flex;justify-content:space-between;gap:12px;padding-top:2px}
+  #page-providers .pv-stat{display:flex;flex-direction:column;gap:3px;min-width:0}
+  #page-providers .pv-stat .stat-num{line-height:26px}
+  #page-providers .pv-stat .stat-num.sm{font-size:15px;font-weight:600}
+  #page-providers .pv-stat .unit{font-size:12px;font-weight:500;color:var(--text-3);margin-left:2px}
+  #page-providers .pv-traffic{margin-top:16px}
+  #page-providers .pv-traffic-top{display:flex;align-items:baseline;justify-content:space-between;font-size:11px;color:var(--text-3)}
+  #page-providers .pv-traffic-top .num b{color:var(--text);font-weight:600}
+  #page-providers .pv-bar{height:6px;border-radius:3px;background:var(--card-3);overflow:hidden;margin-top:7px}
+  #page-providers .pv-bar i{display:block;height:100%;border-radius:3px;background:linear-gradient(90deg,#32D74B,#7AE598)}
+  #page-providers .pv-foot{display:flex;gap:8px;margin-top:14px;padding-top:12px;border-top:1px solid var(--line)}
+  #page-providers .chip.bh-domain{color:var(--accent);background:color-mix(in srgb,var(--accent) 13%,transparent)}
+  #page-providers .chip.bh-ipcidr{color:var(--orange);background:color-mix(in srgb,var(--orange) 13%,transparent)}
+  #page-providers .chip.bh-classical{color:var(--purple);background:color-mix(in srgb,var(--purple) 13%,transparent)}
+  #page-providers .mono{font-family:ui-monospace,"SF Mono","Cascadia Mono",Consolas,monospace;font-size:12px;color:var(--text)}
+  #page-providers .t3{color:var(--text-3);font-size:12px;white-space:nowrap}
+  #page-providers .ta-r{text-align:right}
+  #page-providers .rule-card .tbl{margin:0}
+  #page-providers .rule-card .icon-btn svg{width:14px;height:14px}
+</style>
+<section class="page" id="page-providers" data-title="提供者">
+
+  <div class="sec-head">代理提供者
+    <span class="spacer"></span>
+    <button class="btn btn-sm">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
+      全部更新
+    </button>
+  </div>
+
+  <div class="grid2">
+
+    <div class="card">
+      <div class="card-head">
+        <span class="card-ic" style="color:var(--purple)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>
+        </span>
+        <h3>BigAirport</h3>
+        <span class="chip">HTTP</span>
+        <div class="card-actions">
+          <span class="pv-meta">更新于 2 小时前</span>
+          <button class="icon-btn" title="刷新">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="pv-stats">
+          <div class="pv-stat">
+            <span class="stat-num num">128</span>
+            <span class="stat-label"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="8" rx="2"/><rect x="3" y="13" width="18" height="8" rx="2"/><path d="M7 7h.01"/><path d="M7 17h.01"/></svg>节点</span>
+          </div>
+          <div class="pv-stat">
+            <span class="stat-num num">162.4<span class="unit">GB</span></span>
+            <span class="stat-label"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 16 4 4 4-4"/><path d="M7 20V4"/><path d="m21 8-4-4-4 4"/><path d="M17 4v16"/></svg>已用</span>
+          </div>
+          <div class="pv-stat">
+            <span class="stat-num num sm">2026-07-18</span>
+            <span class="stat-label"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v4"/><path d="M16 2v4"/><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 10h18"/></svg>到期</span>
+          </div>
+        </div>
+        <div class="pv-traffic">
+          <div class="pv-traffic-top">
+            <span>已用流量 · 32%</span>
+            <span class="num"><b>162.4</b> / 500 GB</span>
+          </div>
+          <div class="pv-bar"><i style="width:32%"></i></div>
+        </div>
+        <div class="pv-foot">
+          <button class="btn btn-sm">更新</button>
+          <button class="btn btn-sm">健康检查</button>
+          <button class="btn btn-sm">编辑</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <span class="card-ic" style="color:var(--cyan)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m12 2 9 4.9-9 4.9-9-4.9Z"/><path d="m3 11.9 9 4.9 9-4.9"/><path d="m3 16.9 9 4.9 9-4.9"/></svg>
+        </span>
+        <h3>SecondaryPool</h3>
+        <span class="chip">HTTP</span>
+        <div class="card-actions">
+          <span class="pv-meta">更新于 昨天</span>
+          <button class="icon-btn" title="刷新">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="pv-stats">
+          <div class="pv-stat">
+            <span class="stat-num num">36</span>
+            <span class="stat-label"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="8" rx="2"/><rect x="3" y="13" width="18" height="8" rx="2"/><path d="M7 7h.01"/><path d="M7 17h.01"/></svg>节点</span>
+          </div>
+          <div class="pv-stat">
+            <span class="stat-num num">8.1<span class="unit">GB</span></span>
+            <span class="stat-label"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 16 4 4 4-4"/><path d="M7 20V4"/><path d="m21 8-4-4-4 4"/><path d="M17 4v16"/></svg>已用</span>
+          </div>
+          <div class="pv-stat">
+            <span class="stat-num num sm">2026-09-02</span>
+            <span class="stat-label"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v4"/><path d="M16 2v4"/><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 10h18"/></svg>到期</span>
+          </div>
+        </div>
+        <div class="pv-traffic">
+          <div class="pv-traffic-top">
+            <span>已用流量 · 8%</span>
+            <span class="num"><b>8.1</b> / 100 GB</span>
+          </div>
+          <div class="pv-bar"><i style="width:8%"></i></div>
+        </div>
+        <div class="pv-foot">
+          <button class="btn btn-sm">更新</button>
+          <button class="btn btn-sm">健康检查</button>
+          <button class="btn btn-sm">编辑</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="sec-head">规则提供者</div>
+
+  <div class="card rule-card">
+    <table class="tbl">
+      <thead>
+        <tr>
+          <th>名称</th>
+          <th>行为</th>
+          <th>类型</th>
+          <th class="ta-r">规则数</th>
+          <th>更新于</th>
+          <th class="ta-r">操作</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="mono">reject</td>
+          <td><span class="chip bh-domain">domain</span></td>
+          <td><span class="chip">HTTP</span></td>
+          <td class="num ta-r">32,118</td>
+          <td class="t3">2 小时前</td>
+          <td class="ta-r"><button class="icon-btn" title="刷新"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg></button></td>
+        </tr>
+        <tr>
+          <td class="mono">icloud</td>
+          <td><span class="chip bh-domain">domain</span></td>
+          <td><span class="chip">HTTP</span></td>
+          <td class="num ta-r">398</td>
+          <td class="t3">2 小时前</td>
+          <td class="ta-r"><button class="icon-btn" title="刷新"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg></button></td>
+        </tr>
+        <tr>
+          <td class="mono">apple</td>
+          <td><span class="chip bh-domain">domain</span></td>
+          <td><span class="chip">HTTP</span></td>
+          <td class="num ta-r">168</td>
+          <td class="t3">5 小时前</td>
+          <td class="ta-r"><button class="icon-btn" title="刷新"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg></button></td>
+        </tr>
+        <tr>
+          <td class="mono">google</td>
+          <td><span class="chip bh-domain">domain</span></td>
+          <td><span class="chip">HTTP</span></td>
+          <td class="num ta-r">570</td>
+          <td class="t3">2 小时前</td>
+          <td class="ta-r"><button class="icon-btn" title="刷新"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg></button></td>
+        </tr>
+        <tr>
+          <td class="mono">proxy</td>
+          <td><span class="chip bh-domain">domain</span></td>
+          <td><span class="chip">HTTP</span></td>
+          <td class="num ta-r">41,217</td>
+          <td class="t3">1 小时前</td>
+          <td class="ta-r"><button class="icon-btn" title="刷新"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg></button></td>
+        </tr>
+        <tr>
+          <td class="mono">direct</td>
+          <td><span class="chip bh-classical">classical</span></td>
+          <td><span class="chip">HTTP</span></td>
+          <td class="num ta-r">8,439</td>
+          <td class="t3">3 小时前</td>
+          <td class="ta-r"><button class="icon-btn" title="刷新"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg></button></td>
+        </tr>
+        <tr>
+          <td class="mono">cncidr</td>
+          <td><span class="chip bh-ipcidr">ipcidr</span></td>
+          <td><span class="chip">HTTP</span></td>
+          <td class="num ta-r">7,432</td>
+          <td class="t3">昨天</td>
+          <td class="ta-r"><button class="icon-btn" title="刷新"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg></button></td>
+        </tr>
+        <tr>
+          <td class="mono">lancidr</td>
+          <td><span class="chip bh-ipcidr">ipcidr</span></td>
+          <td><span class="chip">HTTP</span></td>
+          <td class="num ta-r">19</td>
+          <td class="t3">3 天前</td>
+          <td class="ta-r"><button class="icon-btn" title="刷新"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg></button></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+</section>
+<style>
+#page-profiles.on{display:flex;flex-direction:column;gap:14px}
+#page-profiles .import-row{display:flex;align-items:center;gap:10px}
+#page-profiles .import-row .input{flex:1;min-width:0}
+#page-profiles .import-row .btn svg,
+#page-profiles .import-row .btn-primary svg{width:14px;height:14px;margin-right:5px;vertical-align:-2px}
+
+/* —— 订阅卡 —— */
+#page-profiles .cur{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+#page-profiles .p-head{display:flex;align-items:center;gap:8px;padding:14px 16px 0}
+#page-profiles .p-name{font-size:14px;font-weight:700;color:var(--text)}
+#page-profiles .p-head .badge{margin-left:auto}
+#page-profiles .p-url{padding:4px 16px 0;font-size:11px;color:var(--text-3)}
+#page-profiles .p-traffic{padding:12px 16px 0}
+#page-profiles .p-traffic-row{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:6px}
+#page-profiles .p-traffic-row .used{font-size:12px;color:var(--text-2)}
+#page-profiles .p-traffic-row .used b{color:var(--text);font-weight:600}
+#page-profiles .p-traffic-row .pct{font-size:11px;color:var(--green);font-weight:600}
+#page-profiles .p-bar{height:6px;border-radius:3px;background:var(--card-3);overflow:hidden}
+#page-profiles .p-bar i{display:block;height:100%;border-radius:3px;background:linear-gradient(90deg,#28B844,#32D74B)}
+#page-profiles .p-unlimited{display:flex;align-items:center;gap:8px;height:25px;font-size:12px;color:var(--text-3)}
+#page-profiles .p-meta{display:grid;grid-template-columns:1fr 1fr;gap:7px 12px;padding:12px 16px 13px}
+#page-profiles .p-meta div{display:flex;align-items:baseline;gap:6px;font-size:11px;color:var(--text-3)}
+#page-profiles .p-meta b{font-size:12px;font-weight:500;color:var(--text-2)}
+#page-profiles .p-foot{display:flex;align-items:center;gap:8px;padding:10px 16px;border-top:1px solid var(--line)}
+#page-profiles .p-foot .btn-danger{margin-left:auto}
+
+/* —— 配置增强链 —— */
+#page-profiles .chain-row{display:flex;align-items:center;gap:11px;padding:11px 16px;border-bottom:1px solid var(--line)}
+#page-profiles .chain-row .grip{display:flex;color:var(--text-3);cursor:grab;flex:none}
+#page-profiles .chain-row .grip svg{width:14px;height:14px}
+#page-profiles .proc-ic{flex:none;display:flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:7px;background:color-mix(in srgb,currentColor 14%,transparent)}
+#page-profiles .proc-ic svg{width:14px;height:14px}
+#page-profiles .chain-row .proc-name{font-size:13px;font-weight:500;color:var(--text)}
+#page-profiles .chain-row .spacer{flex:1}
+#page-profiles .chain-add{margin:10px 16px 14px;padding:10px;border:1px dashed var(--line-2);border-radius:var(--radius-sm);text-align:center;font-size:12px;color:var(--text-2);cursor:pointer}
+#page-profiles .chain-add:hover{border-color:var(--accent);color:var(--accent)}
+</style>
+<section class="page" id="page-profiles" data-title="订阅">
+
+  <!-- 导入 -->
+  <div class="card">
+    <div class="card-body">
+      <div class="import-row">
+        <input class="input" type="text" placeholder="粘贴订阅链接 https://… 或 clash:// 协议地址">
+        <button class="btn btn-primary"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></svg>导入</button>
+        <button class="btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>新建</button>
+        <button class="btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8.5l-2-3H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2Z"/></svg>打开文件</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 订阅列表 -->
+  <div class="grid2">
+
+    <div class="card cur">
+      <div class="p-head">
+        <span class="p-name">BigAirport</span>
+        <span class="chip">远程</span>
+        <span class="badge b-blue">使用中</span>
+      </div>
+      <div class="p-url num">sub.bigairport.io</div>
+      <div class="p-traffic">
+        <div class="p-traffic-row">
+          <span class="used num"><b>162.4 GB</b> / 500 GB</span>
+          <span class="pct num">32%</span>
+        </div>
+        <div class="p-bar"><i style="width:32%"></i></div>
+      </div>
+      <div class="p-meta">
+        <div>到期<b class="num">37 天</b></div>
+        <div>自动更新<b class="num">1440 分钟</b></div>
+        <div>更新于<b class="num">2 小时前</b></div>
+        <div>大小<b class="num">184 KB</b></div>
+      </div>
+      <div class="p-foot">
+        <button class="btn btn-sm">编辑</button>
+        <button class="btn btn-sm">更新</button>
+        <button class="btn btn-sm">打开规则</button>
+        <button class="btn btn-sm btn-danger">删除</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="p-head">
+        <span class="p-name">full.en</span>
+        <span class="chip">本地</span>
+      </div>
+      <div class="p-url num">C:\Users\piggy\.config\clash\full.en.yaml</div>
+      <div class="p-traffic">
+        <div class="p-unlimited">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px"><path d="M18.6 6.6a4.8 4.8 0 0 1 0 6.8c-2.6 2.6-5.1-1.4-6.6-2.8-1.5-1.4-4-5.4-6.6-2.8a4.8 4.8 0 0 0 0 6.8c2.6 2.6 5.1-1.4 6.6-2.8 1.5-1.4 4-5.4 6.6-2.8"/></svg>
+          — 不限额
+        </div>
+      </div>
+      <div class="p-meta">
+        <div>到期<b>—</b></div>
+        <div>自动更新<b>—</b></div>
+        <div>更新于<b class="num">2026-05-28</b></div>
+        <div>大小<b class="num">12.6 KB</b></div>
+      </div>
+      <div class="p-foot">
+        <button class="btn btn-sm">编辑</button>
+        <button class="btn btn-sm btn-danger">删除</button>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- 配置增强链 -->
+  <div class="card">
+    <div class="card-head">
+      <span class="card-ic" style="color:var(--purple)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m12 2 9 5-9 5-9-5 9-5Z"/><path d="m3 12 9 5 9-5"/><path d="m3 17 9 5 9-5"/></svg></span>
+      <h3>配置增强链</h3>
+      <div class="card-actions"><span class="chip">处理顺序自上而下</span></div>
+    </div>
+
+    <div class="chain-row">
+      <span class="grip"><svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="9" cy="5" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="9" cy="19" r="1.6"/><circle cx="15" cy="5" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="15" cy="19" r="1.6"/></svg></span>
+      <span class="proc-ic" style="color:var(--green)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H7a2 2 0 0 0-2 2v5a2 2 0 0 1-2 2 2 2 0 0 1 2 2v5a2 2 0 0 0 2 2h1"/><path d="M16 3h1a2 2 0 0 1 2 2v5a2 2 0 0 0 2 2 2 2 0 0 0-2 2v5a2 2 0 0 1-2 2h-1"/></svg></span>
+      <span class="proc-name">Merge: 覆写 DNS 与端口</span>
+      <span class="chip">YAML</span>
+      <span class="spacer"></span>
+      <span class="toggle on"></span>
+      <button class="btn btn-sm">编辑</button>
+    </div>
+
+    <div class="chain-row">
+      <span class="grip"><svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="9" cy="5" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="9" cy="19" r="1.6"/><circle cx="15" cy="5" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="15" cy="19" r="1.6"/></svg></span>
+      <span class="proc-ic" style="color:var(--yellow)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 18 6-6-6-6"/><path d="m8 6-6 6 6 6"/></svg></span>
+      <span class="proc-name">Script: 节点改名+地区分组</span>
+      <span class="chip">JavaScript</span>
+      <span class="spacer"></span>
+      <span class="toggle on"></span>
+      <button class="btn btn-sm">编辑</button>
+    </div>
+
+    <div class="chain-row" style="border-bottom:none">
+      <span class="grip"><svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="9" cy="5" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="9" cy="19" r="1.6"/><circle cx="15" cy="5" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="15" cy="19" r="1.6"/></svg></span>
+      <span class="proc-ic" style="color:var(--yellow)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 18 6-6-6-6"/><path d="m8 6-6 6 6 6"/></svg></span>
+      <span class="proc-name">Script: 去除无效节点</span>
+      <span class="chip">JavaScript</span>
+      <span class="spacer"></span>
+      <span class="toggle"></span>
+      <button class="btn btn-sm">编辑</button>
+    </div>
+
+    <div class="chain-add">+ 新建 Merge / Script 处理器</div>
+  </div>
+
+</section>
+<style>
+#page-settings .grid2{align-items:start}
+#page-settings .set-col{display:flex;flex-direction:column;gap:14px;min-width:0}
+#page-settings .set-row .ctl{display:flex;align-items:center;gap:8px;flex-shrink:0}
+#page-settings .mono-val{font-family:var(--mono)}
+#page-settings .swatches{display:flex;align-items:center;gap:10px}
+#page-settings .swatch{width:22px;height:22px;border-radius:50%;border:none;padding:0;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;flex-shrink:0;
+  box-shadow:inset 0 0 0 1px var(--line-2);transition:transform .15s}
+#page-settings .swatch:hover{transform:scale(1.12)}
+#page-settings .swatch svg{width:12px;height:12px;stroke:#fff;stroke-width:2.6;fill:none;
+  stroke-linecap:round;stroke-linejoin:round}
+#page-settings .swatch.on{box-shadow:0 0 0 2px var(--card),0 0 0 3.5px var(--accent)}
+#page-settings .keys{display:flex;align-items:center;gap:4px;flex-shrink:0}
+#page-settings .kbd{font-family:var(--mono);font-size:10.5px;font-weight:500;line-height:1.5;
+  padding:2px 6px;background:var(--card-2);border:1px solid var(--line);border-radius:5px;color:var(--text-2)}
+#page-settings .link{display:inline-flex;align-items:center;gap:4px;color:var(--accent);
+  font-size:12px;font-weight:500;cursor:pointer;white-space:nowrap}
+#page-settings .link:hover{text-decoration:underline}
+#page-settings .link svg{width:12px;height:12px;stroke:currentColor;stroke-width:2;fill:none;
+  stroke-linecap:round;stroke-linejoin:round}
+#page-settings .about-logo{width:34px;height:34px;border-radius:10px;flex-shrink:0;
+  background:linear-gradient(135deg,#0A84FF,#64D2FF);display:flex;align-items:center;justify-content:center;
+  box-shadow:0 4px 12px rgba(10,132,255,.32)}
+#page-settings .about-logo svg{width:18px;height:18px;stroke:#fff;stroke-width:2.4;fill:none;
+  stroke-linecap:round;stroke-linejoin:round}
+</style>
+<section class="page" id="page-settings" data-title="设置">
+  <div class="grid2">
+    <!-- ============ 左列 ============ -->
+    <div class="set-col">
+
+      <!-- ① 系统 -->
+      <div class="card">
+        <div class="card-head">
+          <span class="card-ic" style="color:var(--accent)"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg></span>
+          <h3>系统</h3>
+        </div>
+        <div class="set-row">
+          <div class="set-info"><h4>系统代理</h4><p>修改 Windows Internet 设置</p></div>
+          <div class="toggle on"><div class="knob"></div></div>
+        </div>
+        <div class="set-row">
+          <div class="set-info"><h4>守卫模式</h4><p>每 30 秒检查并恢复代理设置</p></div>
+          <div class="toggle on"><div class="knob"></div></div>
+        </div>
+        <div class="set-row">
+          <div class="set-info"><h4>代理绕过</h4><p class="mono-val">localhost;127.*;10.*;192.168.*</p></div>
+          <button class="btn btn-sm">编辑</button>
+        </div>
+        <div class="set-row">
+          <div class="set-info"><h4>TUN 模式</h4><p>虚拟网卡接管全部流量，需服务模式</p></div>
+          <div class="toggle"><div class="knob"></div></div>
+        </div>
+        <div class="set-row">
+          <div class="set-info"><h4>服务模式</h4><p>Mihomo Service 已注册并正常运行</p></div>
+          <div class="ctl"><span class="badge b-green">已安装</span><button class="btn btn-sm">卸载</button></div>
+        </div>
+        <div class="set-row">
+          <div class="set-info"><h4>开机自启</h4><p>随 Windows 登录自动启动</p></div>
+          <div class="toggle on"><div class="knob"></div></div>
+        </div>
+        <div class="set-row">
+          <div class="set-info"><h4>静默启动</h4><p>启动时仅驻留托盘</p></div>
+          <div class="toggle"><div class="knob"></div></div>
+        </div>
+      </div>
+
+      <!-- ③ 界面 -->
+      <div class="card">
+        <div class="card-head">
+          <span class="card-ic" style="color:var(--purple)"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2.5"/><path d="M3 9.5h18M9.5 21V9.5"/></svg></span>
+          <h3>界面</h3>
+        </div>
+        <div class="set-row">
+          <div class="set-info"><h4>主题</h4><p>窗口与托盘外观</p></div>
+          <div class="seg">
+            <button class="seg-item on">深色</button>
+            <button class="seg-item">浅色</button>
+            <button class="seg-item">跟随系统</button>
+          </div>
+        </div>
+        <div class="set-row">
+          <div class="set-info"><h4>强调色</h4><p>应用于高亮与交互元素</p></div>
+          <div class="swatches">
+            <button class="swatch on" style="background:var(--accent)" title="蓝"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></button>
+            <button class="swatch" style="background:var(--purple)" title="紫"></button>
+            <button class="swatch" style="background:var(--pink)" title="粉"></button>
+            <button class="swatch" style="background:var(--orange)" title="橙"></button>
+            <button class="swatch" style="background:var(--green)" title="绿"></button>
+            <button class="swatch" style="background:var(--cyan)" title="青"></button>
+          </div>
+        </div>
+        <div class="set-row">
+          <div class="set-info"><h4>自定义 CSS</h4><p>注入全局样式覆盖，保存后即时生效</p></div>
+          <button class="btn btn-sm">编辑</button>
+        </div>
+        <div class="set-row">
+          <div class="set-info"><h4>语言</h4><p>界面显示语言</p></div>
+          <select class="select">
+            <option selected>简体中文</option>
+            <option>繁體中文</option>
+            <option>English</option>
+            <option>日本語</option>
+          </select>
+        </div>
+        <div class="set-row">
+          <div class="set-info"><h4>启动页</h4><p>打开主窗口时默认显示的页面</p></div>
+          <select class="select">
+            <option selected>仪表盘</option>
+            <option>节点</option>
+            <option>连接</option>
+            <option>订阅</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- ⑤ 关于 -->
+      <div class="card">
+        <div class="card-head">
+          <span class="card-ic" style="color:var(--green)"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 7.5h.01"/></svg></span>
+          <h3>关于</h3>
+        </div>
+        <div class="set-row">
+          <div class="about-logo"><svg viewBox="0 0 24 24"><path d="M5 19V5l9 14h5V5"/></svg></div>
+          <div class="set-info"><h4>ClashNova <span class="num">v2.0.0</span></h4><p>Build 20260602 · Tauri 2.5 · Windows x64</p></div>
+          <div class="ctl"><span class="badge b-blue">已是最新</span><button class="btn btn-primary btn-sm">检查更新</button></div>
+        </div>
+        <div class="set-row">
+          <div class="set-info"><h4>开源协议</h4><p>基于 MIT License 发布</p></div>
+          <span class="link">github.com/clashnova/clashnova<svg viewBox="0 0 24 24"><path d="M14 4.5h5.5V10M19.5 4.5L11 13"/><path d="M19 13.5V18a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h4.5"/></svg></span>
+        </div>
+        <div class="set-row">
+          <div class="set-info"><h4>目录</h4><p>在资源管理器中打开应用目录</p></div>
+          <div class="ctl" style="gap:6px">
+            <button class="btn btn-sm"><svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg>配置目录</button>
+            <button class="btn btn-sm"><svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg>内核目录</button>
+            <button class="btn btn-sm"><svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg>日志目录</button>
+          </div>
+        </div>
+        <div class="set-row">
+          <div class="set-info"><h4>重置</h4><p>清除全部设置与缓存数据，不可撤销</p></div>
+          <button class="btn btn-sm btn-danger"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 2.6-6.3L3 8"/><path d="M3 3v5h5"/></svg>恢复默认设置</button>
+        </div>
+      </div>
+
+    </div>
+    <!-- ============ 右列 ============ -->
+    <div class="set-col">
+
+      <!-- ② 内核 -->
+      <div class="card">
+        <div class="card-head">
+          <span class="card-ic" style="color:var(--cyan)"><svg viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="2"/><rect x="9.5" y="9.5" width="5" height="5" rx="1"/><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"/></svg></span>
+          <h3>Clash 内核</h3>
+          <div class="card-actions"><span class="chip">mihomo v1.19.2</span></div>
+        </div>
+        <div class="set-row">
+          <div class="set-info"><h4>混合端口</h4><p>HTTP 与 SOCKS5 共用端口</p></div>
+          <input class="input num" value="7897" style="width:90px">
+        </div>
+        <div class="set-row">
+          <div class="set-info"><h4>外部控制</h4><p>RESTful API 监听地址</p></div>
+          <input class="input num" value="127.0.0.1:9097" style="width:150px">
+        </div>
+        <div class="set-row">
+          <div class="set-info"><h4>API 密钥</h4><p>外部控制访问令牌</p></div>
+          <input class="input num" type="password" value="7kQx2mZpR4" style="width:150px">
+        </div>
+        <div class="set-row">
+          <div class="set-info"><h4>允许局域网</h4><p>接受来自局域网设备的连接</p></div>
+          <div class="toggle"><div class="knob"></div></div>
+        </div>
+        <div class="set-row">
+          <div class="set-info"><h4>IPv6</h4><p>启用内核 IPv6 解析与出站</p></div>
+          <div class="toggle"><div class="knob"></div></div>
+        </div>
+        <div class="set-row">
+          <div class="set-info"><h4>日志等级</h4><p>内核运行日志详细程度</p></div>
+          <select class="select">
+            <option>silent</option>
+            <option>error</option>
+            <option>warning</option>
+            <option selected>info</option>
+            <option>debug</option>
+          </select>
+        </div>
+        <div class="set-row">
+          <div class="set-info"><h4>DNS 覆写</h4><p>使用内置 DNS 配置</p></div>
+          <div class="toggle on"><div class="knob"></div></div>
+        </div>
+        <div class="set-row">
+          <div class="set-info"><h4>内核版本</h4><p>当前通道 Stable · 2026-05-18</p></div>
+          <div class="ctl">
+            <div class="seg">
+              <button class="seg-item on">Stable</button>
+              <button class="seg-item">Alpha</button>
+            </div>
+            <button class="btn btn-sm">检查更新</button>
+          </div>
+        </div>
+        <div class="set-row">
+          <div class="set-info"><h4>GeoData</h4><p class="mono-val">geoip.dat · 更新于 3 天前</p></div>
+          <button class="btn btn-sm">立即更新</button>
+        </div>
+        <div class="set-row">
+          <div class="set-info"><h4>UWP 回环豁免</h4><p>解除 UWP 应用本地回环限制</p></div>
+          <button class="btn btn-sm">打开工具</button>
+        </div>
+        <div class="set-row">
+          <div class="set-info"><h4>Web UI</h4><p>在浏览器中打开 metacubexd 面板</p></div>
+          <button class="btn btn-sm">跳转面板</button>
+        </div>
+      </div>
+
+      <!-- ④ 热键 -->
+      <div class="card">
+        <div class="card-head">
+          <span class="card-ic" style="color:var(--orange)"><svg viewBox="0 0 24 24"><rect x="2.5" y="6" width="19" height="12" rx="2"/><path d="M6.5 10h.01M10 10h.01M13.5 10h.01M17 10h.01M6.5 14h.01M17 14h.01M9.5 14h5"/></svg></span>
+          <h3>热键</h3>
+          <div class="card-actions"><button class="btn btn-sm"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>添加</button></div>
+        </div>
+        <div class="set-row">
+          <div class="set-info"><h4>显示/隐藏主窗口</h4></div>
+          <div class="keys"><span class="kbd">Ctrl</span><span class="kbd">Shift</span><span class="kbd">D</span></div>
+        </div>
+        <div class="set-row">
+          <div class="set-info"><h4>切换系统代理</h4></div>
+          <div class="keys"><span class="kbd">Ctrl</span><span class="kbd">Shift</span><span class="kbd">P</span></div>
+        </div>
+        <div class="set-row">
+          <div class="set-info"><h4>切换 TUN</h4></div>
+          <div class="keys"><span class="kbd">Ctrl</span><span class="kbd">Shift</span><span class="kbd">T</span></div>
+        </div>
+        <div class="set-row">
+          <div class="set-info"><h4>出站模式轮换</h4></div>
+          <div class="keys"><span class="kbd">Ctrl</span><span class="kbd">Shift</span><span class="kbd">M</span></div>
+        </div>
+        <div class="set-row">
+          <div class="set-info"><h4>暂停全部代理</h4></div>
+          <div class="keys"><span class="kbd">Ctrl</span><span class="kbd">Shift</span><span class="kbd">Z</span></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+<style>
+#page-tray .board{display:flex;gap:40px;justify-content:center;align-items:flex-start;padding:30px 0;flex-wrap:wrap}
+#page-tray .col{display:flex;flex-direction:column;align-items:center;gap:14px}
+#page-tray .cap{font-size:13px;color:var(--text-3)}
+#page-tray .pop{width:340px;background:var(--card);border:1px solid var(--line-2);border-radius:14px;box-shadow:var(--shadow);overflow:hidden;font-size:12.5px;color:var(--text)}
+#page-tray .pop .sep{height:1px;background:var(--line)}
+#page-tray .pop .spacer{flex:1}
+#page-tray .pop svg{flex:none}
+#page-tray .p-head{display:flex;align-items:center;gap:9px;padding:12px 14px 10px}
+#page-tray .p-logo{width:22px;height:22px;border-radius:6px;background:linear-gradient(135deg,#0A84FF,#BF5AF2);display:flex;align-items:center;justify-content:center;color:#fff;box-shadow:0 2px 6px rgba(10,132,255,.35)}
+#page-tray .p-name{font-weight:600;font-size:13px}
+#page-tray .p-dot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 6px var(--green)}
+#page-tray .p-run{font-size:11px;color:var(--text-2)}
+#page-tray .rate{margin:0 10px 10px;background:var(--card-2);border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+#page-tray .rate-row{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text)}
+#page-tray .rate-row .rt{color:var(--text-2);font-size:11px}
+#page-tray .rate-ic{display:flex;align-items:center;color:var(--accent)}
+#page-tray .rate-ic.mem{color:var(--purple)}
+#page-tray .spark-wrap{position:relative;height:44px;margin:5px 0 4px}
+#page-tray .spark-wrap .spark{position:absolute;inset:0}
+#page-tray .quota{padding:10px 14px}
+#page-tray .quota-row{display:flex;align-items:center;gap:7px;font-size:11.5px}
+#page-tray .quota-row .qv{font-size:11px;color:var(--text-2)}
+#page-tray .quota-row .qv b{color:var(--green);font-weight:600}
+#page-tray .q-bar{height:4px;border-radius:2px;background:var(--card-3);margin-top:7px;overflow:hidden}
+#page-tray .q-bar i{display:block;height:100%;width:32.4%;border-radius:2px;background:linear-gradient(90deg,#32D74B,#30C843)}
+#page-tray .m-row{display:flex;align-items:center;gap:9px;padding:9px 14px}
+#page-tray .m-row .ric{display:flex;align-items:center;color:var(--text-2)}
+#page-tray .g-row{display:flex;align-items:center;gap:9px;padding:8px 14px;cursor:default}
+#page-tray .g-row:hover,#page-tray .m-row.hov:hover{background:var(--card-2)}
+#page-tray .g-dot{width:8px;height:8px;border-radius:50%;flex:none}
+#page-tray .g-cur{font-size:11px;color:var(--text-3)}
+#page-tray .chev{color:var(--text-3);display:flex;align-items:center}
+#page-tray .pop .seg-sm .seg-item{padding:3px 10px;font-size:11px}
+#page-tray .kbds{display:flex;gap:3px}
+#page-tray .kbd{font-size:10px;line-height:1;padding:3px 5px;border:1px solid var(--line-2);border-bottom-width:2px;border-radius:5px;background:var(--card-2);color:var(--text-2)}
+#page-tray .quit{color:var(--red)}
+#page-tray .quit .ric{color:var(--red)}
+</style>
+<section class="page" id="page-tray" data-title="托盘弹窗">
+  <div class="board">
+
+    <!-- ════ 深色版 ════ -->
+    <div class="col">
+      <div class="pop">
+        <!-- ① 头部 -->
+        <div class="p-head">
+          <span class="p-logo"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 18 6 6 18 18 18 6"/></svg></span>
+          <span class="p-name">ClashNova</span>
+          <span class="spacer"></span>
+          <span class="p-dot"></span><span class="p-run">运行中</span>
+        </div>
+        <!-- ② 速率卡 -->
+        <div class="rate">
+          <div class="rate-row">
+            <span class="rate-ic"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg></span>
+            <span class="num">51</span><span>连接</span>
+            <span class="spacer"></span>
+            <span class="rt num">0 KB/s · 467.8 KB</span>
+          </div>
+          <div class="spark-wrap">
+            <div class="spark" data-pts="2,3,2,6,22,5,2,3,2,15,4,2,2,8,30,7,3,2,5,12,3,2,18,6,2,3,9,2" data-color="#BF5AF2" data-h="44" data-fill="1"></div>
+            <div class="spark" data-pts="1,2,8,3,2,12,4,2,6,2,1,9,3,2,14,5,2,3,7,2,10,3,2,5,2,8,3,1" data-color="#64D2FF" data-h="44" data-dot="1"></div>
+          </div>
+          <div class="rate-row">
+            <span class="rate-ic mem"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="6" width="16" height="12" rx="2"/><path d="M8 18v2M12 18v2M16 18v2M8 4v2M12 4v2M16 4v2"/></svg></span>
+            <span class="num">64</span><span>MB</span>
+            <span class="spacer"></span>
+            <span class="rt num">0 KB/s · 15.3 MB</span>
+          </div>
+        </div>
+        <div class="sep"></div>
+        <!-- ③ 配额 -->
+        <div class="quota">
+          <div class="quota-row">
+            <span class="ric" style="color:var(--green);display:flex"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m8 11 4 4 4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg></span>
+            <span>订阅</span><span style="color:var(--text-2)">剩余 37 天</span>
+            <span class="spacer"></span>
+            <span class="qv num"><b>162 GB</b> / 500 GB</span>
+          </div>
+          <div class="q-bar"><i></i></div>
+        </div>
+        <div class="sep"></div>
+        <!-- ④ 开关组 -->
+        <div class="m-row">
+          <span class="ric"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a14 14 0 0 1 0 18 14 14 0 0 1 0-18"/></svg></span>
+          <span>系统代理</span><span class="spacer"></span>
+          <span class="toggle on"></span>
+        </div>
+        <div class="m-row">
+          <span class="ric"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 4 7v6c0 4.4 3.4 7.4 8 8 4.6-.6 8-3.6 8-8V7l-8-4Z"/></svg></span>
+          <span>TUN 模式</span><span class="spacer"></span>
+          <span class="toggle"></span>
+        </div>
+        <div class="sep"></div>
+        <!-- ⑤ 模式 -->
+        <div class="m-row">
+          <span class="ric"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h6l2-8 3 16 2-8h1"/></svg></span>
+          <span>出站模式</span><span class="spacer"></span>
+          <span class="seg seg-sm"><span class="seg-item">直连</span><span class="seg-item on">规则</span><span class="seg-item">全局</span></span>
+        </div>
+        <div class="sep"></div>
+        <!-- ⑥ 组快速切换 -->
+        <div class="g-row"><span class="g-dot" style="background:var(--orange)"></span><span>Auto</span><span class="spacer"></span><span class="g-cur">Manual</span><span class="chev"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg></span></div>
+        <div class="g-row"><span class="g-dot" style="background:var(--purple)"></span><span>AI</span><span class="spacer"></span><span class="g-cur">US-Auto</span><span class="chev"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg></span></div>
+        <div class="g-row"><span class="g-dot" style="background:var(--accent)"></span><span>Social</span><span class="spacer"></span><span class="g-cur">Auto</span><span class="chev"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg></span></div>
+        <div class="g-row"><span class="g-dot" style="background:var(--pink)"></span><span>Streaming</span><span class="spacer"></span><span class="g-cur">Auto</span><span class="chev"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg></span></div>
+        <div class="g-row"><span class="g-dot" style="background:var(--cyan)"></span><span>Google</span><span class="spacer"></span><span class="g-cur">Auto</span><span class="chev"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg></span></div>
+        <div class="g-row"><span class="g-dot" style="background:var(--red)"></span><span>China</span><span class="spacer"></span><span class="g-cur">DIRECT</span><span class="chev"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg></span></div>
+        <div class="sep"></div>
+        <!-- ⑦ 配置 -->
+        <div class="m-row hov">
+          <span class="ric"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 9 5-9 5-9-5 9-5Z"/><path d="m3 13 9 5 9-5"/></svg></span>
+          <span>切换配置</span><span class="spacer"></span>
+          <span class="g-cur">full.en</span>
+          <span class="chev"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg></span>
+        </div>
+        <div class="sep"></div>
+        <!-- ⑧ 链接组 -->
+        <div class="m-row hov">
+          <span class="ric"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M8 4v5"/></svg></span>
+          <span>打开主面板</span><span class="spacer"></span>
+          <span class="kbds"><span class="kbd">Ctrl</span><span class="kbd">Shift</span><span class="kbd">D</span></span>
+        </div>
+        <div class="m-row hov">
+          <span class="ric"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a13 13 0 0 1 0 18 13 13 0 0 1 0-18"/></svg></span>
+          <span>Web Dashboard</span><span class="spacer"></span>
+          <span class="chev"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg></span>
+        </div>
+        <div class="sep"></div>
+        <!-- ⑨ 退出 -->
+        <div class="m-row hov quit">
+          <span class="ric"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v8"/><path d="M6.3 6.3a8 8 0 1 0 11.4 0"/></svg></span>
+          <span>退出 ClashNova</span>
+        </div>
+      </div>
+      <div class="cap">深色模式</div>
+    </div>
+
+    <!-- ════ 浅色版 ════ -->
+    <div class="col">
+      <div data-theme="light">
+        <div class="pop">
+          <!-- ① 头部 -->
+          <div class="p-head">
+            <span class="p-logo"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 18 6 6 18 18 18 6"/></svg></span>
+            <span class="p-name">ClashNova</span>
+            <span class="spacer"></span>
+            <span class="p-dot"></span><span class="p-run">运行中</span>
+          </div>
+          <!-- ② 速率卡 -->
+          <div class="rate">
+            <div class="rate-row">
+              <span class="rate-ic"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg></span>
+              <span class="num">51</span><span>连接</span>
+              <span class="spacer"></span>
+              <span class="rt num">0 KB/s · 467.8 KB</span>
+            </div>
+            <div class="spark-wrap">
+              <div class="spark" data-pts="2,3,2,6,22,5,2,3,2,15,4,2,2,8,30,7,3,2,5,12,3,2,18,6,2,3,9,2" data-color="#BF5AF2" data-h="44" data-fill="1"></div>
+              <div class="spark" data-pts="1,2,8,3,2,12,4,2,6,2,1,9,3,2,14,5,2,3,7,2,10,3,2,5,2,8,3,1" data-color="#64D2FF" data-h="44" data-dot="1"></div>
+            </div>
+            <div class="rate-row">
+              <span class="rate-ic mem"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="6" width="16" height="12" rx="2"/><path d="M8 18v2M12 18v2M16 18v2M8 4v2M12 4v2M16 4v2"/></svg></span>
+              <span class="num">64</span><span>MB</span>
+              <span class="spacer"></span>
+              <span class="rt num">0 KB/s · 15.3 MB</span>
+            </div>
+          </div>
+          <div class="sep"></div>
+          <!-- ③ 配额 -->
+          <div class="quota">
+            <div class="quota-row">
+              <span class="ric" style="color:var(--green);display:flex"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m8 11 4 4 4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg></span>
+              <span>订阅</span><span style="color:var(--text-2)">剩余 37 天</span>
+              <span class="spacer"></span>
+              <span class="qv num"><b>162 GB</b> / 500 GB</span>
+            </div>
+            <div class="q-bar"><i></i></div>
+          </div>
+          <div class="sep"></div>
+          <!-- ④ 开关组 -->
+          <div class="m-row">
+            <span class="ric"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a14 14 0 0 1 0 18 14 14 0 0 1 0-18"/></svg></span>
+            <span>系统代理</span><span class="spacer"></span>
+            <span class="toggle on"></span>
+          </div>
+          <div class="m-row">
+            <span class="ric"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 4 7v6c0 4.4 3.4 7.4 8 8 4.6-.6 8-3.6 8-8V7l-8-4Z"/></svg></span>
+            <span>TUN 模式</span><span class="spacer"></span>
+            <span class="toggle"></span>
+          </div>
+          <div class="sep"></div>
+          <!-- ⑤ 模式 -->
+          <div class="m-row">
+            <span class="ric"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h6l2-8 3 16 2-8h1"/></svg></span>
+            <span>出站模式</span><span class="spacer"></span>
+            <span class="seg seg-sm"><span class="seg-item">直连</span><span class="seg-item on">规则</span><span class="seg-item">全局</span></span>
+          </div>
+          <div class="sep"></div>
+          <!-- ⑥ 组快速切换 -->
+          <div class="g-row"><span class="g-dot" style="background:var(--orange)"></span><span>Auto</span><span class="spacer"></span><span class="g-cur">Manual</span><span class="chev"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg></span></div>
+          <div class="g-row"><span class="g-dot" style="background:var(--purple)"></span><span>AI</span><span class="spacer"></span><span class="g-cur">US-Auto</span><span class="chev"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg></span></div>
+          <div class="g-row"><span class="g-dot" style="background:var(--accent)"></span><span>Social</span><span class="spacer"></span><span class="g-cur">Auto</span><span class="chev"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg></span></div>
+          <div class="g-row"><span class="g-dot" style="background:var(--pink)"></span><span>Streaming</span><span class="spacer"></span><span class="g-cur">Auto</span><span class="chev"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg></span></div>
+          <div class="g-row"><span class="g-dot" style="background:var(--cyan)"></span><span>Google</span><span class="spacer"></span><span class="g-cur">Auto</span><span class="chev"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg></span></div>
+          <div class="g-row"><span class="g-dot" style="background:var(--red)"></span><span>China</span><span class="spacer"></span><span class="g-cur">DIRECT</span><span class="chev"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg></span></div>
+          <div class="sep"></div>
+          <!-- ⑦ 配置 -->
+          <div class="m-row hov">
+            <span class="ric"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 9 5-9 5-9-5 9-5Z"/><path d="m3 13 9 5 9-5"/></svg></span>
+            <span>切换配置</span><span class="spacer"></span>
+            <span class="g-cur">full.en</span>
+            <span class="chev"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg></span>
+          </div>
+          <div class="sep"></div>
+          <!-- ⑧ 链接组 -->
+          <div class="m-row hov">
+            <span class="ric"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M8 4v5"/></svg></span>
+            <span>打开主面板</span><span class="spacer"></span>
+            <span class="kbds"><span class="kbd">Ctrl</span><span class="kbd">Shift</span><span class="kbd">D</span></span>
+          </div>
+          <div class="m-row hov">
+            <span class="ric"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a13 13 0 0 1 0 18 13 13 0 0 1 0-18"/></svg></span>
+            <span>Web Dashboard</span><span class="spacer"></span>
+            <span class="chev"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg></span>
+          </div>
+          <div class="sep"></div>
+          <!-- ⑨ 退出 -->
+          <div class="m-row hov quit">
+            <span class="ric"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v8"/><path d="M6.3 6.3a8 8 0 1 0 11.4 0"/></svg></span>
+            <span>退出 ClashNova</span>
+          </div>
+        </div>
+      </div>
+      <div class="cap">浅色模式</div>
+    </div>
+
+  </div>
+</section>
+    </div><!-- /content -->
+  </div><!-- /main -->
+</div><!-- /app -->
+<script>
+/* ---- 页面切换 ---- */
+const items=document.querySelectorAll('.nav-item');
+const pages=document.querySelectorAll('.page');
+const title=document.getElementById('page-title');
+items.forEach(it=>it.addEventListener('click',()=>{
+  items.forEach(x=>x.classList.remove('on'));it.classList.add('on');
+  const key=it.dataset.page;
+  pages.forEach(p=>p.classList.toggle('on',p.id==='page-'+key));
+  const sec=document.getElementById('page-'+key);
+  if(sec)title.textContent=sec.dataset.title||it.textContent.trim();
+  document.getElementById('content').scrollTop=0;
+}));
+/* 初始页 */
+(()=>{const first=document.querySelector('.nav-item.on');
+  if(first){const sec=document.getElementById('page-'+first.dataset.page);
+  if(sec){sec.classList.add('on');title.textContent=sec.dataset.title||'';}}})();
+/* URL hash 直达页面 (截图/分享用): mockup.html#proxies ; ?theme=light 切浅色 */
+const q=new URLSearchParams(location.search);
+if(q.get('theme'))document.documentElement.dataset.theme=q.get('theme');
+if(location.hash){const k=location.hash.slice(1).replace(/^page-/,'');
+  const it=[...items].find(i=>i.dataset.page===k);if(it)it.click();}
+
+/* ---- 主题切换 ---- */
+document.getElementById('theme-btn').addEventListener('click',()=>{
+  const h=document.documentElement;
+  h.dataset.theme=h.dataset.theme==='dark'?'light':'dark';
+});
+
+/* ---- 分段控件通用交互（视觉演示） ---- */
+document.querySelectorAll('.seg').forEach(seg=>{
+  seg.querySelectorAll('.seg-item').forEach(b=>b.addEventListener('click',()=>{
+    seg.querySelectorAll('.seg-item').forEach(x=>x.classList.remove('on'));
+    b.classList.add('on');
+  }));
+});
+/* ---- 开关通用交互 ---- */
+document.querySelectorAll('.toggle').forEach(t=>t.addEventListener('click',()=>t.classList.toggle('on')));
+
+/* ---- 迷你曲线渲染器 ----
+   用法: <div class="spark" data-pts="3,5,2,8,4" data-color="#BF5AF2" data-h="56" data-fill="1" data-dot="1"></div> */
+let gid=0;
+document.querySelectorAll('.spark[data-pts]').forEach(el=>{
+  const pts=el.dataset.pts.split(',').map(Number);
+  const h=parseInt(el.dataset.h||'48',10), w=el.clientWidth||el.parentElement.clientWidth||280;
+  const c=el.dataset.color||'#0A84FF', fill=el.dataset.fill==='1', dot=el.dataset.dot==='1';
+  const max=Math.max(...pts)*1.15||1, min=0;
+  const stepX=w/(pts.length-1);
+  const xy=pts.map((p,i)=>[i*stepX,h-4-((p-min)/(max-min))*(h-10)]);
+  /* Catmull-Rom 平滑 */
+  let d=`M${xy[0][0]},${xy[0][1]}`;
+  for(let i=0;i<xy.length-1;i++){
+    const p0=xy[i-1]||xy[i],p1=xy[i],p2=xy[i+1],p3=xy[i+2]||p2;
+    d+=` C${p1[0]+(p2[0]-p0[0])/6},${p1[1]+(p2[1]-p0[1])/6} ${p2[0]-(p3[0]-p1[0])/6},${p2[1]-(p3[1]-p1[1])/6} ${p2[0]},${p2[1]}`;
+  }
+  const id='sg'+(gid++);
+  let svg=`<svg width="100%" height="${h}" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">`;
+  if(fill){svg+=`<defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="${c}" stop-opacity=".32"/><stop offset="1" stop-color="${c}" stop-opacity="0"/></linearGradient></defs>
+    <path d="${d} L${w},${h} L0,${h} Z" fill="url(#${id})" stroke="none"/>`;}
+  svg+=`<path d="${d}" fill="none" stroke="${c}" stroke-width="2" stroke-linecap="round"/>`;
+  if(dot){const last=xy[xy.length-1];
+    svg+=`<circle cx="${last[0]-2}" cy="${last[1]}" r="3.5" fill="${c}" stroke="rgba(255,255,255,.85)" stroke-width="1.5"/>`;}
+  svg+='</svg>';
+  el.innerHTML=svg;
+});
+</script>
+</body>
+</html>

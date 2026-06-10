@@ -1,0 +1,198 @@
+<style>
+  #page-rules .rules-toolbar{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+  #page-rules .rules-toolbar .search-wrap{width:280px}
+  #page-rules .sp{flex:1}
+
+  #page-rules .fbar{display:flex;align-items:center;gap:8px;margin-bottom:14px;overflow-x:auto;padding-bottom:2px;scrollbar-width:none}
+  #page-rules .fbar::-webkit-scrollbar{display:none}
+  #page-rules .fchip{flex:0 0 auto;padding:5px 12px;border-radius:999px;border:1px solid var(--line);background:var(--card);color:var(--text-2);font-size:12px;line-height:1;white-space:nowrap;cursor:pointer;transition:border-color .15s,color .15s}
+  #page-rules .fchip:hover{border-color:var(--line-2);color:var(--text)}
+  #page-rules .fchip .fn{margin-left:5px;font-size:10.5px;color:var(--text-3)}
+  #page-rules .fchip.on{border-color:var(--accent);color:var(--accent);background:color-mix(in srgb,var(--accent) 10%, transparent)}
+  #page-rules .fchip.on .fn{color:var(--accent);opacity:.7}
+
+  #page-rules .rules-card .card-body{padding:0}
+  #page-rules .rhint{font-size:11px;color:var(--text-3)}
+  #page-rules .rrow{display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid var(--line)}
+  #page-rules .rrow:last-child{border-bottom:none}
+  #page-rules .rrow:hover{background:var(--card-2)}
+  #page-rules .ridx{width:36px;flex:0 0 36px;font-size:11px;color:var(--text-3)}
+  #page-rules .rname{font-family:ui-monospace,"SF Mono","Cascadia Code",Consolas,Menlo,monospace;font-size:11.5px;color:var(--text);letter-spacing:.1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #page-rules .rtype{flex:0 0 auto;font-family:ui-monospace,"SF Mono","Cascadia Code",Consolas,Menlo,monospace;font-size:10px;line-height:1;letter-spacing:.4px;padding:3px 8px;border-radius:5px;background:color-mix(in srgb,currentColor 12%, transparent)}
+  #page-rules .t-dom{color:var(--cyan)}
+  #page-rules .t-ip{color:var(--orange)}
+  #page-rules .t-geo{color:var(--teal)}
+  #page-rules .t-set{color:var(--purple)}
+  #page-rules .t-proc{color:var(--pink)}
+  #page-rules .t-match{color:var(--text-2)}
+  #page-rules .rflag{flex:0 0 auto;font-family:ui-monospace,"SF Mono","Cascadia Code",Consolas,Menlo,monospace;font-size:10px;line-height:1;padding:3px 7px;border-radius:4px;border:1px solid var(--line);color:var(--text-3)}
+  #page-rules .rtarget{flex:0 0 auto;font-size:12px;font-weight:600;letter-spacing:.1px}
+  #page-rules .rhits{min-width:54px;justify-content:flex-end;text-align:right}
+</style>
+<section class="page" id="page-rules" data-title="规则">
+
+  <div class="rules-toolbar">
+    <div class="search-wrap">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <input class="input" type="text" placeholder="搜索规则 / 域名 / IP…">
+    </div>
+    <span class="sp"></span>
+    <span class="chip">共 <span class="num">86,420</span> 条 · 命中 <span class="num">12,381</span> 次</span>
+  </div>
+
+  <div class="fbar">
+    <span class="fchip on">全部 <span class="fn num">86,420</span></span>
+    <span class="fchip">DOMAIN</span>
+    <span class="fchip">DOMAIN-SUFFIX</span>
+    <span class="fchip">DOMAIN-KEYWORD</span>
+    <span class="fchip">IP-CIDR</span>
+    <span class="fchip">GEOIP</span>
+    <span class="fchip">RULE-SET</span>
+    <span class="fchip">PROCESS-NAME</span>
+    <span class="fchip">MATCH</span>
+  </div>
+
+  <div class="card rules-card">
+    <div class="card-head">
+      <span class="card-ic" style="color:var(--accent)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16"/><path d="M6 12h12"/><path d="M9 18h6"/></svg>
+      </span>
+      <h3>规则列表</h3>
+      <div class="card-actions">
+        <span class="rhint">自上而下优先匹配</span>
+      </div>
+    </div>
+    <div class="card-body">
+
+      <div class="rrow">
+        <span class="ridx num">1</span>
+        <span class="rname">openai.com</span>
+        <span class="rtype t-dom">DOMAIN-SUFFIX</span>
+        <span class="sp"></span>
+        <span class="rtarget" style="color:var(--accent)">AI</span>
+        <span class="badge b-gray rhits num">12,381</span>
+      </div>
+
+      <div class="rrow">
+        <span class="ridx num">2</span>
+        <span class="rname">anthropic.com</span>
+        <span class="rtype t-dom">DOMAIN-SUFFIX</span>
+        <span class="sp"></span>
+        <span class="rtarget" style="color:var(--accent)">AI</span>
+        <span class="badge b-gray rhits num">3,962</span>
+      </div>
+
+      <div class="rrow">
+        <span class="ridx num">3</span>
+        <span class="rname">youtube</span>
+        <span class="rtype t-dom">DOMAIN-KEYWORD</span>
+        <span class="sp"></span>
+        <span class="rtarget" style="color:var(--accent)">Streaming</span>
+        <span class="badge b-gray rhits num">8,024</span>
+      </div>
+
+      <div class="rrow">
+        <span class="ridx num">4</span>
+        <span class="rname">*.googlevideo.com</span>
+        <span class="rtype t-dom">DOMAIN-SUFFIX</span>
+        <span class="sp"></span>
+        <span class="rtarget" style="color:var(--accent)">Streaming</span>
+        <span class="badge b-gray rhits num">6,742</span>
+      </div>
+
+      <div class="rrow">
+        <span class="ridx num">5</span>
+        <span class="rname">mtalk.google.com</span>
+        <span class="rtype t-dom">DOMAIN</span>
+        <span class="sp"></span>
+        <span class="rtarget" style="color:var(--green)">DIRECT</span>
+        <span class="badge b-gray rhits num">3,310</span>
+      </div>
+
+      <div class="rrow">
+        <span class="ridx num">6</span>
+        <span class="rname">netflix.com</span>
+        <span class="rtype t-dom">DOMAIN-SUFFIX</span>
+        <span class="sp"></span>
+        <span class="rtarget" style="color:var(--accent)">Streaming</span>
+        <span class="badge b-gray rhits num">1,036</span>
+      </div>
+
+      <div class="rrow">
+        <span class="ridx num">7</span>
+        <span class="rname">Telegram.exe</span>
+        <span class="rtype t-proc">PROCESS-NAME</span>
+        <span class="sp"></span>
+        <span class="rtarget" style="color:var(--accent)">Social</span>
+        <span class="badge b-gray rhits num">2,891</span>
+      </div>
+
+      <div class="rrow">
+        <span class="ridx num">8</span>
+        <span class="rname">steam.exe</span>
+        <span class="rtype t-proc">PROCESS-NAME</span>
+        <span class="sp"></span>
+        <span class="rtarget" style="color:var(--accent)">Gaming</span>
+        <span class="badge b-gray rhits num">947</span>
+      </div>
+
+      <div class="rrow">
+        <span class="ridx num">9</span>
+        <span class="rname">RuleSet:reject</span>
+        <span class="rtype t-set">RULE-SET</span>
+        <span class="sp"></span>
+        <span class="rtarget" style="color:var(--red)">REJECT</span>
+        <span class="badge b-gray rhits num">5,168</span>
+      </div>
+
+      <div class="rrow">
+        <span class="ridx num">10</span>
+        <span class="rname">RuleSet:China</span>
+        <span class="rtype t-set">RULE-SET</span>
+        <span class="sp"></span>
+        <span class="rtarget" style="color:var(--green)">DIRECT</span>
+        <span class="badge b-gray rhits num">21,907</span>
+      </div>
+
+      <div class="rrow">
+        <span class="ridx num">11</span>
+        <span class="rname">198.18.0.0/16</span>
+        <span class="rtype t-ip">IP-CIDR</span>
+        <span class="rflag">no-resolve</span>
+        <span class="sp"></span>
+        <span class="rtarget" style="color:var(--green)">DIRECT</span>
+        <span class="badge b-gray rhits num">1,254</span>
+      </div>
+
+      <div class="rrow">
+        <span class="ridx num">12</span>
+        <span class="rname">10.0.0.0/8</span>
+        <span class="rtype t-ip">IP-CIDR</span>
+        <span class="rflag">no-resolve</span>
+        <span class="sp"></span>
+        <span class="rtarget" style="color:var(--green)">DIRECT</span>
+        <span class="badge b-gray rhits num">0</span>
+      </div>
+
+      <div class="rrow">
+        <span class="ridx num">13</span>
+        <span class="rname">CN</span>
+        <span class="rtype t-geo">GEOIP</span>
+        <span class="sp"></span>
+        <span class="rtarget" style="color:var(--green)">DIRECT</span>
+        <span class="badge b-gray rhits num">18,463</span>
+      </div>
+
+      <div class="rrow">
+        <span class="ridx num">14</span>
+        <span class="rname">—</span>
+        <span class="rtype t-match">MATCH</span>
+        <span class="sp"></span>
+        <span class="rtarget" style="color:var(--accent)">Fallback</span>
+        <span class="badge b-gray rhits num">4,120</span>
+      </div>
+
+    </div>
+  </div>
+
+</section>
