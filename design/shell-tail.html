@@ -22,7 +22,11 @@ items.forEach(it=>it.addEventListener('click',()=>{
 const q=new URLSearchParams(location.search);
 if(q.get('theme'))document.documentElement.dataset.theme=q.get('theme');
 if(location.hash){const k=location.hash.slice(1).replace(/^page-/,'');
-  const it=[...items].find(i=>i.dataset.page===k);if(it)it.click();}
+  const it=[...items].find(i=>i.dataset.page===k);
+  if(it)it.click();
+  else{const sec=document.getElementById('page-'+k);
+    if(sec){pages.forEach(p=>p.classList.remove('on'));sec.classList.add('on');
+      items.forEach(x=>x.classList.remove('on'));title.textContent=sec.dataset.title||'';}}}
 
 /* ---- 主题切换 ---- */
 document.getElementById('theme-btn').addEventListener('click',()=>{

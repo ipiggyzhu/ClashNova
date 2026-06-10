@@ -41,8 +41,12 @@ ClashMac（macOS 控制中心质感），最终交付单个 exe/MSI 安装包。
 ### M3 ClashMac 可视化特色
 - Dashboard 总览（运行状态/网络状态/实时速率/7 天趋势/流量汇总环形图 + 多维排行）
 - Topology 桑基图（IP → 进程 → 规则 → 节点 → 出站）
-- Route Map 2D 飞行地图（ECharts geo + lines 弧线，GeoIP mmdb 本地定位）
+- Route Map 3D 球形地图（three.js 或 echarts-gl globe：拖拽旋转/滚轮缩放，支持一键
+  展开为 2D 平面世界地图；GeoIP mmdb 本地定位；星空 + 大气辉光视觉）
 - Traffic Stats 统计页（按代理/进程/域名多维，SQLite 持久化历史）
+
+注：托盘弹窗是托盘交互组件（Windows 托盘 flyout），不在主窗口侧边栏出现；
+设计稿中通过 mockup.html#tray 查看。
 
 ## UI 设计语言（提取自参考截图）
 
