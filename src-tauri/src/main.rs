@@ -4,7 +4,9 @@
 
 mod commands;
 mod core;
+mod hotkeys;
 mod profiles;
+mod service;
 mod state;
 mod sysproxy_win;
 mod tray;
@@ -16,6 +18,12 @@ use tauri_plugin_log::{Target, TargetKind};
 use crate::state::AppState;
 
 fn main() {
+    // 服务进程路径: SCM 调度, 不进入 GUI
+    if std::env::args().any(|a| a == "--service") {
+        service::run_dispatcher();
+        return;
+    }
+
     let app_state = match AppState::init() {
         Ok(s) => s,
         Err(e) => {
@@ -45,6 +53,7 @@ fn main() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_autostart::init(
             MacosLauncher::LaunchAgent,
             Some(vec!["--silent"]),
@@ -72,6 +81,13 @@ fn main() {
             commands::set_tun,
             commands::set_mode,
             commands::open_app_dir,
+            commands::open_url,
+            commands::service_status,
+            commands::install_service,
+            commands::uninstall_service,
+            commands::exempt_uwp_loopback,
+            commands::check_update,
+            commands::reset_settings,
         ])
         .setup(|app| {
             let handle = app.handle().clone();
@@ -91,13 +107,14 @@ fn main() {
                 log::error!("启动内核失败: {e}");
             }
 
-            // 恢复系统代理与守卫
+            // 恢复系统代理与守卫、注册全局热键
             if settings.sys_proxy {
                 if let Err(e) = sysproxy_win::apply(&settings) {
                     log::error!("恢复系统代理失败: {e}");
                 }
             }
             sysproxy_win::restart_guard(&handle);
+            hotkeys::sync(&handle);
             Ok(())
         })
         .on_window_event(|window, event| {

@@ -21,6 +21,7 @@ tauri-plugin-single-instance = "2"
 tauri-plugin-process = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-log = "2"
+tauri-plugin-global-shortcut = "2"
 tokio = { version = "1", features = ["rt-multi-thread", "process", "time", "macros"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 serde = { version = "1", features = ["derive"] }
@@ -35,3 +36,6 @@ log = "0.4"
 
 # Windows 专属依赖按需补充; 当前注册表代理读写由 sysproxy crate 内部封装,
 # 进程树终止由 tauri-plugin-shell 的 CommandChild::kill 覆盖, 暂无额外条目。
+
+[target.'cfg(windows)'.dependencies]
+windows-service = "0.7"

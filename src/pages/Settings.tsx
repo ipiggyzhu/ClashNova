@@ -3,6 +3,7 @@ import './Settings.css'
 import Badge from '../components/ui/Badge'
 import Button from '../components/ui/Button'
 import Card from '../components/ui/Card'
+import CodeEditor from '../components/ui/CodeEditor'
 import Icon from '../components/ui/Icon'
 import Input from '../components/ui/Input'
 import Seg from '../components/ui/Seg'
@@ -484,12 +485,13 @@ export default function Settings() {
                 <Icon name="x" />
               </button>
             </div>
-            <textarea
-              className={drawer.mono ? 'mono' : ''}
-              value={drawer.content}
-              onChange={(e) => setDrawer({ ...drawer, content: e.target.value })}
-              spellCheck={false}
-            />
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+              <CodeEditor
+                value={drawer.content}
+                onChange={(content) => setDrawer({ ...drawer, content })}
+                lang={drawer.key === 'customCss' ? 'css' : drawer.key === 'dnsOverride' ? 'yaml' : 'css'}
+              />
+            </div>
             <div className="dfoot">
               <Button onClick={() => setDrawer(null)}>{t('取消')}</Button>
               <Button variant="primary" onClick={saveDrawer}>

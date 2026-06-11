@@ -3,6 +3,7 @@ import './Profiles.css'
 import Badge from '../components/ui/Badge'
 import Button from '../components/ui/Button'
 import Card from '../components/ui/Card'
+import CodeEditor from '../components/ui/CodeEditor'
 import Icon from '../components/ui/Icon'
 import Input from '../components/ui/Input'
 import Toggle from '../components/ui/Toggle'
@@ -299,10 +300,10 @@ export default function Profiles() {
                 <Icon name="x" />
               </button>
             </div>
-            <textarea
+            <CodeEditor
               value={editor.content}
-              onChange={(e) => setEditor({ ...editor, content: e.target.value })}
-              spellCheck={false}
+              onChange={(content) => setEditor({ ...editor, content })}
+              lang="yaml"
             />
             <div className="efoot">
               <Button onClick={() => setEditor(null)}>取消</Button>
@@ -331,10 +332,10 @@ export default function Profiles() {
                 <Icon name="x" />
               </button>
             </div>
-            <textarea
+            <CodeEditor
               value={enhEditor.content}
-              onChange={(e) => setEnhEditor({ ...enhEditor, content: e.target.value })}
-              spellCheck={false}
+              onChange={(content) => setEnhEditor({ ...enhEditor, content })}
+              lang={enhEditor.kind === 'merge' ? 'yaml' : 'javascript'}
             />
             <div className="efoot">
               <Button onClick={() => setEnhEditor(null)}>取消</Button>

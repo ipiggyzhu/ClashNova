@@ -66,6 +66,12 @@ pub fn start(app: &AppHandle) -> Result<(), String> {
     if !state.dirs.runtime_config().exists() {
         crate::profiles::regenerate_runtime(app)?;
     }
+    // 服务模式托管内核 → 不再拉起 sidecar, 仅经外部控制器对接
+    if crate::service::is_running() {
+        log::info!("内核由服务 {} 托管, 跳过 sidecar 启动", crate::service::SERVICE_NAME);
+        refresh_version_async(app.clone());
+        return Ok(());
+    }
     spawn_core(app)?;
     {
         let mut guard = state.core.lock().expect("core 锁中毒");

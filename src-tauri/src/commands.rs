@@ -7,7 +7,7 @@ use tauri_plugin_opener::OpenerExt;
 use crate::core::{self, CoreStatus};
 use crate::profiles::{self, EnhancerMeta, ProfileMeta};
 use crate::state::{AppSettings, AppState};
-use crate::{sysproxy_win, tray};
+use crate::{hotkeys, service, sysproxy_win, tray};
 
 /* ---------------- 内部应用函数(命令与托盘共用) ---------------- */
 
@@ -122,6 +122,11 @@ pub async fn save_settings(app: AppHandle, settings: AppSettings) -> Result<(), 
     {
         profiles::regenerate_runtime(&app)?;
         core::reload_runtime(&app).await?;
+    }
+
+    // 热键绑定变化 → 重注册
+    if settings.hotkeys != prev.hotkeys {
+        hotkeys::sync(&app);
     }
 
     tray::sync_tray(&app);
@@ -258,4 +263,100 @@ pub fn open_app_dir(app: AppHandle, kind: String) -> Result<(), String> {
     app.opener()
         .open_path(path.to_string_lossy(), None::<&str>)
         .map_err(|e| format!("打开目录失败: {e}"))
+}
+
+/* ---------------- 系统能力(M2) ---------------- */
+
+#[tauri::command]
+pub fn open_url(app: AppHandle, url: String) -> Result<(), String> {
+    if !url.starts_with("http://") && !url.starts_with("https://") {
+        return Err(format!("非法 URL: {url}"));
+    }
+    app.opener()
+        .open_url(url, None::<&str>)
+        .map_err(|e| format!("打开链接失败: {e}"))
+}
+
+#[tauri::command]
+pub async fn service_status() -> String {
+    tauri::async_runtime::spawn_blocking(|| service::status().to_string())
+        .await
+        .unwrap_or_else(|_| "not-installed".into())
+}
+
+#[tauri::command]
+pub async fn install_service(app: AppHandle) -> Result<(), String> {
+    let dir = app.state::<AppState>().dirs.config.clone();
+    tauri::async_runtime::spawn_blocking(move || service::install(&dir))
+        .await
+        .map_err(|e| format!("任务失败: {e}"))?
+}
+
+#[tauri::command]
+pub async fn uninstall_service() -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(service::uninstall)
+        .await
+        .map_err(|e| format!("任务失败: {e}"))?
+}
+
+/// 解除全部 UWP 应用的回环限制(PowerShell 枚举 AppX 包逐个豁免)。
+#[tauri::command]
+pub async fn exempt_uwp_loopback() -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let mut cmd = std::process::Command::new("powershell.exe");
+        cmd.args([
+            "-NoProfile",
+            "-Command",
+            "Get-AppxPackage | ForEach-Object { CheckNetIsolation.exe LoopbackExempt -a \"-n=$($_.PackageFamilyName)\" } | Out-Null",
+        ]);
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+        }
+        let out = cmd.output().map_err(|e| format!("执行失败: {e}"))?;
+        if out.status.success() {
+            Ok(())
+        } else {
+            Err(format!(
+                "UWP 豁免失败: {}",
+                String::from_utf8_lossy(&out.stderr)
+            ))
+        }
+    })
+    .await
+    .map_err(|e| format!("任务失败: {e}"))?
+}
+
+/// GitHub Releases 最新版本号;比当前新则返回 Some(版本)。
+/// (自动安装升级依赖签名密钥与发布基建, 见 BUILD.md)
+#[tauri::command]
+pub async fn check_update() -> Result<Option<String>, String> {
+    const RELEASES_API: &str = "https://api.github.com/repos/clashnova/clashnova/releases/latest";
+    let resp = reqwest::Client::new()
+        .get(RELEASES_API)
+        .header("User-Agent", "ClashNova/2.0")
+        .timeout(std::time::Duration::from_secs(10))
+        .send()
+        .await
+        .map_err(|e| format!("检查更新失败: {e}"))?;
+    if !resp.status().is_success() {
+        return Err(format!("检查更新失败: HTTP {}", resp.status()));
+    }
+    let body: serde_json::Value = resp.json().await.map_err(|e| format!("解析失败: {e}"))?;
+    let latest = body["tag_name"]
+        .as_str()
+        .unwrap_or("")
+        .trim_start_matches('v')
+        .to_string();
+    let current = env!("CARGO_PKG_VERSION");
+    Ok((!latest.is_empty() && latest != current).then_some(latest))
+}
+
+/// 恢复默认设置并按差异应用全部副作用。
+#[tauri::command]
+pub async fn reset_settings(app: AppHandle) -> Result<AppSettings, String> {
+    let defaults = AppSettings::default();
+    save_settings(app, defaults.clone()).await?;
+    Ok(defaults)
 }
