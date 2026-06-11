@@ -1,0 +1,23 @@
+/* ============================================================
+   ClashNova v2 设计令牌
+   来源: design/shell-head.html <style> (唯一视觉基准, 不得擅改)
+   ============================================================ */
+:root{
+  --bg:#161618; --bg-deep:#101012; --card:#232326; --card-2:#2a2a2e; --card-3:#313136;
+  --line:rgba(255,255,255,.07); --line-2:rgba(255,255,255,.12);
+  --text:#ececf0; --text-2:#9b9ba3; --text-3:#6e6e76;
+  --accent:#0A84FF; --accent-dim:rgba(10,132,255,.14);
+  --green:#32D74B; --red:#FF453A; --orange:#FF9F0A; --yellow:#FFD60A;
+  --purple:#BF5AF2; --cyan:#64D2FF; --pink:#FF375F; --teal:#40C8E0;
+  --radius:12px; --radius-sm:8px;
+  --shadow:0 8px 28px rgba(0,0,0,.36);
+  --sans:-apple-system,"SF Pro Display","SF Pro Text","Segoe UI Variable Display","Segoe UI","PingFang SC","Microsoft YaHei UI",sans-serif;
+  --mono:"SF Mono","Cascadia Code","JetBrains Mono",Consolas,monospace;
+}
+[data-theme="light"]{
+  --bg:#f2f2f6; --bg-deep:#e9e9ee; --card:#ffffff; --card-2:#f5f5f8; --card-3:#ececf1;
+  --line:rgba(0,0,0,.08); --line-2:rgba(0,0,0,.14);
+  --text:#1c1c1e; --text-2:#6e6e76; --text-3:#9b9ba3;
+  --accent-dim:rgba(10,132,255,.10);
+  --shadow:0 8px 28px rgba(0,0,0,.10);
+}
