@@ -14,7 +14,9 @@ import type {
   ProxiesPayload,
   ProxyGroup,
   ProxyNode,
+  ProxyProviderItem,
   RuleItem,
+  RuleProviderItem,
 } from '../types/clash'
 
 /* ============================== 工具 ============================== */
@@ -580,4 +582,57 @@ const enhancerContents: Record<string, string> = {
 /** 当前 mock 设置(api.ts 取 secret/controller 用) */
 export function mockSettings(): AppSettings {
   return { ...settings }
+}
+
+/* ============================== 提供者造数器(M2) ============================== */
+
+const proxyProviders: ProxyProviderItem[] = [
+  {
+    name: 'BigAirport',
+    vehicleType: 'HTTP',
+    nodeCount: 128,
+    updatedAt: Date.now() - 2 * HOUR,
+    subscription: { used: 162.4 * GB, total: 500 * GB, expireAt: Date.now() + 37 * DAY },
+  },
+  {
+    name: 'SecondaryPool',
+    vehicleType: 'HTTP',
+    nodeCount: 36,
+    updatedAt: Date.now() - 26 * HOUR,
+    subscription: { used: 8.1 * GB, total: 100 * GB, expireAt: Date.now() + 83 * DAY },
+  },
+]
+
+const ruleProviders: RuleProviderItem[] = [
+  { name: 'reject', behavior: 'domain', vehicleType: 'HTTP', ruleCount: 32118, updatedAt: Date.now() - 2 * HOUR },
+  { name: 'icloud', behavior: 'domain', vehicleType: 'HTTP', ruleCount: 398, updatedAt: Date.now() - 2 * HOUR },
+  { name: 'apple', behavior: 'domain', vehicleType: 'HTTP', ruleCount: 168, updatedAt: Date.now() - 5 * HOUR },
+  { name: 'google', behavior: 'domain', vehicleType: 'HTTP', ruleCount: 570, updatedAt: Date.now() - 2 * HOUR },
+  { name: 'proxy', behavior: 'domain', vehicleType: 'HTTP', ruleCount: 41217, updatedAt: Date.now() - 1 * HOUR },
+  { name: 'direct', behavior: 'classical', vehicleType: 'HTTP', ruleCount: 8439, updatedAt: Date.now() - 3 * HOUR },
+  { name: 'cncidr', behavior: 'ipcidr', vehicleType: 'HTTP', ruleCount: 7432, updatedAt: Date.now() - 26 * HOUR },
+  { name: 'lancidr', behavior: 'ipcidr', vehicleType: 'HTTP', ruleCount: 19, updatedAt: Date.now() - 3 * DAY },
+]
+
+export function mockProxyProviders(): ProxyProviderItem[] {
+  return proxyProviders.map((p) => ({ ...p }))
+}
+
+export function mockRuleProviders(): RuleProviderItem[] {
+  return ruleProviders.map((p) => ({ ...p }))
+}
+
+/** PUT /providers/proxies/{name} — 刷新更新时间并轻微抖动节点数 */
+export function mockUpdateProxyProvider(name: string): void {
+  const p = proxyProviders.find((it) => it.name === name)
+  if (!p) throw new Error(`提供者不存在: ${name}`)
+  p.updatedAt = Date.now()
+  p.nodeCount = Math.max(1, p.nodeCount + Math.round(rand(-2, 2)))
+}
+
+/** PUT /providers/rules/{name} */
+export function mockUpdateRuleProvider(name: string): void {
+  const p = ruleProviders.find((it) => it.name === name)
+  if (!p) throw new Error(`提供者不存在: ${name}`)
+  p.updatedAt = Date.now()
 }

@@ -9,6 +9,8 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
+    // WSL 下 /mnt/* 无 inotify 事件,轮询保证 HMR/模块缓存失效正常
+    watch: { usePolling: true, interval: 800 },
   },
   build: {
     target: 'es2021',
