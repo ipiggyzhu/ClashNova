@@ -8,6 +8,7 @@ import Providers from './pages/Providers'
 import Rules from './pages/Rules'
 import Profiles from './pages/Profiles'
 import Settings from './pages/Settings'
+import Test from './pages/Test'
 import Placeholder from './pages/Placeholder'
 
 /**
@@ -30,6 +31,7 @@ export const router = createBrowserRouter([
       { path: 'proxies', element: <Proxies /> },
       { path: 'rules', element: <Rules /> },
       { path: 'providers', element: <Providers /> },
+      { path: 'test', element: <Test /> },
       { path: 'profiles', element: <Profiles /> },
       { path: 'settings', element: <Settings /> },
       { path: '*', element: <Navigate to="/dashboard" replace /> },

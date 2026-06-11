@@ -15,6 +15,7 @@ export const PAGE_TITLES: Record<string, string> = {
   proxies: '节点',
   rules: '规则',
   providers: '提供者',
+  test: '测试',
   profiles: '订阅',
   settings: '设置',
 }

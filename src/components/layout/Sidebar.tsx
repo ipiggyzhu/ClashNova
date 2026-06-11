@@ -7,6 +7,8 @@ import type { IconName } from '../ui/Icon'
 interface NavEntry {
   key: IconName
   label: string
+  /** 路由段缺省取 key */
+  to?: string
 }
 
 interface NavGroup {
@@ -37,6 +39,7 @@ const NAV_GROUPS: NavGroup[] = [
       { key: 'proxies', label: '节点' },
       { key: 'rules', label: '规则' },
       { key: 'providers', label: '提供者' },
+      { key: 'zap', label: '测试', to: 'test' },
     ],
   },
   {
@@ -83,7 +86,7 @@ export default function Sidebar() {
             {g.items.map((it) => (
               <NavLink
                 key={it.key}
-                to={`/${it.key}`}
+                to={`/${it.to ?? it.key}`}
                 className={({ isActive }) => (isActive ? 'nav-item on' : 'nav-item')}
               >
                 <Icon name={it.key} />
