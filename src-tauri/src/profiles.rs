@@ -28,6 +28,20 @@ pub struct ProfileMeta {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub quota: Option<ProfileQuota>,
     pub current: bool,
+    /// Merge/Script 配置增强链(M2),按序应用。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub enhancers: Vec<EnhancerMeta>,
+}
+
+/// 单个增强项元数据;内容存 profiles/{pid}.{eid}.{yaml|js}。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EnhancerMeta {
+    pub id: String,
+    /// "merge" | "script"
+    pub kind: String,
+    pub name: String,
+    pub enabled: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -213,6 +227,7 @@ pub async fn import(app: &AppHandle, url: String) -> Result<ProfileMeta, String>
         size_bytes: Some(content.len() as u64),
         quota,
         current: first,
+        enhancers: Vec::new(),
     };
     index.push(meta.clone());
     save_index(app, &index)?;
@@ -341,21 +356,193 @@ pub async fn save_content(app: &AppHandle, id: String, content: String) -> Resul
     Ok(())
 }
 
-/// 用当前订阅 + 设置覆写生成 runtime.yaml(无订阅时生成最小可启动配置)。
+/// 用当前订阅 + 增强链 + 设置覆写生成 runtime.yaml(无订阅时生成最小可启动配置)。
+///
+/// 增强链单项失败仅记日志并跳过,不阻断内核配置生成。
 pub fn regenerate_runtime(app: &AppHandle) -> Result<(), String> {
     let state = app.state::<AppState>();
     let settings = state.settings_snapshot();
     let index = load_index(app);
-    let profile_yaml = index
-        .iter()
-        .find(|p| p.current)
+    let current = index.iter().find(|p| p.current);
+    let profile_yaml = current
         .map(|p| read_content(app, &p.id))
         .transpose()?
         .unwrap_or_else(|| "proxies: []\n".to_string());
 
-    let runtime = nova_core::build_runtime_config(&profile_yaml, &settings.to_overrides())
+    let enhanced = match current {
+        Some(meta) if meta.enhancers.iter().any(|e| e.enabled) => {
+            apply_enhancers(app, meta, &profile_yaml)
+        }
+        _ => profile_yaml,
+    };
+
+    let runtime = nova_core::build_runtime_config(&enhanced, &settings.to_overrides())
         .map_err(|e| format!("生成运行时配置失败: {e}"))?;
     atomic_write(&state.dirs.runtime_config(), runtime.as_bytes())
+}
+
+/* ---------------- 配置增强链(M2) ---------------- */
+
+fn enhancer_file(state: &AppState, pid: &str, e: &EnhancerMeta) -> std::path::PathBuf {
+    let ext = if e.kind == "merge" { "yaml" } else { "js" };
+    state.dirs.profiles.join(format!("{pid}.{}.{ext}", e.id))
+}
+
+/// 依序应用启用的增强项;任一项读取/解析/执行失败 → 记日志跳过该项。
+fn apply_enhancers(app: &AppHandle, meta: &ProfileMeta, profile_yaml: &str) -> String {
+    let state = app.state::<AppState>();
+    let Ok(mut base) = serde_yaml::from_str::<serde_yaml::Value>(profile_yaml) else {
+        return profile_yaml.to_string();
+    };
+    for e in meta.enhancers.iter().filter(|e| e.enabled) {
+        let path = enhancer_file(&state, &meta.id, e);
+        let content = match fs::read_to_string(&path) {
+            Ok(c) => c,
+            Err(err) => {
+                log::warn!("增强项 {}({}) 读取失败, 已跳过: {err}", e.name, e.id);
+                continue;
+            }
+        };
+        let item = if e.kind == "merge" {
+            match serde_yaml::from_str::<serde_yaml::Value>(&content) {
+                Ok(v) => nova_core::EnhancerItem::Merge(v),
+                Err(err) => {
+                    log::warn!("增强项 {}({}) YAML 非法, 已跳过: {err}", e.name, e.id);
+                    continue;
+                }
+            }
+        } else {
+            nova_core::EnhancerItem::Script(content)
+        };
+        if let Err(err) = nova_core::apply_chain(&mut base, std::slice::from_ref(&item)) {
+            log::warn!("增强项 {}({}) 应用失败, 已跳过: {err}", e.name, e.id);
+        }
+    }
+    serde_yaml::to_string(&base).unwrap_or_else(|_| profile_yaml.to_string())
+}
+
+/// 读取增强项内容(不存在时返回空串, 便于新建后首次编辑)。
+pub fn read_enhancer(app: &AppHandle, pid: &str, eid: &str) -> Result<String, String> {
+    let index = load_index(app);
+    let meta = index
+        .iter()
+        .find(|p| p.id == pid)
+        .ok_or_else(|| format!("订阅不存在: {pid}"))?;
+    let e = meta
+        .enhancers
+        .iter()
+        .find(|e| e.id == eid)
+        .ok_or_else(|| format!("增强项不存在: {eid}"))?;
+    let state = app.state::<AppState>();
+    Ok(fs::read_to_string(enhancer_file(&state, pid, e)).unwrap_or_default())
+}
+
+/// 新建或更新增强项(eid 缺省则新建);merge 内容先做 YAML 校验。
+/// 作用于当前订阅时重生成运行时配置并热加载。
+pub async fn save_enhancer(
+    app: &AppHandle,
+    pid: String,
+    eid: Option<String>,
+    kind: String,
+    name: String,
+    content: String,
+) -> Result<EnhancerMeta, String> {
+    if !matches!(kind.as_str(), "merge" | "script") {
+        return Err(format!("非法增强类型: {kind}"));
+    }
+    if kind == "merge" {
+        serde_yaml::from_str::<serde_yaml::Value>(&content)
+            .map_err(|e| format!("Merge YAML 语法错误: {e}"))?;
+    }
+
+    let mut index = load_index(app);
+    let slot = index
+        .iter_mut()
+        .find(|p| p.id == pid)
+        .ok_or_else(|| format!("订阅不存在: {pid}"))?;
+
+    let meta = match eid {
+        Some(eid) => {
+            let e = slot
+                .enhancers
+                .iter_mut()
+                .find(|e| e.id == eid)
+                .ok_or_else(|| format!("增强项不存在: {eid}"))?;
+            e.name = name;
+            e.clone()
+        }
+        None => {
+            let e = EnhancerMeta {
+                id: base36(now_millis()),
+                kind,
+                name,
+                enabled: true,
+            };
+            slot.enhancers.push(e.clone());
+            e
+        }
+    };
+    let is_current = slot.current;
+    let state = app.state::<AppState>();
+    atomic_write(&enhancer_file(&state, &pid, &meta), content.as_bytes())?;
+    save_index(app, &index)?;
+
+    if is_current {
+        regenerate_runtime(app)?;
+        crate::core::reload_runtime(app).await?;
+    }
+    Ok(meta)
+}
+
+/// 删除增强项(连同内容文件)。
+pub async fn delete_enhancer(app: &AppHandle, pid: String, eid: String) -> Result<(), String> {
+    let mut index = load_index(app);
+    let slot = index
+        .iter_mut()
+        .find(|p| p.id == pid)
+        .ok_or_else(|| format!("订阅不存在: {pid}"))?;
+    let Some(pos) = slot.enhancers.iter().position(|e| e.id == eid) else {
+        return Err(format!("增强项不存在: {eid}"));
+    };
+    let removed = slot.enhancers.remove(pos);
+    let is_current = slot.current;
+    let state = app.state::<AppState>();
+    let _ = fs::remove_file(enhancer_file(&state, &pid, &removed));
+    save_index(app, &index)?;
+
+    if is_current {
+        regenerate_runtime(app)?;
+        crate::core::reload_runtime(app).await?;
+    }
+    Ok(())
+}
+
+/// 启用/停用增强项。
+pub async fn toggle_enhancer(
+    app: &AppHandle,
+    pid: String,
+    eid: String,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut index = load_index(app);
+    let slot = index
+        .iter_mut()
+        .find(|p| p.id == pid)
+        .ok_or_else(|| format!("订阅不存在: {pid}"))?;
+    let e = slot
+        .enhancers
+        .iter_mut()
+        .find(|e| e.id == eid)
+        .ok_or_else(|| format!("增强项不存在: {eid}"))?;
+    e.enabled = enabled;
+    let is_current = slot.current;
+    save_index(app, &index)?;
+
+    if is_current {
+        regenerate_runtime(app)?;
+        crate::core::reload_runtime(app).await?;
+    }
+    Ok(())
 }
 
 /// 极小 URL host 提取(避免为取名引入 url crate)。

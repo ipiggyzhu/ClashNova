@@ -36,8 +36,9 @@
 .pg-profiles .enh-row .nm{font-weight:600}
 .pg-profiles .enh-row .spacer{flex:1}
 .pg-profiles .enh-add{margin:10px 16px 14px;padding:9px;border:1.5px dashed var(--line-2);
-  border-radius:var(--radius-sm);text-align:center;font-size:12px;color:var(--text-2);
-  cursor:not-allowed;opacity:.75}
+  border-radius:var(--radius-sm);display:flex;gap:8px;justify-content:center}
+.pg-profiles .enh-row .confirm{display:flex;gap:6px;align-items:center}
+.pg-profiles .editor .ehead .enh-name{width:240px;height:26px;font-size:12px}
 .pg-profiles .editor-mask{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:50;
   display:flex;align-items:center;justify-content:center}
 .pg-profiles .editor{width:720px;max-width:92vw;max-height:84vh;display:flex;flex-direction:column;

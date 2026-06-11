@@ -5,19 +5,28 @@ import Button from '../components/ui/Button'
 import Card from '../components/ui/Card'
 import Icon from '../components/ui/Icon'
 import Input from '../components/ui/Input'
+import Toggle from '../components/ui/Toggle'
 import { call } from '../services/ipc'
-import type { ProfileMeta } from '../types/clash'
+import type { EnhancerMeta, ProfileMeta } from '../types/clash'
 import { daysLeft, fmtBytes, fmtRelTime } from '../utils/format'
 
-/* M1: 增强链仅静态展示(实际执行在 M2) */
-const ENHANCERS = [
-  { name: 'Merge: 覆写 DNS 与端口', kind: 'yaml' as const, on: true },
-  { name: 'Script: 节点改名+地区分组', kind: 'js' as const, on: true },
-  { name: 'Script: 去除无效节点', kind: 'js' as const, on: false },
-]
+/** 新建增强项的初始模板 */
+const ENH_TEMPLATES: Record<EnhancerMeta['kind'], string> = {
+  merge: '# YAML 深合并补丁(支持 prepend-X / append-X)\n# 例: 覆写 DNS\ndns:\n  enable: true\n',
+  script: '// 须定义 main(config) 并返回配置对象\nfunction main(config) {\n  return config;\n}\n',
+}
 
 interface EditorState {
   profile: ProfileMeta
+  content: string
+}
+
+/** 增强项编辑抽屉状态(enh 为 null 表示新建) */
+interface EnhEditorState {
+  pid: string
+  enh: EnhancerMeta | null
+  kind: EnhancerMeta['kind']
+  name: string
   content: string
 }
 
@@ -28,6 +37,8 @@ export default function Profiles() {
   const [busyId, setBusyId] = useState<string | null>(null)
   const [editor, setEditor] = useState<EditorState | null>(null)
   const [confirmDel, setConfirmDel] = useState<ProfileMeta | null>(null)
+  const [enhEditor, setEnhEditor] = useState<EnhEditorState | null>(null)
+  const [confirmDelEnh, setConfirmDelEnh] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
     setProfiles(await call('list_profiles'))
@@ -81,6 +92,50 @@ export default function Profiles() {
     if (!editor) return
     await call('save_profile_content', { id: editor.profile.id, content: editor.content })
     setEditor(null)
+    await refresh()
+  }
+
+  /* ---- 增强链 ---- */
+  const currentProfile = profiles.find((p) => p.current) ?? null
+  const enhancers = currentProfile?.enhancers ?? []
+
+  const openEnhEditor = async (enh: EnhancerMeta | null, kind: EnhancerMeta['kind']): Promise<void> => {
+    if (!currentProfile) return
+    const content = enh
+      ? await call('read_enhancer', { profileId: currentProfile.id, enhancerId: enh.id })
+      : ENH_TEMPLATES[kind]
+    setEnhEditor({
+      pid: currentProfile.id,
+      enh,
+      kind: enh?.kind ?? kind,
+      name: enh?.name ?? (kind === 'merge' ? '新 Merge 处理器' : '新 Script 处理器'),
+      content,
+    })
+  }
+
+  const saveEnhEditor = async (): Promise<void> => {
+    if (!enhEditor) return
+    await call('save_enhancer', {
+      profileId: enhEditor.pid,
+      enhancerId: enhEditor.enh?.id ?? null,
+      kind: enhEditor.kind,
+      name: enhEditor.name.trim() || '未命名处理器',
+      content: enhEditor.content,
+    })
+    setEnhEditor(null)
+    await refresh()
+  }
+
+  const toggleEnh = async (enh: EnhancerMeta, enabled: boolean): Promise<void> => {
+    if (!currentProfile) return
+    await call('toggle_enhancer', { profileId: currentProfile.id, enhancerId: enh.id, enabled })
+    await refresh()
+  }
+
+  const deleteEnh = async (enh: EnhancerMeta): Promise<void> => {
+    if (!currentProfile) return
+    await call('delete_enhancer', { profileId: currentProfile.id, enhancerId: enh.id })
+    setConfirmDelEnh(null)
     await refresh()
   }
 
@@ -182,34 +237,53 @@ export default function Profiles() {
         })}
       </div>
 
-      {/* ---- 配置增强链(M1 静态) ---- */}
+      {/* ---- 配置增强链(作用于当前订阅) ---- */}
       <Card
         icon={<Icon name="profiles" />}
         iconColor="var(--purple)"
         title="配置增强链"
-        actions={<span className="chip">处理顺序自上而下</span>}
+        actions={
+          <span className="chip">
+            {currentProfile ? `作用于 ${currentProfile.name} · 自上而下` : '无可用订阅'}
+          </span>
+        }
         flush
       >
-        {ENHANCERS.map((e) => (
-          <div className="enh-row" key={e.name}>
-            <span className="grip" title="拖拽排序(M2)">
+        {enhancers.map((e) => (
+          <div className="enh-row" key={e.id}>
+            <span className="grip">
               <Icon name="rules" size={13} />
             </span>
-            <span className={`ftype ${e.kind}`}>{e.kind === 'yaml' ? 'YML' : 'JS'}</span>
+            <span className={`ftype ${e.kind === 'merge' ? 'yaml' : 'js'}`}>
+              {e.kind === 'merge' ? 'YML' : 'JS'}
+            </span>
             <span className="nm">{e.name}</span>
-            <span className="chip">{e.kind === 'yaml' ? 'YAML' : 'JavaScript'}</span>
+            <span className="chip">{e.kind === 'merge' ? 'YAML' : 'JavaScript'}</span>
             <span className="spacer" />
-            <div
-              className={e.on ? 'toggle on' : 'toggle'}
-              style={{ opacity: 0.5, cursor: 'not-allowed' }}
-              title="M2 提供"
-            >
-              <div className="knob" />
-            </div>
-            <Button size="sm" disabled title="M2 提供">编辑</Button>
+            <Toggle on={e.enabled} onChange={(on) => void toggleEnh(e, on)} />
+            <Button size="sm" onClick={() => void openEnhEditor(e, e.kind)}>编辑</Button>
+            {confirmDelEnh === e.id ? (
+              <span className="confirm">
+                <Button size="sm" variant="danger" onClick={() => void deleteEnh(e)}>确认</Button>
+                <Button size="sm" onClick={() => setConfirmDelEnh(null)}>取消</Button>
+              </span>
+            ) : (
+              <Button size="sm" variant="danger" onClick={() => setConfirmDelEnh(e.id)}>
+                <Icon name="trash" size={12} />
+              </Button>
+            )}
           </div>
         ))}
-        <div className="enh-add">+ 新建 Merge / Script 处理器（M2 提供）</div>
+        {currentProfile && (
+          <div className="enh-add">
+            <Button size="sm" onClick={() => void openEnhEditor(null, 'merge')}>
+              <Icon name="plus" size={12} />新建 Merge
+            </Button>
+            <Button size="sm" onClick={() => void openEnhEditor(null, 'script')}>
+              <Icon name="plus" size={12} />新建 Script
+            </Button>
+          </div>
+        )}
       </Card>
 
       {/* ---- 编辑器抽屉 ---- */}
@@ -233,6 +307,38 @@ export default function Profiles() {
             <div className="efoot">
               <Button onClick={() => setEditor(null)}>取消</Button>
               <Button variant="primary" onClick={() => void saveEditor()}>
+                <Icon name="check" size={13} />保存
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* ---- 增强项编辑抽屉 ---- */}
+      {enhEditor && (
+        <div className="editor-mask" onClick={() => setEnhEditor(null)}>
+          <div className="editor" onClick={(e) => e.stopPropagation()}>
+            <div className="ehead">
+              <Icon name="edit" size={14} />
+              <Input
+                className="enh-name"
+                value={enhEditor.name}
+                onChange={(e) => setEnhEditor({ ...enhEditor, name: e.target.value })}
+                placeholder="处理器名称"
+              />
+              <span className="chip">{enhEditor.kind === 'merge' ? 'YAML' : 'JavaScript'}</span>
+              <span className="spacer" />
+              <button className="icon-btn" onClick={() => setEnhEditor(null)}>
+                <Icon name="x" />
+              </button>
+            </div>
+            <textarea
+              value={enhEditor.content}
+              onChange={(e) => setEnhEditor({ ...enhEditor, content: e.target.value })}
+              spellCheck={false}
+            />
+            <div className="efoot">
+              <Button onClick={() => setEnhEditor(null)}>取消</Button>
+              <Button variant="primary" onClick={() => void saveEnhEditor()}>
                 <Icon name="check" size={13} />保存
               </Button>
             </div>

@@ -2,7 +2,7 @@
  * Tauri invoke 适配层 — 锁定契约 B 的前端入口。
  * VITE_MOCK=1 或非 Tauri 环境时查 mock.ts 的 handler 表(延迟 80-200ms resolve)。
  */
-import type { AppSettings, CoreStatus, ProfileMeta } from '../types/clash'
+import type { AppSettings, CoreStatus, EnhancerMeta, ProfileMeta } from '../types/clash'
 import { mockHandlers } from './mock'
 
 /** 是否运行在模拟模式(无 Rust 后端) */
@@ -24,6 +24,13 @@ export interface IpcCommands {
   delete_profile: { args: { id: string }; result: void }
   read_profile: { args: { id: string }; result: string }
   save_profile_content: { args: { id: string; content: string }; result: void }
+  read_enhancer: { args: { profileId: string; enhancerId: string }; result: string }
+  save_enhancer: {
+    args: { profileId: string; enhancerId: string | null; kind: 'merge' | 'script'; name: string; content: string }
+    result: EnhancerMeta
+  }
+  delete_enhancer: { args: { profileId: string; enhancerId: string }; result: void }
+  toggle_enhancer: { args: { profileId: string; enhancerId: string; enabled: boolean }; result: void }
   set_system_proxy: { args: { enable: boolean }; result: void }
   set_tun: { args: { enable: boolean }; result: void }
   set_mode: { args: { mode: string }; result: void }

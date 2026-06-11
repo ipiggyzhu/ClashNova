@@ -5,7 +5,7 @@ use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_opener::OpenerExt;
 
 use crate::core::{self, CoreStatus};
-use crate::profiles::{self, ProfileMeta};
+use crate::profiles::{self, EnhancerMeta, ProfileMeta};
 use crate::state::{AppSettings, AppState};
 use crate::{sysproxy_win, tray};
 
@@ -183,6 +183,44 @@ pub async fn save_profile_content(
     content: String,
 ) -> Result<(), String> {
     profiles::save_content(&app, id, content).await
+}
+
+/* ---------------- 配置增强链(M2) ---------------- */
+
+#[tauri::command]
+pub fn read_enhancer(app: AppHandle, profile_id: String, enhancer_id: String) -> Result<String, String> {
+    profiles::read_enhancer(&app, &profile_id, &enhancer_id)
+}
+
+#[tauri::command]
+pub async fn save_enhancer(
+    app: AppHandle,
+    profile_id: String,
+    enhancer_id: Option<String>,
+    kind: String,
+    name: String,
+    content: String,
+) -> Result<EnhancerMeta, String> {
+    profiles::save_enhancer(&app, profile_id, enhancer_id, kind, name, content).await
+}
+
+#[tauri::command]
+pub async fn delete_enhancer(
+    app: AppHandle,
+    profile_id: String,
+    enhancer_id: String,
+) -> Result<(), String> {
+    profiles::delete_enhancer(&app, profile_id, enhancer_id).await
+}
+
+#[tauri::command]
+pub async fn toggle_enhancer(
+    app: AppHandle,
+    profile_id: String,
+    enhancer_id: String,
+    enabled: bool,
+) -> Result<(), String> {
+    profiles::toggle_enhancer(&app, profile_id, enhancer_id, enabled).await
 }
 
 #[tauri::command]

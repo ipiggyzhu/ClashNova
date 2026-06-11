@@ -19,8 +19,10 @@ export interface LogItem { type: 'info' | 'warning' | 'error' | 'debug'; payload
 export interface TrafficPoint { up: number; down: number }
 export interface CoreStatus { running: boolean; version: string; uptimeSec: number; memoryBytes: number }
 export interface ProfileQuota { used: number; total: number; expireAt?: number }
+export interface EnhancerMeta { id: string; kind: 'merge' | 'script'; name: string; enabled: boolean }
 export interface ProfileMeta { id: string; name: string; kind: 'remote' | 'local'; url?: string;
-  updatedAt: number; autoUpdateMin?: number; sizeBytes?: number; quota?: ProfileQuota; current: boolean }
+  updatedAt: number; autoUpdateMin?: number; sizeBytes?: number; quota?: ProfileQuota; current: boolean;
+  enhancers?: EnhancerMeta[] }
 export type OutboundMode = 'rule' | 'global' | 'direct'
 export type Theme = 'dark' | 'light' | 'system'
 export interface AppSettings { sysProxy: boolean; guard: boolean; guardIntervalSec: number;

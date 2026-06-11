@@ -8,6 +8,7 @@ import type {
   ConnItem,
   ConnectionsPayload,
   CoreStatus,
+  EnhancerMeta,
   LogItem,
   ProfileMeta,
   ProxiesPayload,
@@ -121,6 +122,11 @@ let profiles: MockProfile[] = [
         expireAt: Date.now() + 37 * DAY,
       },
       current: true,
+      enhancers: [
+        { id: 'e-dns', kind: 'merge', name: 'Merge: 覆写 DNS 与端口', enabled: true },
+        { id: 'e-rename', kind: 'script', name: 'Script: 节点改名+地区分组', enabled: true },
+        { id: 'e-prune', kind: 'script', name: 'Script: 去除无效节点', enabled: false },
+      ],
     },
     content: BIGAIRPORT_YAML,
   },
@@ -524,6 +530,51 @@ export const mockHandlers: Record<string, MockHandler> = {
     return undefined
   },
   open_app_dir: () => undefined,
+  read_enhancer: (args) => {
+    const key = `${argString(args, 'profileId')}/${argString(args, 'enhancerId')}`
+    return enhancerContents[key] ?? ''
+  },
+  save_enhancer: (args) => {
+    const pid = argString(args, 'profileId')
+    const p = findProfile(pid)
+    const kind = argString(args, 'kind') as EnhancerMeta['kind']
+    const name = argString(args, 'name')
+    const eid = typeof args['enhancerId'] === 'string' ? (args['enhancerId'] as string) : null
+    p.meta.enhancers ??= []
+    let meta: EnhancerMeta
+    if (eid) {
+      const found = p.meta.enhancers.find((e) => e.id === eid)
+      if (!found) throw new Error(`增强项不存在: ${eid}`)
+      found.name = name
+      meta = found
+    } else {
+      meta = { id: `e-${Date.now().toString(36)}`, kind, name, enabled: true }
+      p.meta.enhancers.push(meta)
+    }
+    enhancerContents[`${pid}/${meta.id}`] = argString(args, 'content')
+    return { ...meta }
+  },
+  delete_enhancer: (args) => {
+    const pid = argString(args, 'profileId')
+    const eid = argString(args, 'enhancerId')
+    const p = findProfile(pid)
+    p.meta.enhancers = (p.meta.enhancers ?? []).filter((e) => e.id !== eid)
+    delete enhancerContents[`${pid}/${eid}`]
+    return undefined
+  },
+  toggle_enhancer: (args) => {
+    const p = findProfile(argString(args, 'profileId'))
+    const e = (p.meta.enhancers ?? []).find((it) => it.id === args['enhancerId'])
+    if (e) e.enabled = Boolean(args['enabled'])
+    return undefined
+  },
+}
+
+/** 增强项内容存储(键 `${profileId}/${enhancerId}`) */
+const enhancerContents: Record<string, string> = {
+  'p-bigairport/e-dns': `# 覆写 DNS 与端口\nmixed-port: 7897\ndns:\n  enable: true\n  enhanced-mode: fake-ip\n  nameserver:\n    - https://dns.alidns.com/dns-query\n    - https://doh.pub/dns-query\nprepend-rules:\n  - DOMAIN-SUFFIX,internal.corp,DIRECT\n`,
+  'p-bigairport/e-rename': `// 节点改名 + 地区分组\nfunction main(config) {\n  const flags = { HK: '🇭🇰', TW: '🇹🇼', JP: '🇯🇵', SG: '🇸🇬', US: '🇺🇸' };\n  for (const p of config.proxies ?? []) {\n    const m = p.name.match(/^(HK|TW|JP|SG|US)/);\n    if (m && flags[m[1]]) p.name = flags[m[1]] + ' ' + p.name;\n  }\n  return config;\n}\n`,
+  'p-bigairport/e-prune': `// 去除名称带「过期/剩余」的无效节点\nfunction main(config) {\n  const bad = /过期|剩余|官网|流量/;\n  config.proxies = (config.proxies ?? []).filter((p) => !bad.test(p.name));\n  return config;\n}\n`,
 }
 
 /** 当前 mock 设置(api.ts 取 secret/controller 用) */
