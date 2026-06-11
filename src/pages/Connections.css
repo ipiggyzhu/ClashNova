@@ -1,0 +1,18 @@
+.pg-connections{display:flex;flex-direction:column;gap:14px}
+.pg-connections .toolbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.pg-connections .toolbar .search-wrap{width:260px}
+.pg-connections .toolbar .search-wrap .input{width:100%}
+.pg-connections .toolbar .spacer{flex:1}
+.pg-connections .host-cell .h{font-weight:600}
+.pg-connections .host-cell .h .port{color:var(--text-3);font-weight:400}
+.pg-connections .host-cell .ip{font-size:10.5px;color:var(--text-3);font-family:var(--mono)}
+.pg-connections .proc{display:inline-flex;align-items:center;gap:7px}
+.pg-connections .proc i{width:7px;height:7px;border-radius:50%;
+  box-shadow:0 0 5px color-mix(in srgb,currentColor 70%,transparent)}
+.pg-connections .chain{color:var(--text-2);font-size:11.5px}
+.pg-connections .chain.reject{color:var(--red);font-weight:600}
+.pg-connections .chip.rj{color:var(--red);border-color:color-mix(in srgb,var(--red) 35%,transparent);
+  background:rgba(255,69,58,.10)}
+.pg-connections td.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.pg-connections .dur{color:var(--text-3)}
+.pg-connections .empty{padding:40px;text-align:center;color:var(--text-3);font-size:12.5px}
