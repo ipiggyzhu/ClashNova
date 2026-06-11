@@ -16,6 +16,10 @@ pub struct RuntimeOverrides {
     pub ipv6: bool,
     pub log_level: String,
     pub tun_enable: bool,
+    /// DNS 覆写 YAML 片段(dns: 段的子键);空串表示不覆写(M2)。
+    pub dns_override: String,
+    /// hosts 覆写,每行 `域名 IP`;空串表示不覆写(M2)。
+    pub hosts: String,
 }
 
 /// 解析 profile YAML 并应用覆写,序列化回 YAML(锁定契约 D)。
@@ -64,6 +68,48 @@ pub fn build_runtime_config(profile_yaml: &str, ov: &RuntimeOverrides) -> Result
         tun.insert(Value::String("enable".into()), Value::Bool(false));
     }
 
+    // DNS 覆写:用户片段深合并进 dns: 段(无 enable 键时默认补 enable: true)
+    if !ov.dns_override.trim().is_empty() {
+        let dns_val: Value = serde_yaml::from_str(&ov.dns_override)?;
+        if !dns_val.is_mapping() {
+            return Err(CoreError::UnrecognizedFormat);
+        }
+        let mut patch_map = Mapping::new();
+        patch_map.insert(Value::String("dns".into()), dns_val);
+        deep_merge(&mut doc, &Value::Mapping(patch_map));
+        if let Some(dns) = doc
+            .as_mapping_mut()
+            .and_then(|m| m.get_mut("dns"))
+            .and_then(Value::as_mapping_mut)
+        {
+            dns.entry(Value::String("enable".into()))
+                .or_insert(Value::Bool(true));
+        }
+    }
+
+    // hosts 覆写:`域名 IP` 行 → hosts: {域名: IP};非法行跳过
+    if !ov.hosts.trim().is_empty() {
+        let mut hosts_map = Mapping::new();
+        for line in ov.hosts.lines() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            let mut parts = line.split_whitespace();
+            if let (Some(domain), Some(ip)) = (parts.next(), parts.next()) {
+                hosts_map.insert(
+                    Value::String(domain.to_string()),
+                    Value::String(ip.to_string()),
+                );
+            }
+        }
+        if !hosts_map.is_empty() {
+            let mut patch_map = Mapping::new();
+            patch_map.insert(Value::String("hosts".into()), Value::Mapping(hosts_map));
+            deep_merge(&mut doc, &Value::Mapping(patch_map));
+        }
+    }
+
     Ok(serde_yaml::to_string(&doc)?)
 }
 
@@ -82,6 +128,8 @@ mod tests {
             ipv6: false,
             log_level: "info".into(),
             tun_enable: tun,
+            dns_override: String::new(),
+            hosts: String::new(),
         }
     }
 
@@ -168,5 +216,47 @@ rules:
             parse(&empty).get("mixed-port"),
             Some(&Value::from(7897u64))
         );
+    }
+
+    #[test]
+    fn dns_覆写深合并并强制_enable() {
+        let profile = "dns:\n  enable: false\n  listen: 0.0.0.0:53\nproxies: []\n";
+        let mut ov = overrides(false);
+        ov.dns_override = "enhanced-mode: fake-ip\nnameserver:\n  - https://doh.pub/dns-query\n".into();
+        let out = build_runtime_config(profile, &ov).expect("生成应成功");
+        let doc = parse(&out);
+        let dns = doc.get("dns").expect("dns 段应存在");
+        assert_eq!(dns.get("enhanced-mode"), Some(&Value::String("fake-ip".into())));
+        assert_eq!(dns.get("listen"), Some(&Value::String("0.0.0.0:53".into())));
+        // 覆写片段未显式给 enable, 原值 false 保留(entry or_insert 不覆盖已有键)
+        assert_eq!(dns.get("enable"), Some(&Value::Bool(false)));
+        // 显式给 enable: true 则覆盖
+        ov.dns_override = "enable: true\n".into();
+        let doc2 = parse(&build_runtime_config(profile, &ov).expect("生成应成功"));
+        assert_eq!(
+            doc2.get("dns").and_then(|d| d.get("enable")),
+            Some(&Value::Bool(true))
+        );
+        // 无 dns 段的 profile → 自动补 enable: true
+        let doc3 = parse(&build_runtime_config("proxies: []\n", &ov).expect("生成应成功"));
+        assert_eq!(
+            doc3.get("dns").and_then(|d| d.get("enable")),
+            Some(&Value::Bool(true))
+        );
+    }
+
+    #[test]
+    fn hosts_覆写解析行并跳过非法() {
+        let mut ov = overrides(false);
+        ov.hosts = "router.local 192.168.1.1\n# 注释\n\nbad-line\nnas.lan 10.0.0.2\n".into();
+        let out = build_runtime_config("proxies: []\n", &ov).expect("生成应成功");
+        let doc = parse(&out);
+        let hosts = doc.get("hosts").expect("hosts 段应存在");
+        assert_eq!(
+            hosts.get("router.local"),
+            Some(&Value::String("192.168.1.1".into()))
+        );
+        assert_eq!(hosts.get("nas.lan"), Some(&Value::String("10.0.0.2".into())));
+        assert!(hosts.get("bad-line").is_none());
     }
 }

@@ -117,6 +117,8 @@ pub async fn save_settings(app: AppHandle, settings: AppSettings) -> Result<(), 
         || settings.log_level != prev.log_level
         || settings.tun != prev.tun
         || settings.mode != prev.mode
+        || settings.dns_override != prev.dns_override
+        || settings.hosts != prev.hosts
     {
         profiles::regenerate_runtime(&app)?;
         core::reload_runtime(&app).await?;

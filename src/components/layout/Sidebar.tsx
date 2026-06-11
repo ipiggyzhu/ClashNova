@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { NavLink } from 'react-router-dom'
+import { useT } from '../../i18n'
 import { useAppStore } from '../../stores/app'
 import Icon from '../ui/Icon'
 import type { IconName } from '../ui/Icon'
@@ -55,6 +56,7 @@ const NAV_GROUPS: NavGroup[] = [
 const CORE_POLL_MS = 5000
 
 export default function Sidebar() {
+  const t = useT()
   const core = useAppStore((s) => s.coreStatus)
   const loadAll = useAppStore((s) => s.loadAll)
   const refreshCoreStatus = useAppStore((s) => s.refreshCoreStatus)
@@ -82,7 +84,7 @@ export default function Sidebar() {
       <nav className="nav">
         {NAV_GROUPS.map((g) => (
           <div className="nav-group" key={g.group}>
-            <div className="nav-title">{g.group}</div>
+            <div className="nav-title">{t(g.group)}</div>
             {g.items.map((it) => (
               <NavLink
                 key={it.key}
@@ -90,7 +92,7 @@ export default function Sidebar() {
                 className={({ isActive }) => (isActive ? 'nav-item on' : 'nav-item')}
               >
                 <Icon name={it.key} />
-                {it.label}
+                {t(it.label)}
               </NavLink>
             ))}
           </div>
@@ -107,10 +109,10 @@ export default function Sidebar() {
             }
           />
           <div style={{ flex: 1 }}>
-            <b>{core.running ? 'Mihomo 运行中' : 'Mihomo 已停止'}</b>
+            <b>{core.running ? t('Mihomo 运行中') : t('Mihomo 已停止')}</b>
             <br />
             <span>
-              {core.version} · 内存 {memMb} MB
+              {core.version} · {t('内存')} {memMb} MB
             </span>
           </div>
         </div>

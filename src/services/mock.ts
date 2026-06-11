@@ -56,9 +56,26 @@ export const DEFAULT_SETTINGS: AppSettings = {
   logLevel: 'info',
   mode: 'rule',
   theme: 'dark',
+  language: 'zh',
+  customCss: '',
+  dnsOverride: '',
+  hosts: '',
+  hotkeys: {},
 }
 
 let settings: AppSettings = { ...DEFAULT_SETTINGS }
+
+// 截图/走查辅助: mock 模式允许 ?lang=en&theme=light 预置设置
+if (typeof location !== 'undefined') {
+  const qs = new URLSearchParams(location.search)
+  const lang = qs.get('lang')
+  if (lang === 'en' || lang === 'zh') settings.language = lang
+  const theme = qs.get('theme')
+  if (theme === 'light' || theme === 'dark') settings.theme = theme
+}
+
+/** 服务模式安装状态(M2 mock) */
+let serviceInstalled = false
 
 /* ============================== 内核状态 ============================== */
 
@@ -532,6 +549,25 @@ export const mockHandlers: Record<string, MockHandler> = {
     return undefined
   },
   open_app_dir: () => undefined,
+  open_url: (args) => {
+    window.open(argString(args, 'url'), '_blank')
+    return undefined
+  },
+  service_status: () => (serviceInstalled ? 'installed' : 'not-installed'),
+  install_service: () => {
+    serviceInstalled = true
+    return undefined
+  },
+  uninstall_service: () => {
+    serviceInstalled = false
+    return undefined
+  },
+  exempt_uwp_loopback: () => undefined,
+  check_update: () => null,
+  reset_settings: () => {
+    settings = { ...DEFAULT_SETTINGS }
+    return { ...settings }
+  },
   read_enhancer: (args) => {
     const key = `${argString(args, 'profileId')}/${argString(args, 'enhancerId')}`
     return enhancerContents[key] ?? ''

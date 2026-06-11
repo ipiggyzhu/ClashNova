@@ -35,6 +35,14 @@ export interface IpcCommands {
   set_tun: { args: { enable: boolean }; result: void }
   set_mode: { args: { mode: string }; result: void }
   open_app_dir: { args: { kind: 'config' | 'core' | 'logs' }; result: void }
+  /* ---- M2 ---- */
+  open_url: { args: { url: string }; result: void }
+  service_status: { args: undefined; result: 'installed' | 'not-installed' }
+  install_service: { args: undefined; result: void }
+  uninstall_service: { args: undefined; result: void }
+  exempt_uwp_loopback: { args: undefined; result: void }
+  check_update: { args: undefined; result: string | null }
+  reset_settings: { args: undefined; result: AppSettings }
 }
 
 export type IpcCommand = keyof IpcCommands

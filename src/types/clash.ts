@@ -29,8 +29,19 @@ export interface ProfileMeta { id: string; name: string; kind: 'remote' | 'local
   enhancers?: EnhancerMeta[] }
 export type OutboundMode = 'rule' | 'global' | 'direct'
 export type Theme = 'dark' | 'light' | 'system'
+export type Language = 'zh' | 'en'
 export interface AppSettings { sysProxy: boolean; guard: boolean; guardIntervalSec: number;
   bypass: string; tun: boolean; autostart: boolean; silentStart: boolean;
   mixedPort: number; externalController: string; secret: string;
   allowLan: boolean; ipv6: boolean; logLevel: LogItem['type'] | 'silent';
-  mode: OutboundMode; theme: Theme }
+  mode: OutboundMode; theme: Theme;
+  /* ---- M2 ---- */
+  language: Language;
+  /** 注入 <style id="custom-css"> 的用户自定义样式 */
+  customCss: string;
+  /** DNS 覆写(空串表示不覆写); YAML 片段, 作为 dns: 段深合并 */
+  dnsOverride: string;
+  /** hosts 覆写; 每行 `域名 IP` */
+  hosts: string;
+  /** 全局热键: 动作 → 加速键(如 Ctrl+Shift+N); 空表示未绑定 */
+  hotkeys: Record<string, string> }

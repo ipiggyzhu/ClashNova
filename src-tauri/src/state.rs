@@ -30,6 +30,21 @@ pub struct AppSettings {
     pub log_level: String,
     pub mode: String,
     pub theme: String,
+    /* ---- M2(serde default 兼容旧 settings.json) ---- */
+    #[serde(default = "default_language")]
+    pub language: String,
+    #[serde(default)]
+    pub custom_css: String,
+    #[serde(default)]
+    pub dns_override: String,
+    #[serde(default)]
+    pub hosts: String,
+    #[serde(default)]
+    pub hotkeys: std::collections::HashMap<String, String>,
+}
+
+fn default_language() -> String {
+    "zh".into()
 }
 
 impl Default for AppSettings {
@@ -50,6 +65,11 @@ impl Default for AppSettings {
             log_level: "info".into(),
             mode: "rule".into(),
             theme: "dark".into(),
+            language: default_language(),
+            custom_css: String::new(),
+            dns_override: String::new(),
+            hosts: String::new(),
+            hotkeys: std::collections::HashMap::new(),
         }
     }
 }
@@ -70,6 +90,8 @@ impl AppSettings {
                 self.log_level.clone()
             },
             tun_enable: self.tun,
+            dns_override: self.dns_override.clone(),
+            hosts: self.hosts.clone(),
         }
     }
 }

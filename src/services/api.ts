@@ -142,6 +142,15 @@ export async function closeAllConnections(): Promise<void> {
 
 /* ---------------- 提供者(M2) ---------------- */
 
+/** POST /configs/geo — 让内核更新 GeoData 数据库 */
+export async function updateGeo(): Promise<void> {
+  if (isMock) {
+    await new Promise((resolve) => setTimeout(resolve, 800 + Math.random() * 1200))
+    return
+  }
+  await request('POST', '/configs/geo')
+}
+
 /** mihomo 提供者原始结构(仅取所需字段) */
 interface RawProxyProvider {
   name: string

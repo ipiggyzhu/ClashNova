@@ -1,4 +1,5 @@
 import { useLocation } from 'react-router-dom'
+import { useT } from '../../i18n'
 import { useAppStore } from '../../stores/app'
 import type { OutboundMode } from '../../types/clash'
 import Icon from '../ui/Icon'
@@ -37,9 +38,10 @@ async function winAction(action: 'minimize' | 'toggleMaximize' | 'close'): Promi
 }
 
 export default function Topbar() {
+  const t = useT()
   const { pathname } = useLocation()
   const seg = pathname.replace(/^\/+/, '').split('/')[0] || 'dashboard'
-  const title = PAGE_TITLES[seg] ?? 'ClashNova'
+  const title = t(PAGE_TITLES[seg] ?? 'ClashNova')
 
   const mode = useAppStore((s) => s.settings.mode)
   const theme = useAppStore((s) => s.settings.theme)
@@ -62,24 +64,28 @@ export default function Topbar() {
     <header className="topbar">
       <h1>{title}</h1>
       <div className="spacer" />
-      <Seg items={MODE_ITEMS} value={mode} onChange={(m) => void setMode(m)} />
-      <button className="icon-btn" type="button" title="通知">
+      <Seg
+        items={MODE_ITEMS.map((m) => ({ ...m, label: t(m.label) }))}
+        value={mode}
+        onChange={(m) => void setMode(m)}
+      />
+      <button className="icon-btn" type="button" title={t('通知')}>
         <Icon name="bell" />
       </button>
-      <button className="icon-btn" type="button" title="切换主题" onClick={toggleTheme}>
+      <button className="icon-btn" type="button" title={t('切换主题')} onClick={toggleTheme}>
         <Icon name={resolvedTheme === 'dark' ? 'sun' : 'moon'} />
       </button>
       <div className="win-ctrl">
-        <button type="button" title="最小化" onClick={() => void winAction('minimize')}>
+        <button type="button" title={t('最小化')} onClick={() => void winAction('minimize')}>
           <Icon name="minimize" />
         </button>
-        <button type="button" title="最大化" onClick={() => void winAction('toggleMaximize')}>
+        <button type="button" title={t('最大化')} onClick={() => void winAction('toggleMaximize')}>
           <Icon name="maximize" />
         </button>
         <button
           type="button"
           className="close"
-          title="关闭"
+          title={t('关闭')}
           onClick={() => void winAction('close')}
         >
           <Icon name="x" />
