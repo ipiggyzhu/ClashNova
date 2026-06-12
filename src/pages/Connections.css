@@ -3,6 +3,15 @@
 .pg-connections .toolbar .search-wrap{width:260px}
 .pg-connections .toolbar .search-wrap .input{width:100%}
 .pg-connections .toolbar .spacer{flex:1}
+/* 列宽按比例铺满整卡(宽窗口下不向左堆积) */
+.pg-connections .tbl th:nth-child(1){width:24%}
+.pg-connections .tbl th:nth-child(2){width:13%}
+.pg-connections .tbl th:nth-child(3){width:15%}
+.pg-connections .tbl th:nth-child(4){width:16%}
+.pg-connections .tbl th:nth-child(5),
+.pg-connections .tbl th:nth-child(6),
+.pg-connections .tbl th:nth-child(7){width:9%}
+.pg-connections .tbl th:nth-child(8){width:7%}
 .pg-connections .host-cell .h{font-weight:600}
 .pg-connections .host-cell .h .port{color:var(--text-3);font-weight:400}
 .pg-connections .host-cell .ip{font-size:10.5px;color:var(--text-3);font-family:var(--mono)}

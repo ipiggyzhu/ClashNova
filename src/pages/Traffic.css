@@ -12,17 +12,20 @@
 .pg-traffic .t-mini .delta{font-size:11px;color:var(--text-3);margin-top:5px}
 .pg-traffic .trend{padding:4px 0 2px}
 .pg-traffic .q-list{display:flex;flex-direction:column}
-.pg-traffic .q-row{display:flex;align-items:center;gap:14px;padding:10px 16px;
-  border-bottom:1px solid var(--line)}
-.pg-traffic .q-row:last-child{border-bottom:none}
-.pg-traffic .q-rankno{width:18px;text-align:right;font-size:11px;color:var(--text-3);
-  font-variant-numeric:tabular-nums}
-.pg-traffic .q-name{width:200px;font-size:12.5px;font-weight:600;overflow:hidden;
-  text-overflow:ellipsis;white-space:nowrap}
-.pg-traffic .q-bar{flex:1;height:7px;border-radius:4px;background:var(--card-3);overflow:hidden}
+.pg-traffic .tbl .r{text-align:right}
+/* 多维统计表列宽按比例铺满整卡(宽窗口下不向左堆积) */
+.pg-traffic .tbl th:nth-child(1){width:27%}
+.pg-traffic .tbl th:nth-child(2),
+.pg-traffic .tbl th:nth-child(3),
+.pg-traffic .tbl th:nth-child(4){width:14%}
+.pg-traffic .tbl th:nth-child(5){width:31%}
+.pg-traffic .t-name{display:flex;align-items:center;gap:9px;font-weight:600;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pg-traffic .tdot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.pg-traffic .t-total{font-weight:600}
+.pg-traffic .pct{display:flex;align-items:center;gap:10px}
+.pg-traffic .pct .num{flex-shrink:0;min-width:32px;text-align:right;font-size:11px;
+  color:var(--text-3);font-variant-numeric:tabular-nums}
+.pg-traffic .q-bar{flex:1;min-width:90px;height:7px;border-radius:4px;background:var(--card-3);overflow:hidden}
 .pg-traffic .q-bar i{display:block;height:100%;border-radius:4px}
-.pg-traffic .q-num{width:90px;text-align:right;font-size:12px;font-weight:600;
-  font-variant-numeric:tabular-nums}
-.pg-traffic .q-pct{width:44px;text-align:right;font-size:11px;color:var(--text-3);
-  font-variant-numeric:tabular-nums}
 .pg-traffic .empty{padding:26px;text-align:center;color:var(--text-3);font-size:12px}

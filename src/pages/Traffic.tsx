@@ -143,25 +143,49 @@ export default function Traffic() {
           {rank.length === 0 ? (
             <div className="empty">暂无统计数据 — 内核运行并产生流量后开始累积</div>
           ) : (
-            rank.map((r, i) => {
-              const total = r.up + r.down
-              return (
-                <div className="q-row" key={r.key}>
-                  <span className="q-rankno">{i + 1}</span>
-                  <span className="q-name" title={r.key}>{r.key}</span>
-                  <div className="q-bar">
-                    <i
-                      style={{
-                        width: `${(total / rankMax) * 100}%`,
-                        background: BAR_COLORS[i % BAR_COLORS.length],
-                      }}
-                    />
-                  </div>
-                  <span className="q-num">{fmtBytes(total)}</span>
-                  <span className="q-pct">{Math.round((total / rankTotal) * 100)}%</span>
-                </div>
-              )
-            })
+            <table className="tbl">
+              <thead>
+                <tr>
+                  <th>名称</th>
+                  <th className="r">上传</th>
+                  <th className="r">下载</th>
+                  <th className="r">总计</th>
+                  <th>占比</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rank.map((r, i) => {
+                  const total = r.up + r.down
+                  const color = BAR_COLORS[i % BAR_COLORS.length]!
+                  return (
+                    <tr key={r.key}>
+                      <td>
+                        <span className="t-name" title={r.key}>
+                          <i className="tdot" style={{ background: color }} />
+                          {r.key}
+                        </span>
+                      </td>
+                      <td className="r num">{fmtBytes(r.up)}</td>
+                      <td className="r num">{fmtBytes(r.down)}</td>
+                      <td className="r num t-total">{fmtBytes(total)}</td>
+                      <td>
+                        <span className="pct">
+                          <span className="q-bar">
+                            <i
+                              style={{
+                                width: `${(total / rankMax) * 100}%`,
+                                background: color,
+                              }}
+                            />
+                          </span>
+                          <span className="num">{Math.round((total / rankTotal) * 100)}%</span>
+                        </span>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
           )}
         </div>
       </Card>

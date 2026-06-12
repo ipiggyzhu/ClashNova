@@ -27,6 +27,13 @@
 .pg-providers .tbl{width:100%;border-collapse:collapse;font-size:12px}
 .pg-providers .tbl th{padding:10px 16px;text-align:left;font-size:11px;font-weight:600;
   color:var(--text-3);border-bottom:1px solid var(--line)}
+/* 列宽按比例铺满整卡(宽窗口下不向左堆积) */
+.pg-providers .tbl th:nth-child(1){width:20%}
+.pg-providers .tbl th:nth-child(2){width:16%}
+.pg-providers .tbl th:nth-child(3){width:14%}
+.pg-providers .tbl th:nth-child(4){width:15%}
+.pg-providers .tbl th:nth-child(5){width:20%}
+.pg-providers .tbl th:nth-child(6){width:15%}
 .pg-providers .tbl td{padding:9px 16px;border-bottom:1px solid var(--line)}
 .pg-providers .tbl tr:last-child td{border-bottom:none}
 .pg-providers .mono{font-family:ui-monospace,"SF Mono","Cascadia Mono",Consolas,monospace;
