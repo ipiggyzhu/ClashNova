@@ -6,6 +6,9 @@ on:
     tags: ['v*']
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   # 全平台可跑的验证: 前端类型检查/构建 + nova-core 纯逻辑测试
   test:
@@ -56,7 +59,23 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Tauri 构建(msi + nsis)
-        run: npm run tauri build
+        shell: pwsh
+        run: |
+          npm run tauri build 2>&1 | Tee-Object -FilePath build.log
+          exit $LASTEXITCODE
+
+      - name: 失败时公开构建日志(便于离线排查)
+        if: failure()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          grep -E "^error(\[E[0-9]+\])?(:|\b)" -A 8 build.log | head -120 | \
+            sed ':a;N;$!ba;s/\n/%0A/g' | cut -c1-3800 | \
+            xargs -0 -I{} echo "::error::{}" || true
+          gh release delete buildlog -y --cleanup-tag 2>/dev/null || true
+          gh release create buildlog build.log --title "CI build log (debug)" \
+            --notes "自动上传的失败构建日志" --prerelease
 
       - name: 上传 MSI 工件
         uses: actions/upload-artifact@v4
