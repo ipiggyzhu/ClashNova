@@ -4,69 +4,66 @@ import Card from '../components/ui/Card'
 import Icon from '../components/ui/Icon'
 import Seg from '../components/ui/Seg'
 import Spark from '../components/ui/Spark'
+import { call, isMock } from '../services/ipc'
 import { useAppStore } from '../stores/app'
 import { startLiveStreams, useLiveStore } from '../stores/live'
+import type { RankRow, SeriesPoint, StatDim, StatRange } from '../types/clash'
 import { fmtBytes, fmtSpeed, fmtUptime } from '../utils/format'
 
-/* 7 天趋势(M1 静态 mock, 与设计稿一致) */
-const TREND = [
-  { day: '周六', mb: 320, today: true },
-  { day: '周五', mb: 540, today: false },
-  { day: '周四', mb: 2350, today: false },
-  { day: '周三', mb: 1980, today: false },
-  { day: '周二', mb: 760, today: false },
-  { day: '周一', mb: 180, today: false },
-  { day: '周日', mb: 60, today: false },
-]
-const TREND_MAX = Math.max(...TREND.map((t) => t.mb))
+const DAY_NAMES = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
 
-/* 流量汇总排行(M1 静态 mock) */
-const RANKINGS: Record<string, { name: string; mb: number; color: string }[]> = {
-  proxy: [
-    { name: 'DE-Server', mb: 17.9, color: '#BF5AF2' },
-    { name: 'US-OpenAI', mb: 14.9, color: '#BF5AF2' },
-    { name: 'US-Streaming', mb: 7.3, color: '#BF5AF2' },
-    { name: 'SG-AWS', mb: 2.5, color: '#BF5AF2' },
-    { name: 'DIRECT', mb: 2.5, color: 'var(--green)' },
-    { name: 'JP-GPT', mb: 2.2, color: '#BF5AF2' },
-    { name: 'US-Netflix', mb: 1.3, color: '#BF5AF2' },
-  ],
-  process: [
-    { name: 'chrome.exe', mb: 21.4, color: '#64D2FF' },
-    { name: 'Code.exe', mb: 11.2, color: '#64D2FF' },
-    { name: 'Telegram.exe', mb: 6.8, color: '#64D2FF' },
-    { name: 'steam.exe', mb: 4.1, color: '#64D2FF' },
-    { name: 'msedge.exe', mb: 2.9, color: '#64D2FF' },
-    { name: 'Spotify.exe', mb: 1.8, color: '#64D2FF' },
-    { name: 'System', mb: 1.1, color: '#64D2FF' },
-  ],
-  iface: [
-    { name: 'Wi-Fi', mb: 41.6, color: '#FF9F0A' },
-    { name: '以太网', mb: 6.2, color: '#FF9F0A' },
-    { name: 'TUN', mb: 1.5, color: '#FF9F0A' },
-  ],
-  host: [
-    { name: 'youtube.com', mb: 15.2, color: '#40C8E0' },
-    { name: 'openai.com', mb: 9.6, color: '#40C8E0' },
-    { name: 'github.com', mb: 6.4, color: '#40C8E0' },
-    { name: 'telegram.org', mb: 5.1, color: '#40C8E0' },
-    { name: 'netflix.com', mb: 4.4, color: '#40C8E0' },
-    { name: 'apple.com', mb: 2.7, color: '#40C8E0' },
-    { name: 'bilibili.com', mb: 1.9, color: '#40C8E0' },
-  ],
+const RANK_COLORS: Record<StatDim, string> = {
+  proxy: '#BF5AF2',
+  process: '#64D2FF',
+  host: '#40C8E0',
 }
 
-const DONUT = { proxyMb: 46.8, directMb: 2.5, upMb: 16.3, downMb: 33.1 }
+/** 经当前网络栈对端点计时(ms); 失败 -1 */
+async function probeMs(url: string): Promise<number> {
+  if (isMock) {
+    await new Promise((r) => setTimeout(r, 150 + Math.random() * 250))
+    return Math.round(20 + Math.random() * 220)
+  }
+  const begin = performance.now()
+  try {
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), 5000)
+    await fetch(url, { mode: 'no-cors', cache: 'no-store', signal: ctrl.signal })
+    clearTimeout(timer)
+    return Math.round(performance.now() - begin)
+  } catch {
+    return -1
+  }
+}
+
+function msTone(ms: number): string {
+  if (ms < 0) return 'var(--red)'
+  if (ms < 100) return 'var(--green)'
+  if (ms < 250) return 'var(--orange)'
+  return 'var(--red)'
+}
+
+function msText(ms: number | null): string {
+  return ms === null ? '…' : ms < 0 ? '超时' : String(ms)
+}
 
 export default function Dashboard() {
   const core = useAppStore((s) => s.coreStatus)
+  const settings = useAppStore((s) => s.settings)
   const refreshCoreStatus = useAppStore((s) => s.refreshCoreStatus)
   const traffic = useLiveStore((s) => s.traffic)
   const connections = useLiveStore((s) => s.connections)
 
-  const [sumRange, setSumRange] = useState('today')
-  const [rankBy, setRankBy] = useState('proxy')
-  void sumRange
+  const [sumRange, setSumRange] = useState<StatRange>('day')
+  const [rankBy, setRankBy] = useState<StatDim>('proxy')
+  const [trend, setTrend] = useState<SeriesPoint[]>([])
+  const [sumSeries, setSumSeries] = useState<SeriesPoint[]>([])
+  const [proxyRank, setProxyRank] = useState<RankRow[]>([])
+  const [ranking, setRanking] = useState<RankRow[]>([])
+  const [netMs, setNetMs] = useState<{ internet: number | null; dns: number | null }>({
+    internet: null,
+    dns: null,
+  })
 
   /* 实时流(traffic/connections)接入 + 内核状态 5s 轮询 */
   useEffect(() => {
@@ -78,15 +75,61 @@ export default function Dashboard() {
     }
   }, [refreshCoreStatus])
 
+  /* 7 天趋势 */
+  useEffect(() => {
+    void call('query_traffic_series', { range: '7d' }).then(setTrend).catch(() => {})
+  }, [])
+
+  /* 流量汇总(环形图 + 排行) */
+  useEffect(() => {
+    void call('query_traffic_series', { range: sumRange }).then(setSumSeries).catch(() => {})
+    void call('query_traffic_rank', { dim: 'proxy', range: sumRange })
+      .then(setProxyRank)
+      .catch(() => {})
+  }, [sumRange])
+
+  useEffect(() => {
+    void call('query_traffic_rank', { dim: rankBy, range: sumRange })
+      .then(setRanking)
+      .catch(() => {})
+  }, [rankBy, sumRange])
+
+  /* 网络状态探测 */
+  const probeNet = (): void => {
+    setNetMs({ internet: null, dns: null })
+    void probeMs('https://www.gstatic.com/generate_204').then((ms) =>
+      setNetMs((s) => ({ ...s, internet: ms })),
+    )
+    void probeMs('https://doh.pub/dns-query').then((ms) =>
+      setNetMs((s) => ({ ...s, dns: ms })),
+    )
+  }
+  useEffect(probeNet, [])
+
   const last = traffic[traffic.length - 1] ?? { up: 0, down: 0 }
   const upPts = useMemo(() => traffic.map((p) => p.up), [traffic])
   const downPts = useMemo(() => traffic.map((p) => p.down), [traffic])
 
-  const total = DONUT.proxyMb + DONUT.directMb
-  const proxyRatio = DONUT.proxyMb / total
+  /* 趋势条形数据 */
+  const trendMax = Math.max(1, ...trend.map((p) => p.up + p.down))
+  const trendAvg = trend.length
+    ? trend.reduce((acc, p) => acc + p.up + p.down, 0) / trend.length
+    : 0
+
+  /* 环形图: 直连 vs 代理 + 上下行 */
+  const sumUp = sumSeries.reduce((acc, p) => acc + p.up, 0)
+  const sumDown = sumSeries.reduce((acc, p) => acc + p.down, 0)
+  const directBytes = proxyRank
+    .filter((r) => r.key === 'DIRECT')
+    .reduce((acc, r) => acc + r.up + r.down, 0)
+  const proxyBytes = Math.max(
+    0,
+    proxyRank.filter((r) => r.key !== 'DIRECT').reduce((acc, r) => acc + r.up + r.down, 0),
+  )
+  const total = Math.max(1, directBytes + proxyBytes)
+  const proxyRatio = proxyBytes / total
   const C = 2 * Math.PI * 64
-  const ranking = RANKINGS[rankBy] ?? RANKINGS['proxy']!
-  const rankMax = Math.max(...ranking.map((r) => r.mb))
+  const rankMax = Math.max(1, ...ranking.map((r) => r.up + r.down))
 
   return (
     <div className="pg-dashboard">
@@ -132,13 +175,13 @@ export default function Dashboard() {
           </div>
         </Card>
 
-        {/* ---- 网络状态(M1 静态探测占位) ---- */}
+        {/* ---- 网络状态 ---- */}
         <Card
           icon={<Icon name="globe2" />}
           iconColor="var(--cyan)"
           title="网络状态"
           actions={
-            <button className="icon-btn" title="刷新">
+            <button className="icon-btn" title="刷新" onClick={probeNet}>
               <Icon name="refresh" />
             </button>
           }
@@ -146,35 +189,41 @@ export default function Dashboard() {
           <div className="stat-grid">
             <div className="stat-cell">
               <div className="stat-label"><Icon name="globe2" size={12} />互联网</div>
-              <div className="stat-num" style={{ color: 'var(--orange)' }}>
-                213 <span style={{ fontSize: 12 }}>ms</span>
+              <div className="stat-num" style={{ color: msTone(netMs.internet ?? 0) }}>
+                {msText(netMs.internet)}{' '}
+                {typeof netMs.internet === 'number' && netMs.internet >= 0 && (
+                  <span style={{ fontSize: 12 }}>ms</span>
+                )}
               </div>
             </div>
             <div className="stat-cell">
               <div className="stat-label"><Icon name="search" size={12} />DNS</div>
-              <div className="stat-num" style={{ color: 'var(--green)' }}>
-                48 <span style={{ fontSize: 12 }}>ms</span>
+              <div className="stat-num" style={{ color: msTone(netMs.dns ?? 0) }}>
+                {msText(netMs.dns)}{' '}
+                {typeof netMs.dns === 'number' && netMs.dns >= 0 && (
+                  <span style={{ fontSize: 12 }}>ms</span>
+                )}
               </div>
             </div>
             <div className="stat-cell">
-              <div className="stat-label"><Icon name="wifi" size={12} />路由器</div>
+              <div className="stat-label"><Icon name="connections" size={12} />混合端口</div>
               <div className="stat-num" style={{ color: 'var(--cyan)' }}>
-                6 <span style={{ fontSize: 12 }}>ms</span>
+                {settings.mixedPort}
               </div>
             </div>
           </div>
           <div className="stat-grid stat-sub">
             <div className="stat-cell">
-              <div className="stat-label">网络</div>
-              <b>Wi-Fi</b>
+              <div className="stat-label">出站模式</div>
+              <b>{{ rule: '规则', global: '全局', direct: '直连' }[settings.mode]}</b>
             </div>
             <div className="stat-cell">
-              <div className="stat-label">本机 IP</div>
-              <b>CN 海西…157.83</b>
+              <div className="stat-label">系统代理</div>
+              <b>{settings.sysProxy ? '已开启' : '关闭'}</b>
             </div>
             <div className="stat-cell">
-              <div className="stat-label">代理 IP</div>
-              <b>HK Hong…249.100.80</b>
+              <div className="stat-label">TUN</div>
+              <b>{settings.tun ? '已开启' : '关闭'}</b>
             </div>
           </div>
         </Card>
@@ -228,21 +277,25 @@ export default function Dashboard() {
             <div className="avg-line" />
             <div className="avg-label">
               <div className="stat-label">日均</div>
-              <div className="stat-num">883.5 MB</div>
+              <div className="stat-num">{fmtBytes(trendAvg)}</div>
             </div>
-            {TREND.map((t) => (
-              <div className="tcol" key={t.day}>
-                <div
-                  className="bar-col"
-                  style={{
-                    height: `${Math.max(6, (t.mb / TREND_MAX) * 110)}px`,
-                    background: t.mb >= 1900 ? '#5e5e66' : undefined,
-                  }}
-                />
-                {t.today && <div className="tick" />}
-                <span>{t.day}</span>
-              </div>
-            ))}
+            {[...trend].reverse().map((p, i) => {
+              const bytes = p.up + p.down
+              const day = new Date(p.ts)
+              return (
+                <div className="tcol" key={p.ts}>
+                  <div
+                    className="bar-col"
+                    style={{
+                      height: `${Math.max(6, (bytes / trendMax) * 110)}px`,
+                      background: bytes >= trendMax * 0.8 ? '#5e5e66' : undefined,
+                    }}
+                  />
+                  {i === 0 && <div className="tick" />}
+                  <span>{DAY_NAMES[day.getDay()]}</span>
+                </div>
+              )
+            })}
           </div>
         </Card>
       </div>
@@ -253,11 +306,11 @@ export default function Dashboard() {
         iconColor="var(--pink)"
         title="流量汇总"
         actions={
-          <Seg
+          <Seg<StatRange>
             items={[
-              { value: 'today', label: '今日' },
-              { value: 'month', label: '本月' },
-              { value: 'lastMonth', label: '上月' },
+              { value: 'day', label: '今日' },
+              { value: '7d', label: '7 天' },
+              { value: '30d', label: '30 天' },
             ]}
             value={sumRange}
             onChange={setSumRange}
@@ -283,25 +336,25 @@ export default function Dashboard() {
             </svg>
             <div className="donut-center">
               <span>总计</span>
-              <div className="stat-num">{total.toFixed(1)} MB</div>
+              <div className="stat-num">{fmtBytes(sumUp + sumDown)}</div>
             </div>
           </div>
           <div className="sum-legend">
             <div className="row">
               <span className="ic"><Icon name="upload" size={13} /></span>上传
-              <b>{DONUT.upMb.toFixed(1)} MB</b>
+              <b>{fmtBytes(sumUp)}</b>
             </div>
             <div className="row">
               <span className="ic"><Icon name="download" size={13} /></span>下载
-              <b>{DONUT.downMb.toFixed(1)} MB</b>
+              <b>{fmtBytes(sumDown)}</b>
             </div>
             <div className="row">
               <span className="dot" style={{ background: 'var(--green)' }} />直连
-              <b>{DONUT.directMb.toFixed(1)} MB</b>
+              <b>{fmtBytes(directBytes)}</b>
             </div>
             <div className="row">
               <span className="dot" style={{ background: 'var(--accent)' }} />代理
-              <b>{DONUT.proxyMb.toFixed(1)} MB</b>
+              <b>{fmtBytes(proxyBytes)}</b>
             </div>
             <div className="split-bar">
               <div style={{ width: `${(1 - proxyRatio) * 100}%`, background: 'var(--green)' }} />
@@ -311,35 +364,38 @@ export default function Dashboard() {
           <div className="rank">
             <div className="rank-head">
               <div className="stat-label"><Icon name="rules" size={12} />排行</div>
-              <Seg
+              <Seg<StatDim>
                 items={[
                   { value: 'proxy', label: '代理' },
                   { value: 'process', label: '进程' },
-                  { value: 'iface', label: '接口' },
                   { value: 'host', label: '主机名' },
                 ]}
                 value={rankBy}
                 onChange={setRankBy}
               />
             </div>
-            {ranking.map((r) => (
-              <div className="rank-row" key={r.name}>
-                <span className="nm">
-                  <i style={{ background: r.color }} />
-                  {r.name}
-                </span>
-                <span className="track">
-                  <span
-                    className="fill"
-                    style={{
-                      width: `${(r.mb / rankMax) * 100}%`,
-                      background: `linear-gradient(90deg, ${r.color}, color-mix(in srgb, ${r.color} 55%, transparent))`,
-                    }}
-                  />
-                </span>
-                <span className="val">{r.mb.toFixed(1)} MB</span>
-              </div>
-            ))}
+            {ranking.map((r) => {
+              const bytes = r.up + r.down
+              const color = r.key === 'DIRECT' ? 'var(--green)' : RANK_COLORS[rankBy]
+              return (
+                <div className="rank-row" key={r.key}>
+                  <span className="nm">
+                    <i style={{ background: color }} />
+                    {r.key}
+                  </span>
+                  <span className="track">
+                    <span
+                      className="fill"
+                      style={{
+                        width: `${(bytes / rankMax) * 100}%`,
+                        background: `linear-gradient(90deg, ${color}, color-mix(in srgb, ${color} 55%, transparent))`,
+                      }}
+                    />
+                  </span>
+                  <span className="val">{fmtBytes(bytes)}</span>
+                </div>
+              )
+            })}
           </div>
         </div>
       </Card>

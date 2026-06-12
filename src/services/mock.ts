@@ -710,7 +710,7 @@ const RANK_KEYS: Record<string, string[]> = {
 
 function mockRank(dim: string, range: string): { key: string; up: number; down: number }[] {
   const keys = RANK_KEYS[dim] ?? RANK_KEYS['proxy']!
-  const scale = range === 'day' ? 1 : range === '30d' ? 26 : 7
+  const scale = range === 'day' ? 0.08 : range === '30d' ? 26 : 7
   return keys
     .map((key, i) => {
       const down = Math.round((18 - i * 2.3) * scale * GB * (0.6 + seeded(i + key.length) * 0.5))
