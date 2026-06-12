@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "ClashNova",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "identifier": "io.clashnova.app",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -14,10 +14,10 @@
       {
         "label": "main",
         "title": "ClashNova",
-        "width": 1280,
-        "height": 800,
-        "minWidth": 980,
-        "minHeight": 640,
+        "width": 1120,
+        "height": 716,
+        "minWidth": 960,
+        "minHeight": 620,
         "center": true,
         "resizable": true,
         "visible": false

@@ -459,6 +459,14 @@ export function mockNextTraffic(): { up: number; down: number } {
   return { up: Math.round(trafficUp), down: Math.round(trafficDown) }
 }
 
+let memInuse = 86 * MB
+
+/** randomwalk: 内核内存 60~140MB */
+export function mockNextMemory(): { inuse: number; oslimit: number } {
+  memInuse = Math.min(140 * MB, Math.max(60 * MB, memInuse + rand(-4, 4) * MB))
+  return { inuse: Math.round(memInuse), oslimit: 0 }
+}
+
 /* ============================== 契约 B 命令 handler 表 ============================== */
 
 export type MockHandler = (args: Record<string, unknown>) => unknown

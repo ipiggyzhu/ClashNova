@@ -195,31 +195,46 @@ struct VersionPayload {
     version: String,
 }
 
-/// 异步刷新版本缓存(GET /version, 失败静默)。
+/// 异步刷新版本缓存(GET /version)。
+/// 内核冷启动耗时不定(首启建缓存可达数秒), 持续重试直到拿到版本(~2 分钟上限)。
 fn refresh_version_async(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
-        // 等内核就绪
-        tokio::time::sleep(Duration::from_millis(800)).await;
-        let (controller, secret) = {
-            let state = app.state::<AppState>();
-            let s = state.settings_snapshot();
-            (s.external_controller, s.secret)
-        };
-        let url = format!("http://{controller}/version");
         let client = reqwest::Client::new();
-        let resp = client
-            .get(&url)
-            .bearer_auth(&secret)
-            .timeout(Duration::from_secs(3))
-            .send()
-            .await;
-        if let Ok(resp) = resp {
-            if let Ok(v) = resp.json::<VersionPayload>().await {
+        for attempt in 0u32..30 {
+            let wait = if attempt == 0 { 800 } else { 4000 };
+            tokio::time::sleep(Duration::from_millis(wait)).await;
+            // 内核已被手动停止则不再轮询(sc.exe 查询是阻塞调用, 移到阻塞线程池)
+            let mut running = {
                 let state = app.state::<AppState>();
-                if let Ok(mut guard) = state.core.lock() {
-                    guard.version = Some(v.version);
-                };
+                state.core.lock().map(|g| g.child.is_some()).unwrap_or(false)
+            };
+            if !running {
+                running = tauri::async_runtime::spawn_blocking(crate::service::is_running)
+                    .await
+                    .unwrap_or(false);
             }
+            if !running {
+                return;
+            }
+            let (controller, secret) = {
+                let state = app.state::<AppState>();
+                let s = state.settings_snapshot();
+                (s.external_controller, s.secret)
+            };
+            let url = format!("http://{controller}/version");
+            let resp = client
+                .get(&url)
+                .bearer_auth(&secret)
+                .timeout(Duration::from_secs(3))
+                .send()
+                .await;
+            let Ok(resp) = resp else { continue };
+            let Ok(v) = resp.json::<VersionPayload>().await else { continue };
+            let state = app.state::<AppState>();
+            if let Ok(mut guard) = state.core.lock() {
+                guard.version = Some(v.version);
+            };
+            return;
         }
     });
 }

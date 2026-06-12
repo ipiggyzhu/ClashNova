@@ -9,6 +9,7 @@ import worldData from 'world-atlas/countries-110m.json'
 import Card from '../components/ui/Card'
 import Icon from '../components/ui/Icon'
 import Seg from '../components/ui/Seg'
+import { useAppStore } from '../stores/app'
 import { startLiveStreams, useLiveStore } from '../stores/live'
 import { fmtBytes } from '../utils/format'
 
@@ -51,8 +52,49 @@ interface RegionTraffic {
   bytes: number
 }
 
+/** HTML 标签数据要求对象身份稳定(three-globe 按身份 diff, 否则每帧重建 DOM) */
+interface LabelDatum {
+  code: string
+  name: string
+  lat: number
+  lng: number
+}
+const ORIGIN_LABEL: LabelDatum = { code: '__origin', name: ORIGIN.name, lat: ORIGIN.lat, lng: ORIGIN.lng }
+const LABEL_CACHE = new Map<string, LabelDatum>()
+
+/** 球面主题配色: 浅色=蓝色海洋球, 深色=暗夜科技球 */
+const GLOBE_THEMES = {
+  light: {
+    globe: '#2468c4',
+    hex: 'rgba(255,255,255,0.82)',
+    atmosphere: '#8fc0ff',
+    arc: ['#FFD60A', '#64D2FF'],
+    point: '#eaf4ff',
+  },
+  dark: {
+    globe: '#15151a',
+    hex: 'rgba(125,165,255,0.32)',
+    atmosphere: '#3a7bd5',
+    arc: ['#0A84FF', '#64D2FF'],
+    point: '#64D2FF',
+  },
+} as const
+
 export default function RouteMap() {
   const connections = useLiveStore((s) => s.connections)
+  const theme = useAppStore((s) => s.settings.theme)
+  // system 主题跟随 OS 明暗切换
+  const [sysLight, setSysLight] = useState(
+    () => window.matchMedia('(prefers-color-scheme: light)').matches,
+  )
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-color-scheme: light)')
+    const onChange = (e: MediaQueryListEvent): void => setSysLight(e.matches)
+    mq.addEventListener('change', onChange)
+    return () => mq.removeEventListener('change', onChange)
+  }, [])
+  const resolvedTheme: 'dark' | 'light' =
+    theme === 'system' ? (sysLight ? 'light' : 'dark') : theme
   const [view, setView] = useState<'globe' | 'flat'>(
     new URLSearchParams(location.search).get('view') === 'flat' ? 'flat' : 'globe',
   )
@@ -79,22 +121,41 @@ export default function RouteMap() {
 
   const maxBytes = Math.max(1, ...regions.map((r) => r.bytes))
 
+  /* 标签数据: 地区集合不变时保持对象/数组身份稳定 */
+  const labelKey = regions.map((r) => r.code).join(',')
+  const labels = useMemo<LabelDatum[]>(
+    () => [
+      ORIGIN_LABEL,
+      ...regions.map((r) => {
+        let l = LABEL_CACHE.get(r.code)
+        if (!l) {
+          l = { code: r.code, name: r.name, lat: r.lat, lng: r.lng }
+          LABEL_CACHE.set(r.code, l)
+        }
+        return l
+      }),
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- regions 身份每帧变化, 以地区集合为准
+    [labelKey],
+  )
+
   /* ---------------- 3D 球面视图 ---------------- */
   useEffect(() => {
     if (view !== 'globe' || !hostRef.current) return
     const el = hostRef.current
+    const pal = GLOBE_THEMES[resolvedTheme]
     const globe = new Globe(el, { animateIn: true })
       .backgroundColor('rgba(0,0,0,0)')
       .showAtmosphere(true)
-      .atmosphereColor('#3a7bd5')
+      .atmosphereColor(pal.atmosphere)
       .atmosphereAltitude(0.16)
       .hexPolygonsData(LAND.features)
       .hexPolygonResolution(3)
       .hexPolygonMargin(0.6)
-      .hexPolygonColor(() => 'rgba(125,165,255,0.32)')
+      .hexPolygonColor(() => pal.hex)
       .width(el.clientWidth)
       .height(el.clientHeight)
-    globe.globeMaterial().color.set('#15151a')
+    globe.globeMaterial().color.set(pal.globe)
     globe.controls().autoRotate = true
     globe.controls().autoRotateSpeed = 0.55
     globe.pointOfView({ lat: 24, lng: 110, altitude: 1.85 }, 0)
@@ -110,12 +171,13 @@ export default function RouteMap() {
       globe._destructor()
       el.innerHTML = ''
     }
-  }, [view])
+  }, [view, resolvedTheme])
 
   /* 球面数据更新(弧线/端点随连接刷新) */
   useEffect(() => {
     const globe = globeRef.current
     if (!globe) return
+    const pal = GLOBE_THEMES[resolvedTheme]
     globe
       .arcsData(
         regions.map((r) => ({
@@ -126,7 +188,7 @@ export default function RouteMap() {
           weight: r.bytes,
         })),
       )
-      .arcColor(() => ['#0A84FF', '#64D2FF'])
+      .arcColor(() => [...pal.arc])
       .arcAltitudeAutoScale(0.42)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .arcStroke((d: any) => 0.35 + (d.weight / maxBytes) * 1.1)
@@ -138,7 +200,7 @@ export default function RouteMap() {
         ...regions.map((r) => ({
           ...r,
           size: 0.5 + (r.bytes / maxBytes) * 0.9,
-          color: '#64D2FF',
+          color: pal.point,
         })),
       ])
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -146,15 +208,26 @@ export default function RouteMap() {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .pointRadius((d: any) => d.size * 0.45)
       .pointAltitude(0.012)
+      // 文字标签走 HTML 层: three.js 内置字体无中文字形(会渲染成 ??);
+      // CSS2DRenderer 每帧覆写外层 transform, 偏移要做在内层元素上
+      .htmlElementsData(labels)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .labelsData([{ ...ORIGIN }, ...regions])
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .labelText((d: any) => d.name)
-      .labelSize(1.3)
-      .labelDotRadius(0)
-      .labelColor(() => 'rgba(235,235,245,0.85)')
-      .labelAltitude(0.02)
-  }, [regions, maxBytes, view])
+      .htmlElement((d: any) => {
+        const wrap = document.createElement('div')
+        wrap.className = 'globe-label'
+        const text = document.createElement('span')
+        text.textContent = d.name
+        wrap.appendChild(text)
+        return wrap
+      })
+      .htmlAltitude(0.025)
+    // 转到球背面的标签隐藏(旧版本无此 API 时跳过)
+    if (typeof globe.htmlElementVisibilityModifier === 'function') {
+      globe.htmlElementVisibilityModifier((label: HTMLElement, isVisible: boolean) => {
+        label.style.opacity = isVisible ? '1' : '0'
+      })
+    }
+  }, [regions, labels, maxBytes, view, resolvedTheme])
 
   /* ---------------- 2D 平面视图 ---------------- */
   const FLAT_W = 1100

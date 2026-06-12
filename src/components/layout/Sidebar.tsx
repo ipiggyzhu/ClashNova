@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { NavLink } from 'react-router-dom'
 import { useT } from '../../i18n'
 import { useAppStore } from '../../stores/app'
+import { startLiveStreams, useLiveStore } from '../../stores/live'
 import Icon from '../ui/Icon'
 import type { IconName } from '../ui/Icon'
 
@@ -58,8 +59,11 @@ const CORE_POLL_MS = 5000
 export default function Sidebar() {
   const t = useT()
   const core = useAppStore((s) => s.coreStatus)
+  const memInuse = useLiveStore((s) => s.memory.inuse)
   const loadAll = useAppStore((s) => s.loadAll)
   const refreshCoreStatus = useAppStore((s) => s.refreshCoreStatus)
+
+  useEffect(() => startLiveStreams(), [])
 
   useEffect(() => {
     void loadAll().catch(() => undefined)
@@ -69,7 +73,8 @@ export default function Sidebar() {
     return () => clearInterval(timer)
   }, [loadAll, refreshCoreStatus])
 
-  const memMb = Math.round(core.memoryBytes / 1024 / 1024)
+  // 内核停止后 WS 不再推帧, 不能沿用最后一帧的陈旧内存值
+  const memMb = core.running ? Math.round((memInuse || core.memoryBytes) / 1024 / 1024) : 0
   return (
     <aside className="sidebar">
       <div className="brand">
@@ -78,7 +83,7 @@ export default function Sidebar() {
         </div>
         <div>
           <div className="brand-name">ClashNova</div>
-          <div className="brand-ver">v2.0.0</div>
+          <div className="brand-ver">v{__APP_VERSION__}</div>
         </div>
       </div>
       <nav className="nav">
@@ -112,7 +117,8 @@ export default function Sidebar() {
             <b>{core.running ? t('Mihomo 运行中') : t('Mihomo 已停止')}</b>
             <br />
             <span>
-              {core.version} · {t('内存')} {memMb} MB
+              {core.version !== '—' && `${core.version} · `}
+              {t('内存')} {memMb} MB
             </span>
           </div>
         </div>

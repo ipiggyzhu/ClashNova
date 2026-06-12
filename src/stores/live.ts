@@ -6,10 +6,11 @@ import { create } from 'zustand'
 import {
   subscribeConnections,
   subscribeLogs,
+  subscribeMemory,
   subscribeTraffic,
   type Unsubscribe,
 } from '../services/ws'
-import type { ConnectionsPayload, LogItem, TrafficPoint } from '../types/clash'
+import type { ConnectionsPayload, LogItem, MemoryPoint, TrafficPoint } from '../types/clash'
 
 /** traffic 环形缓冲容量(60 点 ≈ 60s) */
 export const TRAFFIC_CAPACITY = 60
@@ -27,12 +28,15 @@ export interface LiveStore {
   traffic: TrafficPoint[]
   /** 最新连接快照 */
   connections: ConnectionsPayload
+  /** 内核内存占用(WS /memory, 未知时 inuse=0) */
+  memory: MemoryPoint
   /** 最近 1024 行日志(尾部为最新) */
   logs: LogItem[]
   /** 暂停时丢弃新日志 */
   logsPaused: boolean
   pushTraffic: (point: TrafficPoint) => void
   setConnections: (payload: ConnectionsPayload) => void
+  setMemory: (point: MemoryPoint) => void
   pushLog: (log: LogItem) => void
   setLogsPaused: (paused: boolean) => void
   clearLogs: () => void
@@ -41,6 +45,7 @@ export interface LiveStore {
 export const useLiveStore = create<LiveStore>((set, get) => ({
   traffic: [],
   connections: EMPTY_CONNECTIONS,
+  memory: { inuse: 0 },
   logs: [],
   logsPaused: false,
 
@@ -48,6 +53,8 @@ export const useLiveStore = create<LiveStore>((set, get) => ({
     set((s) => ({ traffic: [...s.traffic, point].slice(-TRAFFIC_CAPACITY) })),
 
   setConnections: (payload) => set({ connections: payload }),
+
+  setMemory: (point) => set({ memory: point }),
 
   pushLog: (log) => {
     if (get().logsPaused) return
@@ -71,10 +78,11 @@ let unsubscribers: Unsubscribe[] = []
 export function startLiveStreams(): Unsubscribe {
   refCount += 1
   if (refCount === 1) {
-    const { pushTraffic, setConnections, pushLog } = useLiveStore.getState()
+    const { pushTraffic, setConnections, setMemory, pushLog } = useLiveStore.getState()
     unsubscribers = [
       subscribeTraffic(pushTraffic),
       subscribeConnections(setConnections),
+      subscribeMemory(setMemory),
       subscribeLogs(pushLog),
     ]
   }

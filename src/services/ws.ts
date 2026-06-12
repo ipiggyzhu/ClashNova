@@ -5,10 +5,10 @@
  * mock 模式用定时器造数: traffic 每 1s randomwalk、logs 每 2s 一条、
  * connections 每 1s 快照微扰; 真实模式 WebSocket + 断线 3s 重连。
  */
-import type { ConnectionsPayload, LogItem, TrafficPoint } from '../types/clash'
+import type { ConnectionsPayload, LogItem, MemoryPoint, TrafficPoint } from '../types/clash'
 import { apiConfig } from './api'
 import { isMock } from './ipc'
-import { mockConnections, mockNextLog, mockNextTraffic } from './mock'
+import { mockConnections, mockNextLog, mockNextMemory, mockNextTraffic } from './mock'
 
 /** 取消订阅函数 */
 export type Unsubscribe = () => void
@@ -68,6 +68,12 @@ export function subscribeConnections(
 ): Unsubscribe {
   if (isMock) return subscribeMock(1000, mockConnections, onPayload)
   return subscribeWs<ConnectionsPayload>('/connections', onPayload)
+}
+
+/** WS /memory — 每秒一个内核内存占用点 */
+export function subscribeMemory(onPoint: (point: MemoryPoint) => void): Unsubscribe {
+  if (isMock) return subscribeMock(1000, mockNextMemory, onPoint)
+  return subscribeWs<MemoryPoint>('/memory', onPoint)
 }
 
 /** WS /logs?level={level} — mock 模式每 2s 一条仿真日志 */

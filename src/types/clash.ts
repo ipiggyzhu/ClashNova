@@ -17,6 +17,7 @@ export interface ConnectionsPayload { downloadTotal: number; uploadTotal: number
 export interface RuleItem { type: string; payload: string; proxy: string }
 export interface LogItem { type: 'info' | 'warning' | 'error' | 'debug'; payload: string; time: string }
 export interface TrafficPoint { up: number; down: number }
+export interface MemoryPoint { inuse: number; oslimit?: number }
 export interface CoreStatus { running: boolean; version: string; uptimeSec: number; memoryBytes: number }
 export interface ProfileQuota { used: number; total: number; expireAt?: number }
 export interface EnhancerMeta { id: string; kind: 'merge' | 'script'; name: string; enabled: boolean }

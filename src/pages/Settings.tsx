@@ -290,7 +290,7 @@ export default function Settings() {
         <Card icon={<Icon name="check" />} iconColor="var(--green)" title={t('关于')} flush>
           <Row title="ClashNova">
             <div className="about-ver">
-              <span className="v">v2.0.0</span>
+              <span className="v">v{__APP_VERSION__}</span>
               {updateMsg && <Badge tone="blue">{updateMsg}</Badge>}
               <Button size="sm" variant="primary" onClick={checkUpdate} disabled={busy === 'update'}>
                 {busy === 'update' ? t('检查中…') : t('检查更新')}

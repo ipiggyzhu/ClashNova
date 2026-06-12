@@ -2,3 +2,5 @@ node_modules/
 dist/
 target/
 *.log
+tsconfig.tsbuildinfo
+shots/

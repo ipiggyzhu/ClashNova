@@ -53,6 +53,7 @@ export default function Dashboard() {
   const refreshCoreStatus = useAppStore((s) => s.refreshCoreStatus)
   const traffic = useLiveStore((s) => s.traffic)
   const connections = useLiveStore((s) => s.connections)
+  const memInuse = useLiveStore((s) => s.memory.inuse)
 
   const [sumRange, setSumRange] = useState<StatRange>('day')
   const [rankBy, setRankBy] = useState<StatDim>('proxy')
@@ -155,7 +156,7 @@ export default function Dashboard() {
             <div className="stat-cell">
               <div className="stat-label"><Icon name="cpu" size={12} />内核内存</div>
               <div className="stat-num" style={{ color: 'var(--accent)' }}>
-                {fmtBytes(core.memoryBytes, 0)}
+                {fmtBytes(core.running ? memInuse || core.memoryBytes : 0, 0)}
               </div>
             </div>
           </div>
@@ -166,11 +167,11 @@ export default function Dashboard() {
             </div>
             <div className="stat-cell">
               <div className="stat-label">版本</div>
-              <b>v2.0.0</b>
+              <b>v{__APP_VERSION__}</b>
             </div>
             <div className="stat-cell">
               <div className="stat-label">内核</div>
-              <b>mihomo {core.version}</b>
+              <b>mihomo {core.running ? (core.version === '—' ? '获取中…' : core.version) : '未运行'}</b>
             </div>
           </div>
         </Card>
