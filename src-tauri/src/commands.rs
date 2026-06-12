@@ -332,7 +332,7 @@ pub async fn exempt_uwp_loopback() -> Result<(), String> {
 /// (自动安装升级依赖签名密钥与发布基建, 见 BUILD.md)
 #[tauri::command]
 pub async fn check_update() -> Result<Option<String>, String> {
-    const RELEASES_API: &str = "https://api.github.com/repos/clashnova/clashnova/releases/latest";
+    const RELEASES_API: &str = "https://api.github.com/repos/ipiggyzhu/ClashNova/releases/latest";
     let resp = reqwest::Client::new()
         .get(RELEASES_API)
         .header("User-Agent", "ClashNova/2.0")

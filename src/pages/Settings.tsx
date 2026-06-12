@@ -300,7 +300,7 @@ export default function Settings() {
           <Row title={t('开源协议')} desc="MIT License">
             <span
               className="link"
-              onClick={() => void call('open_url', { url: 'https://github.com' }).catch(() => {})}
+              onClick={() => void call('open_url', { url: 'https://github.com/ipiggyzhu/ClashNova' }).catch(() => {})}
             >
               {t('GitHub 仓库')}
             </span>
