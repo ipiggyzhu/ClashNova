@@ -9,6 +9,7 @@ import Rules from './pages/Rules'
 import Profiles from './pages/Profiles'
 import Settings from './pages/Settings'
 import Test from './pages/Test'
+import Topology from './pages/Topology'
 import Traffic from './pages/Traffic'
 import Placeholder from './pages/Placeholder'
 
@@ -27,7 +28,7 @@ export const router = createBrowserRouter([
       { path: 'traffic', element: <Traffic /> },
       { path: 'connections', element: <Connections /> },
       { path: 'logs', element: <Logs /> },
-      { path: 'topology', element: <Placeholder title="拓扑" /> },
+      { path: 'topology', element: <Topology /> },
       { path: 'routemap', element: <Placeholder title="路由地图" /> },
       { path: 'proxies', element: <Proxies /> },
       { path: 'rules', element: <Rules /> },
