@@ -24,6 +24,10 @@ export interface ProxyProviderItem { name: string; vehicleType: string; nodeCoun
   updatedAt?: number; subscription?: ProfileQuota }
 export interface RuleProviderItem { name: string; behavior: string; vehicleType: string;
   ruleCount: number; updatedAt?: number }
+export type StatRange = 'day' | '7d' | '30d'
+export type StatDim = 'proxy' | 'process' | 'host'
+export interface SeriesPoint { ts: number; up: number; down: number }
+export interface RankRow { key: string; up: number; down: number }
 export interface ProfileMeta { id: string; name: string; kind: 'remote' | 'local'; url?: string;
   updatedAt: number; autoUpdateMin?: number; sizeBytes?: number; quota?: ProfileQuota; current: boolean;
   enhancers?: EnhancerMeta[] }

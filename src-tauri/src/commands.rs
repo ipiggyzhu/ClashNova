@@ -353,6 +353,22 @@ pub async fn check_update() -> Result<Option<String>, String> {
     Ok((!latest.is_empty() && latest != current).then_some(latest))
 }
 
+/// 流量统计: 总量时间序列(range: day|7d|30d)。
+#[tauri::command]
+pub fn query_traffic_series(app: AppHandle, range: String) -> Result<Vec<crate::stats::SeriesPoint>, String> {
+    crate::stats::query_series(&app, &range)
+}
+
+/// 流量统计: 维度排行(dim: proxy|process|host)。
+#[tauri::command]
+pub fn query_traffic_rank(
+    app: AppHandle,
+    dim: String,
+    range: String,
+) -> Result<Vec<crate::stats::RankRow>, String> {
+    crate::stats::query_rank(&app, &dim, &range)
+}
+
 /// 恢复默认设置并按差异应用全部副作用。
 #[tauri::command]
 pub async fn reset_settings(app: AppHandle) -> Result<AppSettings, String> {

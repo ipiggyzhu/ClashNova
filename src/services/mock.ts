@@ -568,6 +568,9 @@ export const mockHandlers: Record<string, MockHandler> = {
     settings = { ...DEFAULT_SETTINGS }
     return { ...settings }
   },
+  query_traffic_series: (args) => mockSeries(String(args['range'] ?? '7d')),
+  query_traffic_rank: (args) =>
+    mockRank(String(args['dim'] ?? 'proxy'), String(args['range'] ?? '7d')),
   read_enhancer: (args) => {
     const key = `${argString(args, 'profileId')}/${argString(args, 'enhancerId')}`
     return enhancerContents[key] ?? ''
@@ -671,4 +674,47 @@ export function mockUpdateRuleProvider(name: string): void {
   const p = ruleProviders.find((it) => it.name === name)
   if (!p) throw new Error(`提供者不存在: ${name}`)
   p.updatedAt = Date.now()
+}
+
+/* ============================== 流量统计造数器(M3) ============================== */
+
+/** 稳定伪随机(同 ts 同结果, 截图可复现) */
+function seeded(n: number): number {
+  const x = Math.sin(n * 127.1 + 311.7) * 43758.5453
+  return x - Math.floor(x)
+}
+
+function mockSeries(range: string): { ts: number; up: number; down: number }[] {
+  const step = range === 'day' ? 3600_000 : 86_400_000
+  const count = range === 'day' ? 24 : range === '30d' ? 30 : 7
+  const now = Math.floor(Date.now() / step) * step
+  const out = []
+  for (let i = count - 1; i >= 0; i -= 1) {
+    const ts = now - i * step
+    const base = range === 'day' ? 60 * MB : 900 * MB
+    const wave = 0.35 + seeded(ts / step) * 0.9
+    out.push({
+      ts,
+      up: Math.round(base * wave * 0.18),
+      down: Math.round(base * wave),
+    })
+  }
+  return out
+}
+
+const RANK_KEYS: Record<string, string[]> = {
+  proxy: ['DE-Server', 'US-OpenAI', 'US-Streaming', 'SG-AWS', 'DIRECT', 'JP-GPT', 'US-Netflix'],
+  process: ['chrome.exe', 'Telegram.exe', 'steam.exe', 'spotify.exe', 'code.exe', 'svchost.exe'],
+  host: ['youtube.com', 'chat.openai.com', 'github.com', 'steamcdn-a.akamaihd.net', 'api.telegram.org', 'doh.pub'],
+}
+
+function mockRank(dim: string, range: string): { key: string; up: number; down: number }[] {
+  const keys = RANK_KEYS[dim] ?? RANK_KEYS['proxy']!
+  const scale = range === 'day' ? 1 : range === '30d' ? 26 : 7
+  return keys
+    .map((key, i) => {
+      const down = Math.round((18 - i * 2.3) * scale * GB * (0.6 + seeded(i + key.length) * 0.5))
+      return { key, up: Math.round(down * 0.14), down }
+    })
+    .sort((a, b) => b.up + b.down - (a.up + a.down))
 }

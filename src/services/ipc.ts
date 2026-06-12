@@ -2,7 +2,16 @@
  * Tauri invoke 适配层 — 锁定契约 B 的前端入口。
  * VITE_MOCK=1 或非 Tauri 环境时查 mock.ts 的 handler 表(延迟 80-200ms resolve)。
  */
-import type { AppSettings, CoreStatus, EnhancerMeta, ProfileMeta } from '../types/clash'
+import type {
+  AppSettings,
+  CoreStatus,
+  EnhancerMeta,
+  ProfileMeta,
+  RankRow,
+  SeriesPoint,
+  StatDim,
+  StatRange,
+} from '../types/clash'
 import { mockHandlers } from './mock'
 
 /** 是否运行在模拟模式(无 Rust 后端) */
@@ -43,6 +52,8 @@ export interface IpcCommands {
   exempt_uwp_loopback: { args: undefined; result: void }
   check_update: { args: undefined; result: string | null }
   reset_settings: { args: undefined; result: AppSettings }
+  query_traffic_series: { args: { range: StatRange }; result: SeriesPoint[] }
+  query_traffic_rank: { args: { dim: StatDim; range: StatRange }; result: RankRow[] }
 }
 
 export type IpcCommand = keyof IpcCommands

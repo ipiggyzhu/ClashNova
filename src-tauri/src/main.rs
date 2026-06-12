@@ -8,6 +8,7 @@ mod hotkeys;
 mod profiles;
 mod service;
 mod state;
+mod stats;
 mod sysproxy_win;
 mod tray;
 
@@ -88,6 +89,8 @@ fn main() {
             commands::exempt_uwp_loopback,
             commands::check_update,
             commands::reset_settings,
+            commands::query_traffic_series,
+            commands::query_traffic_rank,
         ])
         .setup(|app| {
             let handle = app.handle().clone();
@@ -115,6 +118,7 @@ fn main() {
             }
             sysproxy_win::restart_guard(&handle);
             hotkeys::sync(&handle);
+            stats::spawn_collector(handle.clone());
             Ok(())
         })
         .on_window_event(|window, event| {
