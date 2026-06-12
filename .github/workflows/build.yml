@@ -32,6 +32,11 @@ jobs:
       - name: nova-core 单元测试
         run: cargo test -p nova-core --manifest-path crates/nova-core/Cargo.toml
 
+      - name: 清理调试日志 Release(若有)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release delete buildlog -y --cleanup-tag || true
+
   # Windows 安装包: 仅 tag v* 或手动触发
   release:
     runs-on: windows-latest
