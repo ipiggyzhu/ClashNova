@@ -86,13 +86,12 @@ fn open_db(path: &PathBuf) -> Result<Connection, String> {
 /// setup 时启动:常驻轮询任务(内核不可达时静默跳过该轮)。
 pub fn spawn_collector(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
-        let conn = match open_db(&db_path(&app)) {
-            Ok(c) => c,
-            Err(e) => {
-                log::error!("{e}; 流量统计不可用");
-                return;
-            }
-        };
+        let db = db_path(&app);
+        // Connection 非 Send 不能跨 await 持有: 这里仅建表校验, 落库时按需重开
+        if let Err(e) = open_db(&db) {
+            log::error!("{e}; 流量统计不可用");
+            return;
+        }
         let client = reqwest::Client::new();
         // 连接 id → 上次累计(up, down)
         let mut prev: HashMap<String, (u64, u64)> = HashMap::new();
@@ -153,7 +152,7 @@ pub fn spawn_collector(app: AppHandle) {
             // 分钟翻转 → 落库
             let now_min = now_millis() / 60_000 * 60;
             if now_min != bucket_ts && !bucket.is_empty() {
-                if let Err(e) = flush(&conn, bucket_ts, &bucket) {
+                if let Err(e) = flush(&db, bucket_ts, &bucket) {
                     log::warn!("流量统计落库失败: {e}");
                 }
                 bucket.clear();
@@ -164,12 +163,13 @@ pub fn spawn_collector(app: AppHandle) {
 }
 
 fn flush(
-    conn: &Connection,
+    db: &PathBuf,
     ts: u64,
     bucket: &HashMap<(String, String), (u64, u64)>,
 ) -> Result<(), String> {
+    let conn = open_db(db)?;
     let mut stmt = conn
-        .prepare_cached(
+        .prepare(
             "INSERT INTO traffic_minute(ts, dim, key, up, down) VALUES (?1, ?2, ?3, ?4, ?5)
              ON CONFLICT(ts, dim, key) DO UPDATE SET up = up + ?4, down = down + ?5",
         )

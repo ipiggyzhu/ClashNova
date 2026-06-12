@@ -218,7 +218,7 @@ fn refresh_version_async(app: AppHandle) {
                 let state = app.state::<AppState>();
                 if let Ok(mut guard) = state.core.lock() {
                     guard.version = Some(v.version);
-                }
+                };
             }
         }
     });
