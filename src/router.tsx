@@ -5,18 +5,16 @@ import Connections from './pages/Connections'
 import Logs from './pages/Logs'
 import Proxies from './pages/Proxies'
 import Providers from './pages/Providers'
+import RouteMap from './pages/RouteMap'
 import Rules from './pages/Rules'
 import Profiles from './pages/Profiles'
 import Settings from './pages/Settings'
 import Test from './pages/Test'
 import Topology from './pages/Topology'
 import Traffic from './pages/Traffic'
-import Placeholder from './pages/Placeholder'
 
 /**
- * 契约 E: 11 条路由。
- * M1 实装 dashboard/connections/logs/proxies/rules/profiles/settings;
- * M2 实装 providers; traffic/topology/routemap 为 M3 占位。
+ * 契约 E 的 11 条路由 + M2 测试页, 全部实装(M3 完成后无占位)。
  */
 export const router = createBrowserRouter([
   {
@@ -29,7 +27,7 @@ export const router = createBrowserRouter([
       { path: 'connections', element: <Connections /> },
       { path: 'logs', element: <Logs /> },
       { path: 'topology', element: <Topology /> },
-      { path: 'routemap', element: <Placeholder title="路由地图" /> },
+      { path: 'routemap', element: <RouteMap /> },
       { path: 'proxies', element: <Proxies /> },
       { path: 'rules', element: <Rules /> },
       { path: 'providers', element: <Providers /> },
