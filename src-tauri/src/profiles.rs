@@ -150,11 +150,45 @@ fn normalize_content(raw: &str) -> Result<String, String> {
         return Ok(raw.to_string());
     }
     let proxies = nova_core::parse_subscription(raw).map_err(|e| format!("订阅解析失败: {e}"))?;
+    // 提取节点名列表用于构造 proxy-group
+    let proxy_names: Vec<serde_yaml::Value> = proxies
+        .iter()
+        .filter_map(|p| {
+            p.as_mapping()
+                .and_then(|m| m.get(&serde_yaml::Value::from("name")))
+                .cloned()
+        })
+        .collect();
     let mut root = serde_yaml::Mapping::new();
     root.insert(
         serde_yaml::Value::from("proxies"),
         serde_yaml::Value::Sequence(proxies),
     );
+    // 自动生成默认 proxy-group: 类型 select, 包含所有节点
+    if !proxy_names.is_empty() {
+        let mut group = serde_yaml::Mapping::new();
+        group.insert(
+            serde_yaml::Value::from("name"),
+            serde_yaml::Value::from("PROXY"),
+        );
+        group.insert(
+            serde_yaml::Value::from("type"),
+            serde_yaml::Value::from("select"),
+        );
+        group.insert(
+            serde_yaml::Value::from("proxies"),
+            serde_yaml::Value::Sequence(proxy_names),
+        );
+        root.insert(
+            serde_yaml::Value::from("proxy-groups"),
+            serde_yaml::Value::Sequence(vec![serde_yaml::Value::Mapping(group)]),
+        );
+        // 生成默认规则: MATCH,PROXY
+        root.insert(
+            serde_yaml::Value::from("rules"),
+            serde_yaml::Value::Sequence(vec![serde_yaml::Value::from("MATCH,PROXY")]),
+        );
+    }
     serde_yaml::to_string(&serde_yaml::Value::Mapping(root))
         .map_err(|e| format!("生成配置失败: {e}"))
 }
