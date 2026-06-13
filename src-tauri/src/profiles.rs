@@ -268,13 +268,7 @@ pub async fn import(app: &AppHandle, url: String) -> Result<ProfileMeta, String>
     if first {
         regenerate_runtime(app)?;
         // 首次订阅自动成为当前配置 → 热加载或启动内核
-        let state = app.state::<AppState>();
-        let running = state
-            .core
-            .lock()
-            .map(|g| g.child.is_some())
-            .unwrap_or(false);
-        if running {
+        if crate::core::is_running(app).await {
             crate::core::reload_runtime(app).await?;
         } else {
             crate::core::start(app)?;

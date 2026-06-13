@@ -37,6 +37,25 @@ pub struct CoreStatus {
     pub memory_bytes: u64,
 }
 
+pub(crate) fn is_sidecar_running(app: &AppHandle) -> bool {
+    let state = app.state::<AppState>();
+    state
+        .core
+        .lock()
+        .map(|g| g.child.is_some())
+        .unwrap_or(false)
+}
+
+pub(crate) async fn is_running(app: &AppHandle) -> bool {
+    if is_sidecar_running(app) {
+        true
+    } else {
+        tauri::async_runtime::spawn_blocking(crate::service::is_running)
+            .await
+            .unwrap_or(false)
+    }
+}
+
 /// 读取当前内核状态(锁内只读内存状态; 服务状态查询移到阻塞线程池)。
 pub async fn status(app: &AppHandle) -> CoreStatus {
     let state = app.state::<AppState>();
@@ -51,13 +70,7 @@ pub async fn status(app: &AppHandle) -> CoreStatus {
                 .unwrap_or(0),
         )
     };
-    let service_running = if sidecar_running {
-        false
-    } else {
-        tauri::async_runtime::spawn_blocking(crate::service::is_running)
-            .await
-            .unwrap_or(false)
-    };
+    let service_running = !sidecar_running && is_running(app).await;
     CoreStatus {
         running: sidecar_running || service_running,
         version,
