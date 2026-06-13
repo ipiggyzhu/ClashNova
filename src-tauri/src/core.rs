@@ -37,17 +37,31 @@ pub struct CoreStatus {
     pub memory_bytes: u64,
 }
 
-/// 读取当前内核状态(短临界区, 不做网络 IO)。
-pub fn status(app: &AppHandle) -> CoreStatus {
+/// 读取当前内核状态(锁内只读内存状态; 服务状态查询移到阻塞线程池)。
+pub async fn status(app: &AppHandle) -> CoreStatus {
     let state = app.state::<AppState>();
-    let guard = state.core.lock().expect("core 锁中毒");
+    let (sidecar_running, version, uptime_sec) = {
+        let guard = state.core.lock().expect("core 锁中毒");
+        (
+            guard.child.is_some(),
+            guard.version.clone().unwrap_or_else(|| "—".into()),
+            guard
+                .started_at
+                .map(|t| t.elapsed().as_secs())
+                .unwrap_or(0),
+        )
+    };
+    let service_running = if sidecar_running {
+        false
+    } else {
+        tauri::async_runtime::spawn_blocking(crate::service::is_running)
+            .await
+            .unwrap_or(false)
+    };
     CoreStatus {
-        running: guard.child.is_some(),
-        version: guard.version.clone().unwrap_or_else(|| "—".into()),
-        uptime_sec: guard
-            .started_at
-            .map(|t| t.elapsed().as_secs())
-            .unwrap_or(0),
+        running: sidecar_running || service_running,
+        version,
+        uptime_sec,
         // M1: 内存占用经 WS /memory 提供(M2 接入), 此处先返回 0
         memory_bytes: 0,
     }
@@ -88,6 +102,7 @@ pub fn stop(app: &AppHandle) -> Result<(), String> {
     let mut guard = state.core.lock().expect("core 锁中毒");
     guard.manual_stop = true;
     guard.started_at = None;
+    guard.version = None;
     if let Some(child) = guard.child.take() {
         child.kill().map_err(|e| format!("停止内核失败: {e}"))?;
     }
@@ -104,11 +119,14 @@ pub fn restart(app: &AppHandle) -> Result<(), String> {
 fn spawn_core(app: &AppHandle) -> Result<(), String> {
     let state = app.state::<AppState>();
     let config_dir = state.dirs.config.to_string_lossy().to_string();
+    let runtime_config = state.dirs.runtime_config().to_string_lossy().to_string();
     let (mut rx, child) = app
         .shell()
         .sidecar("mihomo")
         .map_err(|e| format!("定位 mihomo sidecar 失败: {e}"))?
-        .args(["-d", &config_dir, "-f", "runtime.yaml"])
+        // mihomo resolves a relative -f against the process cwd, not -d.
+        // Installed builds therefore must pass the absolute runtime path.
+        .args(["-d", &config_dir, "-f", &runtime_config])
         .spawn()
         .map_err(|e| format!("启动 mihomo 失败: {e}"))?;
 
@@ -116,8 +134,9 @@ fn spawn_core(app: &AppHandle) -> Result<(), String> {
         let mut guard = state.core.lock().expect("core 锁中毒");
         guard.child = Some(child);
         guard.started_at = Some(Instant::now());
+        guard.version = None;
     }
-    log::info!("mihomo 已启动 (配置目录: {config_dir})");
+    log::info!("mihomo 已启动 (配置目录: {config_dir}, 配置文件: {runtime_config})");
 
     // 事件循环:stdout/stderr 落日志文件; Terminated 时按退避策略自动重启
     let app_handle = app.clone();
@@ -158,6 +177,7 @@ fn on_terminated(app: &AppHandle, code: Option<i32>) {
         let mut guard = state.core.lock().expect("core 锁中毒");
         guard.child = None;
         guard.started_at = None;
+        guard.version = None;
         if guard.manual_stop {
             false
         } else {
@@ -241,21 +261,25 @@ fn refresh_version_async(app: AppHandle) {
 
 /// 通知 mihomo 热加载运行时配置(PUT /configs?force=true); 未运行时为 no-op。
 pub async fn reload_runtime(app: &AppHandle) -> Result<(), String> {
-    let (running, controller, secret, path) = {
+    let (sidecar_running, controller, secret, path) = {
         let state = app.state::<AppState>();
-        let running = state
+        let sidecar_running = state
             .core
             .lock()
             .map(|g| g.child.is_some())
             .unwrap_or(false);
         let s = state.settings_snapshot();
         (
-            running,
+            sidecar_running,
             s.external_controller,
             s.secret,
             state.dirs.runtime_config().to_string_lossy().to_string(),
         )
     };
+    let running = sidecar_running
+        || tauri::async_runtime::spawn_blocking(crate::service::is_running)
+            .await
+            .unwrap_or(false);
     if !running {
         return Ok(());
     }
@@ -267,12 +291,24 @@ pub async fn reload_runtime(app: &AppHandle) -> Result<(), String> {
         .json(&serde_json::json!({ "path": path }))
         .timeout(Duration::from_secs(5))
         .send()
-        .await
-        .map_err(|e| format!("热加载请求失败: {e}"))?;
+        .await;
+    let resp = match resp {
+        Ok(resp) => resp,
+        Err(err) if sidecar_running => {
+            log::warn!("热加载请求失败({err}), 改为重启内核");
+            restart(app)?;
+            return Ok(());
+        }
+        Err(err) => return Err(format!("热加载请求失败: {err}")),
+    };
     if !resp.status().is_success() {
-        // 热加载失败 → 退回重启内核
-        log::warn!("热加载返回 HTTP {}, 改为重启内核", resp.status());
-        restart(app)?;
+        if sidecar_running {
+            // 热加载失败 → 退回重启内核
+            log::warn!("热加载返回 HTTP {}, 改为重启内核", resp.status());
+            restart(app)?;
+        } else {
+            return Err(format!("服务模式热加载失败: HTTP {}", resp.status()));
+        }
     }
     Ok(())
 }

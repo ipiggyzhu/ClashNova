@@ -134,8 +134,8 @@ pub async fn save_settings(app: AppHandle, settings: AppSettings) -> Result<(), 
 }
 
 #[tauri::command]
-pub fn core_status(app: AppHandle) -> CoreStatus {
-    core::status(&app)
+pub async fn core_status(app: AppHandle) -> CoreStatus {
+    core::status(&app).await
 }
 
 #[tauri::command]

@@ -4,7 +4,7 @@
  * mock 模式直接返回 mock.ts 造数。
  */
 import type { ProxiesPayload, ProxyProviderItem, RuleItem, RuleProviderItem } from '../types/clash'
-import { isMock } from './ipc'
+import { call, isMock } from './ipc'
 import {
   mockCloseAllConnections,
   mockCloseConnection,
@@ -25,11 +25,13 @@ const config: ApiConfig = {
   baseUrl: 'http://127.0.0.1:9097',
   secret: mockSettings().secret,
 }
+let configReady = isMock
 
 /** 设置页修改外部控制地址/密钥后调用, 同步 REST/WS 连接参数 */
 export function configureApi(externalController: string, secret: string): void {
   config.baseUrl = `http://${externalController}`
   config.secret = secret
+  configReady = true
 }
 
 /** ws.ts 复用同一份连接参数 */
@@ -39,7 +41,14 @@ export function apiConfig(): Readonly<ApiConfig> {
 
 const DELAY_TEST_URL = 'https://www.gstatic.com/generate_204'
 
+async function ensureConfigured(): Promise<void> {
+  if (configReady) return
+  const settings = await call('get_settings')
+  configureApi(settings.externalController, settings.secret)
+}
+
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  await ensureConfigured()
   const res = await fetch(`${config.baseUrl}${path}`, {
     method,
     headers: {
@@ -72,7 +81,28 @@ export async function getProxies(): Promise<ProxiesPayload> {
     await mockDelayMs()
     return mockProxies()
   }
-  return request('GET', '/proxies')
+  const payload = await request<ProxiesPayload>('GET', '/proxies')
+  // Some mihomo configs keep provider nodes only under /providers/proxies.
+  // Merge them into the proxy dictionary so groups that reference provider nodes render normally.
+  try {
+    const providersPayload = await request<{ providers: Record<string, RawProxyProvider> }>(
+      'GET',
+      '/providers/proxies',
+    )
+    for (const provider of Object.values(providersPayload.providers)) {
+      if (provider.vehicleType === 'Compatible') continue
+      for (const proxy of provider.proxies ?? []) {
+        if (!isProxyLike(proxy) || payload.proxies[proxy.name]) continue
+        payload.proxies[proxy.name] = {
+          ...proxy,
+          history: proxy.history ?? [],
+        }
+      }
+    }
+  } catch {
+    // /proxies is still useful when provider details are unavailable.
+  }
+  return payload
 }
 
 /** GET /rules */
@@ -172,6 +202,17 @@ function toMillis(iso?: string): number | undefined {
   if (!iso) return undefined
   const t = Date.parse(iso)
   return Number.isNaN(t) ? undefined : t
+}
+
+type ProviderProxyNode = Partial<ProxiesPayload['proxies'][string]> & { name: string; type: string }
+
+function isProxyLike(value: unknown): value is ProviderProxyNode {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as { name?: unknown }).name === 'string' &&
+    typeof (value as { type?: unknown }).type === 'string'
+  )
 }
 
 /** GET /providers/proxies — 过滤 mihomo 内置的 Compatible 提供者 */
