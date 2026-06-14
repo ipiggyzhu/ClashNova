@@ -36,8 +36,51 @@ pub async fn apply_tun(app: &AppHandle, enable: bool) -> Result<(), String> {
         *guard = settings.clone();
     }
     state.persist_settings(&settings)?;
+
+    // 开启 TUN 时检查服务状态
+    if enable {
+        // 检查服务是否安装
+        if service::status() != "installed" {
+            return Err("TUN 模式需要服务模式支持，请先安装服务".into());
+        }
+        // 检查服务是否运行
+        if !service::is_running() {
+            // 服务已安装但未运行，尝试启动
+            #[cfg(windows)]
+            {
+                use windows_service::service_manager::{ServiceManager, ServiceManagerAccess};
+                use windows_service::service::{ServiceAccess, ServiceState};
+
+                let manager = ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT)
+                    .map_err(|e| format!("连接服务管理器失败: {e}"))?;
+                let service_access = ServiceAccess::QUERY_STATUS | ServiceAccess::START;
+                let svc = manager.open_service(service::SERVICE_NAME, service_access)
+                    .map_err(|e| format!("打开服务失败: {e}"))?;
+
+                // 检查状态并启动
+                if let Ok(status) = svc.query_status() {
+                    if status.current_state != ServiceState::Running {
+                        use std::ffi::OsStr;
+                        svc.start(&Vec::<&OsStr>::new())
+                            .map_err(|e| format!("启动服务失败: {e}"))?;
+                        log::info!("TUN 模式：服务已启动");
+                    }
+                }
+            }
+        }
+        // 停止 sidecar 内核，让服务接管
+        let _ = core::stop(app);
+    }
+
     profiles::regenerate_runtime(app)?;
-    core::reload_runtime(app).await
+    core::reload_runtime(app).await?;
+
+    // 开启 TUN 后重启内核，让服务接管
+    if enable {
+        core::restart(app)?;
+    }
+
+    Ok(())
 }
 
 /// 切换出站模式(direct/rule/global):持久化 + 运行时同步。
