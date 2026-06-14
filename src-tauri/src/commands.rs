@@ -26,7 +26,7 @@ pub fn apply_sys_proxy(app: &AppHandle, enable: bool) -> Result<(), String> {
     Ok(())
 }
 
-/// 切换 TUN:更新设置 → 重生成运行时配置 → 热加载。
+/// 切换 TUN:更新设置 → 检查服务 → 重生成配置 → 重启内核。
 pub async fn apply_tun(app: &AppHandle, enable: bool) -> Result<(), String> {
     let state = app.state::<AppState>();
     let mut settings = state.settings_snapshot();
@@ -41,11 +41,11 @@ pub async fn apply_tun(app: &AppHandle, enable: bool) -> Result<(), String> {
     if enable {
         // 检查服务是否安装
         if service::status() != "installed" {
-            return Err("TUN 模式需要服务模式支持，请先安装服务".into());
+            return Err("TUN 模式需要服务模式支持，请先在设置中安装服务".into());
         }
-        // 检查服务是否运行
+        // 检查服务是否运行，未运行则启动
         if !service::is_running() {
-            // 服务已安装但未运行，尝试启动
+            log::info!("TUN 模式：服务未运行，尝试启动服务");
             #[cfg(windows)]
             {
                 use windows_service::service_manager::{ServiceManager, ServiceManagerAccess};
@@ -64,6 +64,8 @@ pub async fn apply_tun(app: &AppHandle, enable: bool) -> Result<(), String> {
                         svc.start(&Vec::<&OsStr>::new())
                             .map_err(|e| format!("启动服务失败: {e}"))?;
                         log::info!("TUN 模式：服务已启动");
+                        // 等待服务完全启动
+                        std::thread::sleep(std::time::Duration::from_millis(1000));
                     }
                 }
             }
@@ -72,13 +74,11 @@ pub async fn apply_tun(app: &AppHandle, enable: bool) -> Result<(), String> {
         let _ = core::stop(app);
     }
 
+    // 重新生成配置
     profiles::regenerate_runtime(app)?;
-    core::reload_runtime(app).await?;
 
-    // 开启 TUN 后重启内核，让服务接管
-    if enable {
-        core::restart(app)?;
-    }
+    // 重启内核
+    core::restart(app)?;
 
     Ok(())
 }
@@ -499,6 +499,16 @@ pub async fn reset_settings(app: AppHandle) -> Result<AppSettings, String> {
 pub fn get_runtime_config(app: AppHandle) -> Result<String, String> {
     let state = app.state::<AppState>();
     let path = state.dirs.runtime_config();
-    std::fs::read_to_string(&path)
-        .map_err(|e| format!("读取运行时配置失败: {e}"))
+    log::info!("读取运行时配置: {}", path.display());
+
+    match std::fs::read_to_string(&path) {
+        Ok(content) => {
+            log::info!("读取成功，内容长度: {} 字节", content.len());
+            Ok(content)
+        }
+        Err(e) => {
+            log::error!("读取运行时配置失败: {}", e);
+            Err(format!("读取运行时配置失败: {e}"))
+        }
+    }
 }
