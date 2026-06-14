@@ -36,11 +36,30 @@ function delayKey(group: string, node: string): string {
   return `${group}\u0000${node}`
 }
 
+const COLLAPSED_KEY = 'proxies:collapsed'
+
+function loadCollapsed(): Record<string, boolean> {
+  try {
+    const saved = localStorage.getItem(COLLAPSED_KEY)
+    return saved ? JSON.parse(saved) : { Fallback: true }
+  } catch {
+    return { Fallback: true }
+  }
+}
+
+function saveCollapsed(state: Record<string, boolean>): void {
+  try {
+    localStorage.setItem(COLLAPSED_KEY, JSON.stringify(state))
+  } catch {
+    // ignore
+  }
+}
+
 export default function Proxies() {
   const [payload, setPayload] = useState<ProxiesPayload | null>(null)
   const [keyword, setKeyword] = useState('')
   const [typeFilter, setTypeFilter] = useState('all')
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({ Fallback: true })
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>(loadCollapsed)
   /** 节点名 → 实测延迟(0 表示测试中, -1 表示超时) */
   const [delays, setDelays] = useState<Record<string, number>>({})
   const [testingGroups, setTestingGroups] = useState<Set<string>>(new Set())
@@ -205,7 +224,11 @@ export default function Proxies() {
                 <button
                   className="icon-btn"
                   title={isOpen ? '折叠' : '展开'}
-                  onClick={() => setCollapsed((c) => ({ ...c, [g.name]: isOpen }))}
+                  onClick={() => setCollapsed((c) => {
+                    const next = { ...c, [g.name]: isOpen }
+                    saveCollapsed(next)
+                    return next
+                  })}
                 >
                   <span className={isOpen ? 'chev open' : 'chev'}>
                     <Icon name="chevron-down" />

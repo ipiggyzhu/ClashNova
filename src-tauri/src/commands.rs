@@ -84,9 +84,8 @@ pub async fn save_settings(app: AppHandle, settings: AppSettings) -> Result<(), 
     }
     state.persist_settings(&settings)?;
 
-    // 系统代理或其参数变化 → 重新应用 + 守卫换代
+    // 系统代理开关/参数变化 → 重新应用注册表 + 守卫换代（不触发内核重载）
     if settings.sys_proxy != prev.sys_proxy
-        || settings.mixed_port != prev.mixed_port
         || settings.bypass != prev.bypass
         || settings.guard != prev.guard
         || settings.guard_interval_sec != prev.guard_interval_sec
