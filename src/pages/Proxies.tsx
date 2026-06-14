@@ -57,7 +57,12 @@ export default function Proxies() {
   const groups: GroupView[] = useMemo(() => {
     if (!payload) return []
     const all = payload.proxies
-    return Object.values(all)
+    // 所有真实节点（非策略组、非 DIRECT/REJECT）
+    const realNodes = Object.values(all).filter(
+      (p) => !GROUP_TYPES.has(p.type) && p.type !== 'Direct' && p.type !== 'Reject',
+    ) as ProxyNode[]
+    // 策略组
+    const strategyGroups = Object.values(all)
       .filter((p): p is ProxyNode & ProxyGroup => GROUP_TYPES.has(p.type) && Array.isArray(p.all))
       .filter((g) => g.name !== 'GLOBAL')
       .map((g) => ({
@@ -67,6 +72,17 @@ export default function Proxies() {
         all: g.all,
         nodes: g.all.map((n) => all[n]).filter((n): n is ProxyNode => n !== undefined),
       }))
+    // 顶部插入"全部节点"虚拟组，确保所有节点都可见
+    if (realNodes.length > 0) {
+      strategyGroups.unshift({
+        name: '全部节点',
+        type: 'Selector',
+        now: '',
+        all: realNodes.map((n) => n.name),
+        nodes: realNodes,
+      })
+    }
+    return strategyGroups
   }, [payload])
 
   const totalNodes = useMemo(() => {
@@ -171,6 +187,7 @@ export default function Proxies() {
       {visibleGroups.map((g, i) => {
         const isOpen = !collapsed[g.name]
         const isTestingGroup = testingGroups.has(g.name)
+        const isVirtualGroup = g.name === '全部节点'
         return (
           <Card
             key={g.name}
@@ -179,8 +196,8 @@ export default function Proxies() {
             title={g.name}
             actions={
               <>
-                <span className="chip">{g.type}</span>
-                <span className="grp-now">当前: <b>{g.now}</b></span>
+                {!isVirtualGroup && <span className="chip">{g.type}</span>}
+                {!isVirtualGroup && <span className="grp-now">当前: <b>{g.now}</b></span>}
                 <Badge tone="green">{g.all.length} 个节点</Badge>
                 <Button size="sm" onClick={() => void testGroup(g)} disabled={isTestingGroup || testingAll}>
                   {isTestingGroup ? '测速中…' : '测速'}
@@ -206,12 +223,13 @@ export default function Proxies() {
                     <button
                       key={n.name}
                       className={sel ? 'node sel' : 'node'}
-                      onClick={() => void handleSelect(g.name, n.name)}
+                      onClick={isVirtualGroup ? undefined : () => void handleSelect(g.name, n.name)}
                       onDoubleClick={() => void testNode(g.name, n.name)}
-                      title="单击切换 · 双击测速"
+                      title={isVirtualGroup ? '双击测速' : '单击切换 · 双击测速'}
+                      style={isVirtualGroup ? { cursor: 'default' } : undefined}
                     >
                       <div className="nm">{n.name}</div>
-                      {sel && (
+                      {sel && !isVirtualGroup && (
                         <span className="sel-mark">
                           <Icon name="check" size={13} />
                         </span>
