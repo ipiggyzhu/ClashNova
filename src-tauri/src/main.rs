@@ -25,6 +25,36 @@ fn main() {
         return;
     }
 
+    // 提权安装/卸载服务（由 PowerShell RunAs 调用）
+    let args: Vec<String> = std::env::args().collect();
+    if args.iter().any(|a| a == "--install-service") {
+        let dir = args.iter()
+            .position(|a| a == "--dir")
+            .and_then(|i| args.get(i + 1))
+            .map(std::path::PathBuf::from);
+        if let Some(dir) = dir {
+            match service::install(&dir) {
+                Ok(_) => std::process::exit(0),
+                Err(e) => {
+                    eprintln!("服务安装失败: {e}");
+                    std::process::exit(1);
+                }
+            }
+        } else {
+            eprintln!("缺少 --dir 参数");
+            std::process::exit(1);
+        }
+    }
+    if args.iter().any(|a| a == "--uninstall-service") {
+        match service::uninstall() {
+            Ok(_) => std::process::exit(0),
+            Err(e) => {
+                eprintln!("服务卸载失败: {e}");
+                std::process::exit(1);
+            }
+        }
+    }
+
     let app_state = match AppState::init() {
         Ok(s) => s,
         Err(e) => {

@@ -286,6 +286,19 @@ pub async fn service_status() -> String {
 #[tauri::command]
 pub async fn install_service(app: AppHandle) -> Result<(), String> {
     let dir = app.state::<AppState>().dirs.config.clone();
+
+    // 检查是否需要提权
+    #[cfg(windows)]
+    {
+        use windows_service::service_manager::{ServiceManager, ServiceManagerAccess};
+        let manager_access = ServiceManagerAccess::CONNECT | ServiceManagerAccess::CREATE_SERVICE;
+        if ServiceManager::local_computer(None::<&str>, manager_access).is_err() {
+            // 需要提权，用 PowerShell 重启自身执行安装
+            return elevate_install_service(&dir).await;
+        }
+    }
+
+    // 已有管理员权限，直接安装
     tauri::async_runtime::spawn_blocking(move || service::install(&dir))
         .await
         .map_err(|e| format!("任务失败: {e}"))?
@@ -293,9 +306,71 @@ pub async fn install_service(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 pub async fn uninstall_service() -> Result<(), String> {
+    // 检查是否需要提权
+    #[cfg(windows)]
+    {
+        use windows_service::service_manager::{ServiceManager, ServiceManagerAccess};
+        if ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT).is_err() {
+            // 需要提权，用 PowerShell 重启自身执行卸载
+            return elevate_uninstall_service().await;
+        }
+    }
+
+    // 已有管理员权限，直接卸载
     tauri::async_runtime::spawn_blocking(service::uninstall)
         .await
         .map_err(|e| format!("任务失败: {e}"))?
+}
+
+/// 用 PowerShell 提权执行服务安装（通过重启自身并传递 --install-service 参数）
+#[cfg(windows)]
+async fn elevate_install_service(config_dir: &std::path::Path) -> Result<(), String> {
+    let exe = std::env::current_exe().map_err(|e| format!("定位自身失败: {e}"))?;
+    let ps_cmd = format!(
+        "Start-Process '{}' -ArgumentList '--install-service','--dir','{}' -Verb RunAs -Wait",
+        exe.display(),
+        config_dir.display()
+    );
+
+    let output = std::process::Command::new("powershell.exe")
+        .args(&["-NoProfile", "-Command", &ps_cmd])
+        .output()
+        .map_err(|e| format!("执行 PowerShell 失败: {e}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if stderr.is_empty() || stderr.contains("canceled") || stderr.contains("取消") {
+            return Err("用户取消了 UAC 授权".into());
+        }
+        return Err(format!("提权失败: {}", stderr));
+    }
+
+    Ok(())
+}
+
+/// 用 PowerShell 提权执行服务卸载
+#[cfg(windows)]
+async fn elevate_uninstall_service() -> Result<(), String> {
+    let exe = std::env::current_exe().map_err(|e| format!("定位自身失败: {e}"))?;
+    let ps_cmd = format!(
+        "Start-Process '{}' -ArgumentList '--uninstall-service' -Verb RunAs -Wait",
+        exe.display()
+    );
+
+    let output = std::process::Command::new("powershell.exe")
+        .args(&["-NoProfile", "-Command", &ps_cmd])
+        .output()
+        .map_err(|e| format!("执行 PowerShell 失败: {e}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if stderr.is_empty() || stderr.contains("canceled") || stderr.contains("取消") {
+            return Err("用户取消了 UAC 授权".into());
+        }
+        return Err(format!("提权失败: {}", stderr));
+    }
+
+    Ok(())
 }
 
 /// 解除全部 UWP 应用的回环限制(PowerShell 枚举 AppX 包逐个豁免)。
