@@ -80,7 +80,7 @@ fn elevated_sc(batch: &[String]) -> Result<(), String> {
             "-Command",
             &format!(
                 "Start-Process powershell.exe -Verb RunAs -Wait -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-Command','{}'",
-                script.replace('\'', "''").replace('\"', '`\"')
+                script.replace('\'', "''").replace('"', "`\"")
             ),
         ],
     )?;
