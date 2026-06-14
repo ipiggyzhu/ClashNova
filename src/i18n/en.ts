@@ -12,7 +12,7 @@ export const EN: Record<string, string> = {
   内存: 'Mem',
   /* 顶栏 */
   直连: 'Direct', 全局: 'Global', 通知: 'Notifications', 切换主题: 'Toggle theme',
-  最小化: 'Minimize', 最大化: 'Maximize', 关闭: 'Close',
+  最小化: 'Minimize', 最大化: 'Maximize', 关闭窗口: 'Close',
   /* 通用 */
   保存: 'Save', 取消: 'Cancel', 编辑: 'Edit', 删除: 'Delete', 确认: 'Confirm',
   更新: 'Update', 导入: 'Import', 新建: 'New', 启用: 'Enable', 添加: 'Add',
@@ -55,11 +55,33 @@ export const EN: Record<string, string> = {
   点击录制: 'Click to record', 按下组合键: 'Press keys…', 清除: 'Clear',
   /* 设置-关于 */
   关于: 'About', 检查更新: 'Check Updates', 已是最新: 'Up to date',
+  下载更新: 'Download Update', 检查失败: 'Check Failed',
   开源协议: 'License', 'GitHub 仓库': 'GitHub Repository', 目录: 'Folders',
   配置目录: 'Config Dir', 内核目录: 'Core Dir', 日志目录: 'Logs Dir',
   重置: 'Reset', 恢复全部设置为默认值: 'Restore all settings to defaults',
   恢复默认设置: 'Restore Defaults',
   '确认恢复默认设置?': 'Restore default settings?',
+  /* DNS 高级配置 */
+  高级: 'Advanced', 重置为默认值: 'Reset to Defaults',
+  '启用 DNS': 'Enable DNS', 'DNS 监听地址': 'DNS Listen Address',
+  增强模式: 'Enhanced Mode', 关闭: 'Off',
+  'Fake IP 范围': 'Fake IP Range', 'Fake IP 过滤模式': 'Fake IP Filter Mode',
+  黑名单: 'Blacklist', 白名单: 'Whitelist',
+  '启用 IPv6 DNS 解析': 'Enable IPv6 DNS resolution',
+  '优先使用 HTTP/3': 'Prefer HTTP/3', 'DNS DOH 使用 HTTP/3 协议': 'DNS DOH use HTTP/3 protocol',
+  遵循路由规则: 'Respect Rules', 'DNS 连接遵循路由规则': 'DNS connections follow routing rules',
+  '使用 Hosts': 'Use Hosts', '启用通过 hosts 文件解析域名': 'Enable domain resolution via hosts file',
+  '使用系统 Hosts': 'Use System Hosts', '启用通过操作系统 hosts 文件解析': 'Enable resolution via OS hosts file',
+  '高级配置会覆盖下方的"DNS 覆写"编辑器设置。如需精细调整 nameserver、fallback 等，请使用编辑器。':
+    'Advanced settings override the "DNS Override" editor below. Use the editor for fine-tuning nameserver, fallback, etc.',
+  'DNS 覆写编辑器中包含 enhanced-mode 设置，将覆盖上方的增强模式配置':
+    'The DNS Override editor contains enhanced-mode settings, which will override the Enhanced Mode configuration above',
+  'DNS 监听地址格式错误，应为 host:port': 'Invalid DNS listen address format, should be host:port',
+  '端口范围应为 1-65535': 'Port range should be 1-65535',
+  'Fake IP 范围格式错误，应为 CIDR 格式（如 198.18.0.1/16）':
+    'Invalid Fake IP range format, should be CIDR format (e.g. 198.18.0.1/16)',
+  'IP 地址段应为 0-255': 'IP address octet should be 0-255',
+  'CIDR 前缀应为 1-32': 'CIDR prefix should be 1-32',
   /* 编辑抽屉 */
   'DNS 覆写编辑(YAML, 留空关闭)': 'Edit DNS override (YAML, empty to disable)',
   'hosts 覆写编辑(每行: 域名 IP)': 'Edit hosts override (per line: domain IP)',

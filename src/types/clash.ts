@@ -35,6 +35,8 @@ export interface ProfileMeta { id: string; name: string; kind: 'remote' | 'local
 export type OutboundMode = 'rule' | 'global' | 'direct'
 export type Theme = 'dark' | 'light' | 'system'
 export type Language = 'zh' | 'en'
+export type DnsEnhancedMode = 'fake-ip' | 'redir-host'
+export type FakeIpFilterMode = 'blacklist' | 'whitelist'
 export interface AppSettings { sysProxy: boolean; guard: boolean; guardIntervalSec: number;
   bypass: string; tun: boolean; autostart: boolean; silentStart: boolean;
   mixedPort: number; externalController: string; secret: string;
@@ -49,4 +51,26 @@ export interface AppSettings { sysProxy: boolean; guard: boolean; guardIntervalS
   /** hosts 覆写; 每行 `域名 IP` */
   hosts: string;
   /** 全局热键: 动作 → 加速键(如 Ctrl+Shift+N); 空表示未绑定 */
-  hotkeys: Record<string, string> }
+  hotkeys: Record<string, string>;
+  /* ---- DNS 高级配置 ---- */
+  /** 启用 DNS */
+  enableDns: boolean;
+  /** DNS 监听地址 */
+  dnsListen: string;
+  /** 增强模式 */
+  dnsEnhancedMode: DnsEnhancedMode | '';
+  /** Fake IP 范围 */
+  fakeIpRange: string;
+  /** Fake IP 过滤模式 */
+  fakeIpFilterMode: FakeIpFilterMode;
+  /** IPv6 DNS */
+  ipv6Dns: boolean;
+  /** 优先使用 HTTP/3 */
+  preferH3: boolean;
+  /** 遵循路由规则 */
+  respectRules: boolean;
+  /** 使用 Hosts */
+  useHosts: boolean;
+  /** 使用系统 Hosts */
+  useSystemHosts: boolean;
+}

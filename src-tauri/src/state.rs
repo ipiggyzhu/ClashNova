@@ -41,10 +41,46 @@ pub struct AppSettings {
     pub hosts: String,
     #[serde(default)]
     pub hotkeys: std::collections::HashMap<String, String>,
+    /* ---- DNS 高级配置 ---- */
+    #[serde(default = "default_true")]
+    pub enable_dns: bool,
+    #[serde(default = "default_dns_listen")]
+    pub dns_listen: String,
+    #[serde(default = "default_dns_enhanced_mode")]
+    pub dns_enhanced_mode: String,
+    #[serde(default = "default_fake_ip_range")]
+    pub fake_ip_range: String,
+    #[serde(default = "default_fake_ip_filter_mode")]
+    pub fake_ip_filter_mode: String,
+    #[serde(default)]
+    pub ipv6_dns: bool,
+    #[serde(default)]
+    pub prefer_h3: bool,
+    #[serde(default)]
+    pub respect_rules: bool,
+    #[serde(default)]
+    pub use_hosts: bool,
+    #[serde(default)]
+    pub use_system_hosts: bool,
 }
 
 fn default_language() -> String {
     "zh".into()
+}
+fn default_true() -> bool {
+    true
+}
+fn default_dns_listen() -> String {
+    "127.0.0.1:5335".into()
+}
+fn default_dns_enhanced_mode() -> String {
+    "fake-ip".into()
+}
+fn default_fake_ip_range() -> String {
+    "198.18.0.1/16".into()
+}
+fn default_fake_ip_filter_mode() -> String {
+    "blacklist".into()
 }
 
 impl Default for AppSettings {
@@ -70,6 +106,16 @@ impl Default for AppSettings {
             dns_override: String::new(),
             hosts: String::new(),
             hotkeys: std::collections::HashMap::new(),
+            enable_dns: true,
+            dns_listen: default_dns_listen(),
+            dns_enhanced_mode: default_dns_enhanced_mode(),
+            fake_ip_range: default_fake_ip_range(),
+            fake_ip_filter_mode: default_fake_ip_filter_mode(),
+            ipv6_dns: false,
+            prefer_h3: false,
+            respect_rules: false,
+            use_hosts: false,
+            use_system_hosts: false,
         }
     }
 }
@@ -92,6 +138,16 @@ impl AppSettings {
             tun_enable: self.tun,
             dns_override: self.dns_override.clone(),
             hosts: self.hosts.clone(),
+            enable_dns: self.enable_dns,
+            dns_listen: self.dns_listen.clone(),
+            dns_enhanced_mode: self.dns_enhanced_mode.clone(),
+            fake_ip_range: self.fake_ip_range.clone(),
+            fake_ip_filter_mode: self.fake_ip_filter_mode.clone(),
+            ipv6_dns: self.ipv6_dns,
+            prefer_h3: self.prefer_h3,
+            respect_rules: self.respect_rules,
+            use_hosts: self.use_hosts,
+            use_system_hosts: self.use_system_hosts,
         }
     }
 }

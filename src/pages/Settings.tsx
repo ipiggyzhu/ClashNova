@@ -4,6 +4,7 @@ import Badge from '../components/ui/Badge'
 import Button from '../components/ui/Button'
 import Card from '../components/ui/Card'
 import CodeEditor from '../components/ui/CodeEditor'
+import DnsSettings from '../components/DnsSettings'
 import Icon from '../components/ui/Icon'
 import Input from '../components/ui/Input'
 import Seg from '../components/ui/Seg'
@@ -115,6 +116,8 @@ export default function Settings() {
   const loadAll = useAppStore((s) => s.loadAll)
   const core = useAppStore((s) => s.coreStatus)
   const restartCore = useAppStore((s) => s.restartCore)
+  const updateAvailable = useAppStore((s) => s.updateAvailable)
+  const checkUpdate = useAppStore((s) => s.checkUpdate)
 
   /* 输入框本地草稿(失焦提交) */
   const [draft, setDraft] = useState<Partial<Record<keyof AppSettings, string>>>({})
@@ -122,8 +125,8 @@ export default function Settings() {
   const [drawer, setDrawer] = useState<DrawerState | null>(null)
   const [service, setService] = useState<'installed' | 'not-installed' | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
-  const [updateMsg, setUpdateMsg] = useState<string | null>(null)
   const [confirmReset, setConfirmReset] = useState(false)
+  const [showDnsSettings, setShowDnsSettings] = useState(false)
 
   useEffect(() => {
     void call('service_status')
@@ -170,11 +173,14 @@ export default function Settings() {
     }).catch(() => {})
   }
 
-  const checkUpdate = (): void => {
-    void withBusy('update', async () => {
-      const ver = await call('check_update')
-      setUpdateMsg(ver ? `v${ver}` : t('已是最新'))
-    }).catch(() => setUpdateMsg(null))
+  const handleCheckUpdate = (): void => {
+    void withBusy('update', checkUpdate).catch(() => {})
+  }
+
+  const downloadUpdate = (): void => {
+    void call('open_url', {
+      url: `https://github.com/ipiggyzhu/ClashNova/releases/tag/v${updateAvailable}`,
+    }).catch(() => {})
   }
 
   const doReset = (): void => {
@@ -291,8 +297,18 @@ export default function Settings() {
           <Row title="ClashNova">
             <div className="about-ver">
               <span className="v">v{__APP_VERSION__}</span>
-              {updateMsg && <Badge tone="blue">{updateMsg}</Badge>}
-              <Button size="sm" variant="primary" onClick={checkUpdate} disabled={busy === 'update'}>
+              {updateAvailable && updateAvailable !== 'error' && (
+                <Badge tone="orange">v{updateAvailable} 可用</Badge>
+              )}
+              {updateAvailable === null && <Badge tone="green">{t('已是最新')}</Badge>}
+              {updateAvailable === 'error' && <Badge tone="red">{t('检查失败')}</Badge>}
+              {updateAvailable && updateAvailable !== 'error' && (
+                <Button size="sm" onClick={downloadUpdate}>
+                  <Icon name="download" size={13} />
+                  {t('下载更新')}
+                </Button>
+              )}
+              <Button size="sm" variant="primary" onClick={handleCheckUpdate} disabled={busy === 'update'}>
                 {busy === 'update' ? t('检查中…') : t('检查更新')}
               </Button>
             </div>
@@ -387,6 +403,10 @@ export default function Settings() {
           </Row>
           <Row title={t('DNS 覆写')}>
             {enabledBadge(settings.dnsOverride ?? '')}
+            <Button size="sm" onClick={() => setShowDnsSettings(true)}>
+              <Icon name="zap" size={13} />
+              {t('高级')}
+            </Button>
             <Button
               size="sm"
               onClick={() =>
@@ -501,6 +521,9 @@ export default function Settings() {
           </div>
         </div>
       )}
+
+      {/* ---- DNS 高级配置 ---- */}
+      {showDnsSettings && <DnsSettings onClose={() => setShowDnsSettings(false)} />}
     </div>
   )
 }

@@ -61,6 +61,17 @@ export const DEFAULT_SETTINGS: AppSettings = {
   dnsOverride: '',
   hosts: '',
   hotkeys: {},
+  /* DNS 高级配置默认值 */
+  enableDns: true,
+  dnsListen: '127.0.0.1:5335',
+  dnsEnhancedMode: 'fake-ip',
+  fakeIpRange: '198.18.0.1/16',
+  fakeIpFilterMode: 'blacklist',
+  ipv6Dns: false,
+  preferH3: false,
+  respectRules: false,
+  useHosts: false,
+  useSystemHosts: false,
 }
 
 let settings: AppSettings = { ...DEFAULT_SETTINGS }

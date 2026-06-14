@@ -32,6 +32,8 @@ export interface AppStore {
   coreStatus: CoreStatus
   /** loadAll 是否已成功完成 */
   loaded: boolean
+  /** 可用的新版本号(null=无更新, undefined=未检查, 'error'=检查失败) */
+  updateAvailable: string | null | undefined
   /** 拉取 settings + core_status 并应用主题(幂等, 并发安全) */
   loadAll: () => Promise<void>
   /** 仅刷新内核状态(侧边栏 chip / 仪表盘 5s 轮询用) */
@@ -44,6 +46,8 @@ export interface AppStore {
   startCore: () => Promise<void>
   stopCore: () => Promise<void>
   restartCore: () => Promise<void>
+  /** 检查更新(后台静默) */
+  checkUpdate: () => Promise<void>
 }
 
 let loadAllPromise: Promise<void> | null = null
@@ -54,6 +58,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   settings: { ...DEFAULT_SETTINGS },
   coreStatus: INITIAL_CORE,
   loaded: false,
+  updateAvailable: undefined,
 
   loadAll: async () => {
     loadAllPromise ??= (async () => {
@@ -64,6 +69,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
       configureApi(settings.externalController, settings.secret)
       applyTheme(settings.theme)
       set({ settings, coreStatus, loaded: true })
+      // 启动后静默检查更新
+      void get().checkUpdate()
     })().catch((err: unknown) => {
       loadAllPromise = null
       throw err
@@ -131,5 +138,15 @@ export const useAppStore = create<AppStore>((set, get) => ({
   restartCore: async () => {
     await call('restart_core')
     await get().refreshCoreStatus()
+  },
+
+  checkUpdate: async () => {
+    try {
+      const version = await call('check_update')
+      set({ updateAvailable: version ?? null })
+    } catch {
+      // 网络失败 → 标记为错误状态
+      set({ updateAvailable: 'error' })
+    }
   },
 }))

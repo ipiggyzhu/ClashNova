@@ -20,6 +20,17 @@ pub struct RuntimeOverrides {
     pub dns_override: String,
     /// hosts 覆写,每行 `域名 IP`;空串表示不覆写(M2)。
     pub hosts: String,
+    /* ---- DNS 高级配置 ---- */
+    pub enable_dns: bool,
+    pub dns_listen: String,
+    pub dns_enhanced_mode: String,
+    pub fake_ip_range: String,
+    pub fake_ip_filter_mode: String,
+    pub ipv6_dns: bool,
+    pub prefer_h3: bool,
+    pub respect_rules: bool,
+    pub use_hosts: bool,
+    pub use_system_hosts: bool,
 }
 
 /// 解析 profile YAML 并应用覆写,序列化回 YAML(锁定契约 D)。
@@ -66,6 +77,41 @@ pub fn build_runtime_config(profile_yaml: &str, ov: &RuntimeOverrides) -> Result
         .and_then(Value::as_mapping_mut)
     {
         tun.insert(Value::String("enable".into()), Value::Bool(false));
+    }
+
+    // DNS 高级配置:根据用户设置生成 DNS 段
+    if ov.enable_dns {
+        let mut dns_map = Mapping::new();
+        dns_map.insert(Value::String("enable".into()), Value::Bool(true));
+        dns_map.insert(Value::String("listen".into()), Value::String(ov.dns_listen.clone()));
+
+        if !ov.dns_enhanced_mode.is_empty() {
+            dns_map.insert(
+                Value::String("enhanced-mode".into()),
+                Value::String(ov.dns_enhanced_mode.clone()),
+            );
+            // Fake IP 配置
+            if ov.dns_enhanced_mode == "fake-ip" {
+                dns_map.insert(
+                    Value::String("fake-ip-range".into()),
+                    Value::String(ov.fake_ip_range.clone()),
+                );
+                dns_map.insert(
+                    Value::String("fake-ip-filter-mode".into()),
+                    Value::String(ov.fake_ip_filter_mode.clone()),
+                );
+            }
+        }
+
+        dns_map.insert(Value::String("ipv6".into()), Value::Bool(ov.ipv6_dns));
+        dns_map.insert(Value::String("prefer-h3".into()), Value::Bool(ov.prefer_h3));
+        dns_map.insert(Value::String("respect-rules".into()), Value::Bool(ov.respect_rules));
+        dns_map.insert(Value::String("use-hosts".into()), Value::Bool(ov.use_hosts));
+        dns_map.insert(Value::String("use-system-hosts".into()), Value::Bool(ov.use_system_hosts));
+
+        let mut patch_map = Mapping::new();
+        patch_map.insert(Value::String("dns".into()), Value::Mapping(dns_map));
+        deep_merge(&mut doc, &Value::Mapping(patch_map));
     }
 
     // DNS 覆写:用户片段深合并进 dns: 段(无 enable 键时默认补 enable: true)
@@ -130,6 +176,16 @@ mod tests {
             tun_enable: tun,
             dns_override: String::new(),
             hosts: String::new(),
+            enable_dns: false,
+            dns_listen: "127.0.0.1:5335".into(),
+            dns_enhanced_mode: String::new(),
+            fake_ip_range: "198.18.0.1/16".into(),
+            fake_ip_filter_mode: "blacklist".into(),
+            ipv6_dns: false,
+            prefer_h3: false,
+            respect_rules: false,
+            use_hosts: false,
+            use_system_hosts: false,
         }
     }
 
