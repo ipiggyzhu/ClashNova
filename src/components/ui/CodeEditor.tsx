@@ -14,9 +14,10 @@ interface CodeEditorProps {
   value: string
   onChange: (value: string) => void
   lang: EditorLang
+  readOnly?: boolean
 }
 
-export default function CodeEditor({ value, onChange, lang }: CodeEditorProps) {
+export default function CodeEditor({ value, onChange, lang, readOnly }: CodeEditorProps) {
   const theme = useAppStore((s) => s.settings.theme)
   const dark =
     theme === 'system'
@@ -34,6 +35,8 @@ export default function CodeEditor({ value, onChange, lang }: CodeEditorProps) {
       theme={dark ? oneDark : 'light'}
       height="100%"
       style={{ flex: 1, overflow: 'auto', fontSize: 12.5 }}
+      editable={!readOnly}
+      readOnly={readOnly}
       basicSetup={{
         lineNumbers: true,
         foldGutter: true,

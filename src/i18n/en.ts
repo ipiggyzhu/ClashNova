@@ -7,7 +7,8 @@ export const EN: Record<string, string> = {
   概览: 'Overview', 可视化: 'Visualize', 代理: 'Proxy', 配置: 'Config',
   仪表盘: 'Dashboard', 流量统计: 'Traffic', 连接: 'Connections', 日志: 'Logs',
   拓扑: 'Topology', 路由地图: 'Route Map', 节点: 'Proxies', 规则: 'Rules',
-  提供者: 'Providers', 测试: 'Test', 订阅: 'Profiles', 设置: 'Settings',
+  提供者: 'Providers', 测试: 'Test', 订阅: 'Profiles', 配置文件: 'Config File',
+  设置: 'Settings',
   'Mihomo 运行中': 'Mihomo Running', 'Mihomo 已停止': 'Mihomo Stopped',
   内存: 'Mem',
   /* 顶栏 */
@@ -16,7 +17,10 @@ export const EN: Record<string, string> = {
   /* 通用 */
   保存: 'Save', 取消: 'Cancel', 编辑: 'Edit', 删除: 'Delete', 确认: 'Confirm',
   更新: 'Update', 导入: 'Import', 新建: 'New', 启用: 'Enable', 添加: 'Add',
+  清空: 'Clear All', 全部已读: 'Mark All Read', 暂无通知: 'No notifications',
+  复制: 'Copy', 刷新: 'Refresh', 重试: 'Retry', '加载中…': 'Loading…',
   '更新中…': 'Updating…', '导入中…': 'Importing…', '检查中…': 'Checking…',
+  当前运行配置: 'Current Runtime Config',
   /* 设置-系统 */
   系统: 'System', 系统代理: 'System Proxy',
   '修改 Windows Internet 设置, 流量经由混合端口':

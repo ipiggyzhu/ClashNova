@@ -376,3 +376,12 @@ pub async fn reset_settings(app: AppHandle) -> Result<AppSettings, String> {
     save_settings(app, defaults.clone()).await?;
     Ok(defaults)
 }
+
+/// 获取当前运行时配置 YAML(只读查看)。
+#[tauri::command]
+pub fn get_runtime_config(app: AppHandle) -> Result<String, String> {
+    let state = app.state::<AppState>();
+    let path = state.dirs.runtime_config();
+    std::fs::read_to_string(&path)
+        .map_err(|e| format!("读取运行时配置失败: {e}"))
+}

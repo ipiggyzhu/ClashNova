@@ -91,6 +91,7 @@ fn main() {
             commands::reset_settings,
             commands::query_traffic_series,
             commands::query_traffic_rank,
+            commands::get_runtime_config,
         ])
         .setup(|app| {
             let handle = app.handle().clone();

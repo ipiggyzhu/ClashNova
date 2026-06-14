@@ -1,11 +1,14 @@
+import { useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { useT } from '../../i18n'
 import { useAppStore } from '../../stores/app'
+import { useNotificationStore } from '../../stores/notifications'
 import type { OutboundMode } from '../../types/clash'
+import NotificationPanel from '../NotificationPanel'
 import Icon from '../ui/Icon'
 import Seg from '../ui/Seg'
 
-/** 路由段 → 页面标题(契约 E 的 11 条路由) */
+/** 路由段 → 页面标题(契约 E 的 11 条路由 + 配置文件) */
 export const PAGE_TITLES: Record<string, string> = {
   dashboard: '仪表盘',
   traffic: '流量统计',
@@ -18,6 +21,7 @@ export const PAGE_TITLES: Record<string, string> = {
   providers: '提供者',
   test: '测试',
   profiles: '订阅',
+  config: '配置文件',
   settings: '设置',
 }
 
@@ -48,6 +52,9 @@ export default function Topbar() {
   const setMode = useAppStore((s) => s.setMode)
   const setTheme = useAppStore((s) => s.setTheme)
 
+  const unreadCount = useNotificationStore((s) => s.unreadCount)
+  const [showNotifications, setShowNotifications] = useState(false)
+
   /** system 主题按当前系统外观解析后再取反 */
   const resolvedTheme: 'dark' | 'light' =
     theme === 'system'
@@ -69,9 +76,18 @@ export default function Topbar() {
         value={mode}
         onChange={(m) => void setMode(m)}
       />
-      <button className="icon-btn" type="button" title={t('通知')}>
-        <Icon name="bell" />
-      </button>
+      <div style={{ position: 'relative' }}>
+        <button
+          className="icon-btn"
+          type="button"
+          title={t('通知')}
+          onClick={() => setShowNotifications(!showNotifications)}
+        >
+          <Icon name="bell" />
+          {unreadCount > 0 && <span className="badge">{unreadCount > 99 ? '99+' : unreadCount}</span>}
+        </button>
+        {showNotifications && <NotificationPanel onClose={() => setShowNotifications(false)} />}
+      </div>
       <button className="icon-btn" type="button" title={t('切换主题')} onClick={toggleTheme}>
         <Icon name={resolvedTheme === 'dark' ? 'sun' : 'moon'} />
       </button>

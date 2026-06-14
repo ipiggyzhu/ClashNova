@@ -28,6 +28,7 @@ export default function Connections() {
   const payload = useLiveStore((s) => s.connections)
   const [keyword, setKeyword] = useState('')
   const [network, setNetwork] = useState('all')
+  const [proxyFilter, setProxyFilter] = useState('all')
   /* 上一帧快照, 用于差分出实时速率 */
   const prevRef = useRef<Map<string, { up: number; down: number }>>(new Map())
   const [rates, setRates] = useState<Map<string, { up: number; down: number }>>(new Map())
@@ -63,11 +64,18 @@ export default function Connections() {
     const kw = keyword.trim().toLowerCase()
     return payload.connections.filter((c) => {
       if (network !== 'all' && c.metadata.network !== network) return false
+      // 代理筛选
+      if (proxyFilter !== 'all') {
+        const lastProxy = c.chains[c.chains.length - 1] ?? ''
+        if (proxyFilter === 'direct' && lastProxy !== 'DIRECT') return false
+        if (proxyFilter === 'proxy' && (lastProxy === 'DIRECT' || lastProxy === 'REJECT')) return false
+        if (proxyFilter === 'reject' && lastProxy !== 'REJECT') return false
+      }
       if (!kw) return true
       const hay = `${c.metadata.host} ${c.metadata.process ?? ''} ${c.rule} ${c.rulePayload} ${c.chains.join(' ')}`.toLowerCase()
       return hay.includes(kw)
     })
-  }, [payload, keyword, network])
+  }, [payload, keyword, network, proxyFilter])
 
   const chainText = (c: ConnItem): string => [...c.chains].reverse().join(' → ')
   const isReject = (c: ConnItem): boolean => c.chains.includes('REJECT')
@@ -83,10 +91,24 @@ export default function Connections() {
             onChange={(e) => setKeyword(e.target.value)}
           />
         </div>
-        <span className="chip">{payload.connections.length} 个连接</span>
+        <span className="chip">
+          {list.length === payload.connections.length
+            ? `${payload.connections.length} 个连接`
+            : `${list.length} / ${payload.connections.length} 个连接`}
+        </span>
         <Badge tone="purple">↑ {fmtSpeed(upSpeed)}</Badge>
         <Badge tone="cyan">↓ {fmtSpeed(downSpeed)}</Badge>
         <div className="spacer" />
+        <Seg
+          items={[
+            { value: 'all', label: '全部' },
+            { value: 'direct', label: 'DIRECT' },
+            { value: 'proxy', label: '代理' },
+            { value: 'reject', label: 'REJECT' },
+          ]}
+          value={proxyFilter}
+          onChange={setProxyFilter}
+        />
         <Seg
           items={[
             { value: 'all', label: '全部' },

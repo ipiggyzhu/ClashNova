@@ -54,6 +54,7 @@ export interface IpcCommands {
   reset_settings: { args: undefined; result: AppSettings }
   query_traffic_series: { args: { range: StatRange }; result: SeriesPoint[] }
   query_traffic_rank: { args: { dim: StatDim; range: StatRange }; result: RankRow[] }
+  get_runtime_config: { args: undefined; result: string }
 }
 
 export type IpcCommand = keyof IpcCommands

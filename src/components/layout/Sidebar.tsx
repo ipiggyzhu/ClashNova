@@ -48,6 +48,7 @@ const NAV_GROUPS: NavGroup[] = [
     group: '配置',
     items: [
       { key: 'profiles', label: '订阅' },
+      { key: 'settings', label: '配置文件', to: 'config' },
       { key: 'settings', label: '设置' },
     ],
   },

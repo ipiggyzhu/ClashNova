@@ -12,10 +12,11 @@ import Settings from './pages/Settings'
 import Test from './pages/Test'
 import Topology from './pages/Topology'
 import Traffic from './pages/Traffic'
+import Config from './pages/Config'
 import RouteError from './pages/RouteError'
 
 /**
- * 契约 E 的 11 条路由 + M2 测试页, 全部实装(M3 完成后无占位)。
+ * 契约 E 的 11 条路由 + M2 测试页 + 配置查看器, 全部实装。
  */
 export const router = createBrowserRouter([
   {
@@ -35,6 +36,7 @@ export const router = createBrowserRouter([
       { path: 'providers', element: <Providers /> },
       { path: 'test', element: <Test /> },
       { path: 'profiles', element: <Profiles /> },
+      { path: 'config', element: <Config /> },
       { path: 'settings', element: <Settings /> },
       { path: '*', element: <Navigate to="/dashboard" replace /> },
     ],

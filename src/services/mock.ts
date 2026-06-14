@@ -590,6 +590,29 @@ export const mockHandlers: Record<string, MockHandler> = {
   query_traffic_series: (args) => mockSeries(String(args['range'] ?? '7d')),
   query_traffic_rank: (args) =>
     mockRank(String(args['dim'] ?? 'proxy'), String(args['range'] ?? '7d')),
+  get_runtime_config: () => `# ClashNova 运行时配置 (mock)
+port: 7890
+socks-port: 7891
+mixed-port: 7892
+allow-lan: false
+mode: rule
+log-level: info
+external-controller: 127.0.0.1:9097
+secret: ''
+
+dns:
+  enable: true
+  listen: 127.0.0.1:5335
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  nameserver:
+    - https://doh.pub/dns-query
+    - https://dns.alidns.com/dns-query
+
+proxies: []
+proxy-groups: []
+rules: []
+`,
   read_enhancer: (args) => {
     const key = `${argString(args, 'profileId')}/${argString(args, 'enhancerId')}`
     return enhancerContents[key] ?? ''

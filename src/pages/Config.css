@@ -1,0 +1,38 @@
+.pg-config {
+  padding: 16px;
+}
+
+.pg-config .card {
+  height: calc(100vh - 52px - 32px);
+  display: flex;
+  flex-direction: column;
+}
+
+.config-editor {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.config-status {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 48px 24px;
+  color: var(--text-2);
+}
+
+.config-status.error {
+  color: var(--red);
+}
+
+.config-status svg {
+  opacity: 0.5;
+}
+
+.config-status.error svg {
+  opacity: 1;
+}
