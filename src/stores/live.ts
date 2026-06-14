@@ -10,7 +10,7 @@ import {
   subscribeTraffic,
   type Unsubscribe,
 } from '../services/ws'
-import type { ConnectionsPayload, LogItem, MemoryPoint, TrafficPoint } from '../types/clash'
+import type { ConnItem, ConnectionsPayload, LogItem, MemoryPoint, TrafficPoint } from '../types/clash'
 
 /** traffic 环形缓冲容量(60 点 ≈ 60s) */
 export const TRAFFIC_CAPACITY = 60
@@ -21,6 +21,82 @@ const EMPTY_CONNECTIONS: ConnectionsPayload = {
   downloadTotal: 0,
   uploadTotal: 0,
   connections: [],
+}
+
+function numberOrZero(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0
+}
+
+function stringOrEmpty(value: unknown): string {
+  return typeof value === 'string' ? value : ''
+}
+
+function normalizeTraffic(point: TrafficPoint | null | undefined): TrafficPoint {
+  if (!point || typeof point !== 'object') return { up: 0, down: 0 }
+  return {
+    up: numberOrZero((point as Partial<TrafficPoint>).up),
+    down: numberOrZero((point as Partial<TrafficPoint>).down),
+  }
+}
+
+function normalizeConnection(value: unknown): ConnItem | null {
+  if (!value || typeof value !== 'object') return null
+  const item = value as Partial<ConnItem>
+  const metadata =
+    item.metadata && typeof item.metadata === 'object'
+      ? (item.metadata as unknown as Record<string, unknown>)
+      : {}
+  return {
+    id: stringOrEmpty(item.id),
+    metadata: {
+      host: stringOrEmpty(metadata.host),
+      destinationIP: stringOrEmpty(metadata.destinationIP),
+      destinationPort: stringOrEmpty(metadata.destinationPort),
+      sourceIP: stringOrEmpty(metadata.sourceIP),
+      sourcePort: stringOrEmpty(metadata.sourcePort),
+      network: metadata.network === 'udp' ? 'udp' : 'tcp',
+      ...(typeof metadata.process === 'string' ? { process: metadata.process } : {}),
+      ...(typeof metadata.processPath === 'string' ? { processPath: metadata.processPath } : {}),
+    },
+    rule: stringOrEmpty(item.rule),
+    rulePayload: stringOrEmpty(item.rulePayload),
+    chains: Array.isArray(item.chains) ? item.chains.filter((chain): chain is string => typeof chain === 'string') : [],
+    upload: numberOrZero(item.upload),
+    download: numberOrZero(item.download),
+    start: stringOrEmpty(item.start) || new Date().toISOString(),
+    ...(typeof item.curUp === 'number' && Number.isFinite(item.curUp) ? { curUp: item.curUp } : {}),
+    ...(typeof item.curDown === 'number' && Number.isFinite(item.curDown) ? { curDown: item.curDown } : {}),
+  }
+}
+
+function normalizeConnections(payload: ConnectionsPayload | null | undefined): ConnectionsPayload {
+  if (!payload || typeof payload !== 'object') return { ...EMPTY_CONNECTIONS }
+  return {
+    downloadTotal: numberOrZero((payload as Partial<ConnectionsPayload>).downloadTotal),
+    uploadTotal: numberOrZero((payload as Partial<ConnectionsPayload>).uploadTotal),
+    connections: Array.isArray((payload as Partial<ConnectionsPayload>).connections)
+      ? (payload as Partial<ConnectionsPayload>).connections!.map(normalizeConnection).filter((item): item is ConnItem => item !== null)
+      : [],
+  }
+}
+
+function normalizeMemory(point: MemoryPoint | null | undefined): MemoryPoint {
+  if (!point || typeof point !== 'object') return { inuse: 0 }
+  const oslimit = (point as Partial<MemoryPoint>).oslimit
+  return {
+    inuse: numberOrZero((point as Partial<MemoryPoint>).inuse),
+    ...(typeof oslimit === 'number' && Number.isFinite(oslimit) ? { oslimit } : {}),
+  }
+}
+
+function normalizeLog(log: LogItem | null | undefined): LogItem | null {
+  if (!log || typeof log !== 'object') return null
+  const type = log.type === 'warning' || log.type === 'error' || log.type === 'debug' ? log.type : 'info'
+  return {
+    type,
+    payload: stringOrEmpty(log.payload),
+    time: stringOrEmpty(log.time) || new Date().toLocaleTimeString(),
+  }
 }
 
 export interface LiveStore {
@@ -34,10 +110,10 @@ export interface LiveStore {
   logs: LogItem[]
   /** 暂停时丢弃新日志 */
   logsPaused: boolean
-  pushTraffic: (point: TrafficPoint) => void
-  setConnections: (payload: ConnectionsPayload) => void
-  setMemory: (point: MemoryPoint) => void
-  pushLog: (log: LogItem) => void
+  pushTraffic: (point: TrafficPoint | null | undefined) => void
+  setConnections: (payload: ConnectionsPayload | null | undefined) => void
+  setMemory: (point: MemoryPoint | null | undefined) => void
+  pushLog: (log: LogItem | null | undefined) => void
   setLogsPaused: (paused: boolean) => void
   clearLogs: () => void
 }
@@ -50,15 +126,17 @@ export const useLiveStore = create<LiveStore>((set, get) => ({
   logsPaused: false,
 
   pushTraffic: (point) =>
-    set((s) => ({ traffic: [...s.traffic, point].slice(-TRAFFIC_CAPACITY) })),
+    set((s) => ({ traffic: [...s.traffic, normalizeTraffic(point)].slice(-TRAFFIC_CAPACITY) })),
 
-  setConnections: (payload) => set({ connections: payload }),
+  setConnections: (payload) => set({ connections: normalizeConnections(payload) }),
 
-  setMemory: (point) => set({ memory: point }),
+  setMemory: (point) => set({ memory: normalizeMemory(point) }),
 
   pushLog: (log) => {
+    const safeLog = normalizeLog(log)
+    if (!safeLog) return
     if (get().logsPaused) return
-    set((s) => ({ logs: [...s.logs, log].slice(-LOG_CAPACITY) }))
+    set((s) => ({ logs: [...s.logs, safeLog].slice(-LOG_CAPACITY) }))
   },
 
   setLogsPaused: (paused) => set({ logsPaused: paused }),

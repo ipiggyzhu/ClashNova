@@ -63,6 +63,16 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   return (text ? JSON.parse(text) : undefined) as T
 }
 
+function recordOrEmpty<T>(value: unknown): Record<string, T> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, T>)
+    : {}
+}
+
+function arrayOrEmpty<T>(value: unknown): T[] {
+  return Array.isArray(value) ? (value as T[]) : []
+}
+
 const mockDelayMs = (): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, 60 + Math.random() * 120))
 
@@ -81,21 +91,24 @@ export async function getProxies(): Promise<ProxiesPayload> {
     await mockDelayMs()
     return mockProxies()
   }
-  const payload = await request<ProxiesPayload>('GET', '/proxies')
+  const rawPayload = await request<Partial<ProxiesPayload> | null>('GET', '/proxies')
+  const payload: ProxiesPayload = {
+    proxies: recordOrEmpty(rawPayload?.proxies),
+  }
   // Some mihomo configs keep provider nodes only under /providers/proxies.
   // Merge them into the proxy dictionary so groups that reference provider nodes render normally.
   try {
-    const providersPayload = await request<{ providers: Record<string, RawProxyProvider> }>(
+    const providersPayload = await request<{ providers?: Record<string, RawProxyProvider> } | null>(
       'GET',
       '/providers/proxies',
     )
-    for (const provider of Object.values(providersPayload.providers)) {
+    for (const provider of Object.values(recordOrEmpty<RawProxyProvider>(providersPayload?.providers))) {
       if (provider.vehicleType === 'Compatible') continue
-      for (const proxy of provider.proxies ?? []) {
+      for (const proxy of arrayOrEmpty(provider.proxies)) {
         if (!isProxyLike(proxy) || payload.proxies[proxy.name]) continue
         payload.proxies[proxy.name] = {
           ...proxy,
-          history: proxy.history ?? [],
+          history: arrayOrEmpty(proxy.history),
         }
       }
     }
@@ -111,8 +124,8 @@ export async function getRules(): Promise<RuleItem[]> {
     await mockDelayMs()
     return mockRules()
   }
-  const payload = await request<{ rules: RuleItem[] }>('GET', '/rules')
-  return payload.rules
+  const payload = await request<{ rules?: RuleItem[] } | null>('GET', '/rules')
+  return arrayOrEmpty(payload?.rules)
 }
 
 /** PUT /proxies/{group} body {name} — 切换组内选中节点 */
@@ -221,18 +234,18 @@ export async function getProxyProviders(): Promise<ProxyProviderItem[]> {
     await mockDelayMs()
     return mockProxyProviders()
   }
-  const payload = await request<{ providers: Record<string, RawProxyProvider> }>(
+  const payload = await request<{ providers?: Record<string, RawProxyProvider> } | null>(
     'GET',
     '/providers/proxies',
   )
-  return Object.values(payload.providers)
+  return Object.values(recordOrEmpty<RawProxyProvider>(payload?.providers))
     .filter((p) => p.vehicleType !== 'Compatible')
     .map((p) => {
       const sub = p.subscriptionInfo
       return {
         name: p.name,
         vehicleType: p.vehicleType,
-        nodeCount: p.proxies?.length ?? 0,
+        nodeCount: arrayOrEmpty(p.proxies).length,
         updatedAt: toMillis(p.updatedAt),
         subscription:
           sub && sub.Total
@@ -252,11 +265,11 @@ export async function getRuleProviders(): Promise<RuleProviderItem[]> {
     await mockDelayMs()
     return mockRuleProviders()
   }
-  const payload = await request<{ providers: Record<string, RawRuleProvider> }>(
+  const payload = await request<{ providers?: Record<string, RawRuleProvider> } | null>(
     'GET',
     '/providers/rules',
   )
-  return Object.values(payload.providers).map((p) => ({
+  return Object.values(recordOrEmpty<RawRuleProvider>(payload?.providers)).map((p) => ({
     name: p.name,
     behavior: p.behavior,
     vehicleType: p.vehicleType,

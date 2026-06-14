@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "mock": "VITE_MOCK=1 vite",
+    "mock": "set VITE_MOCK=1&& vite",
     "preview": "vite preview",
     "tauri": "tauri"
   },
