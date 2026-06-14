@@ -32,6 +32,10 @@ function latestDelay(node: ProxyNode): number | undefined {
   return last?.delay
 }
 
+function delayKey(group: string, node: string): string {
+  return `${group}\u0000${node}`
+}
+
 export default function Proxies() {
   const [payload, setPayload] = useState<ProxiesPayload | null>(null)
   const [keyword, setKeyword] = useState('')
@@ -39,6 +43,7 @@ export default function Proxies() {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({ Fallback: true })
   /** 节点名 → 实测延迟(0 表示测试中, -1 表示超时) */
   const [delays, setDelays] = useState<Record<string, number>>({})
+  const [testingGroups, setTestingGroups] = useState<Set<string>>(new Set())
   const [testingAll, setTestingAll] = useState(false)
 
   const refresh = useCallback(async () => {
@@ -93,18 +98,28 @@ export default function Proxies() {
     }
   }
 
-  const testNode = async (name: string): Promise<void> => {
-    setDelays((d) => ({ ...d, [name]: 0 }))
+  const testNode = async (group: string, name: string): Promise<void> => {
+    const key = delayKey(group, name)
+    setDelays((d) => ({ ...d, [key]: 0 }))
     try {
       const ms = await testDelay(name)
-      setDelays((d) => ({ ...d, [name]: ms }))
+      setDelays((d) => ({ ...d, [key]: ms }))
     } catch {
-      setDelays((d) => ({ ...d, [name]: -1 }))
+      setDelays((d) => ({ ...d, [key]: -1 }))
     }
   }
 
   const testGroup = async (g: GroupView): Promise<void> => {
-    await runLimited(g.nodes.map((n) => () => testNode(n.name)))
+    setTestingGroups((prev) => new Set(prev).add(g.name))
+    try {
+      await runLimited(g.nodes.map((n) => () => testNode(g.name, n.name)))
+    } finally {
+      setTestingGroups((prev) => {
+        const next = new Set(prev)
+        next.delete(g.name)
+        return next
+      })
+    }
   }
 
   const testAll = async (): Promise<void> => {
@@ -116,8 +131,8 @@ export default function Proxies() {
     }
   }
 
-  const renderDelay = (node: ProxyNode) => {
-    const d = delays[node.name] ?? latestDelay(node)
+  const renderDelay = (group: string, node: ProxyNode) => {
+    const d = delays[delayKey(group, node.name)] ?? latestDelay(node)
     if (d === 0) return <span className="testing">测速中…</span>
     if (d === undefined) return <Badge tone="gray">— ms</Badge>
     if (d === -1 || d > 2000) return <Badge tone="red">超时</Badge>
@@ -155,6 +170,7 @@ export default function Proxies() {
 
       {visibleGroups.map((g, i) => {
         const isOpen = !collapsed[g.name]
+        const isTestingGroup = testingGroups.has(g.name)
         return (
           <Card
             key={g.name}
@@ -166,7 +182,9 @@ export default function Proxies() {
                 <span className="chip">{g.type}</span>
                 <span className="grp-now">当前: <b>{g.now}</b></span>
                 <Badge tone="green">{g.all.length} 个节点</Badge>
-                <Button size="sm" onClick={() => void testGroup(g)}>测速</Button>
+                <Button size="sm" onClick={() => void testGroup(g)} disabled={isTestingGroup || testingAll}>
+                  {isTestingGroup ? '测速中…' : '测速'}
+                </Button>
                 <button
                   className="icon-btn"
                   title={isOpen ? '折叠' : '展开'}
@@ -189,7 +207,7 @@ export default function Proxies() {
                       key={n.name}
                       className={sel ? 'node sel' : 'node'}
                       onClick={() => void handleSelect(g.name, n.name)}
-                      onDoubleClick={() => void testNode(n.name)}
+                      onDoubleClick={() => void testNode(g.name, n.name)}
                       title="单击切换 · 双击测速"
                     >
                       <div className="nm">{n.name}</div>
@@ -200,7 +218,7 @@ export default function Proxies() {
                       )}
                       <div className="meta">
                         <span className="chip">{n.type}</span>
-                        {renderDelay(n)}
+                        {renderDelay(g.name, n)}
                       </div>
                     </button>
                   )
