@@ -17,9 +17,12 @@ export default function Config() {
     setLoading(true)
     setError('')
     try {
+      console.log('[Config] 开始加载运行时配置...')
       const yaml = await call('get_runtime_config')
+      console.log('[Config] 加载成功，内容长度:', yaml.length)
       setContent(yaml)
     } catch (err) {
+      console.error('[Config] 加载失败:', err)
       setError(err instanceof Error ? err.message : String(err))
     } finally {
       setLoading(false)
