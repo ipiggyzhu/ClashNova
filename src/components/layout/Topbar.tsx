@@ -55,6 +55,9 @@ export default function Topbar() {
   const unreadCount = useNotificationStore((s) => s.unreadCount)
   const [showNotifications, setShowNotifications] = useState(false)
 
+  // 判断是否在 Tauri 桌面环境
+  const isTauri = '__TAURI_INTERNALS__' in window
+
   /** system 主题按当前系统外观解析后再取反 */
   const resolvedTheme: 'dark' | 'light' =
     theme === 'system'
@@ -91,22 +94,24 @@ export default function Topbar() {
       <button className="icon-btn" type="button" title={t('切换主题')} onClick={toggleTheme}>
         <Icon name={resolvedTheme === 'dark' ? 'sun' : 'moon'} />
       </button>
-      <div className="win-ctrl">
-        <button type="button" title={t('最小化')} onClick={() => void winAction('minimize')}>
-          <Icon name="minimize" />
-        </button>
-        <button type="button" title={t('最大化')} onClick={() => void winAction('toggleMaximize')}>
-          <Icon name="maximize" />
-        </button>
-        <button
-          type="button"
-          className="close"
-          title={t('关闭')}
-          onClick={() => void winAction('close')}
-        >
-          <Icon name="x" />
-        </button>
-      </div>
+      {isTauri && (
+        <div className="win-ctrl">
+          <button type="button" title={t('最小化')} onClick={() => void winAction('minimize')}>
+            <Icon name="minimize" />
+          </button>
+          <button type="button" title={t('最大化')} onClick={() => void winAction('toggleMaximize')}>
+            <Icon name="maximize" />
+          </button>
+          <button
+            type="button"
+            className="close"
+            title={t('关闭')}
+            onClick={() => void winAction('close')}
+          >
+            <Icon name="x" />
+          </button>
+        </div>
+      )}
     </header>
   )
 }
