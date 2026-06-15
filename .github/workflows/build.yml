@@ -72,14 +72,15 @@ jobs:
         shell: pwsh
         run: |
           Write-Host "开始构建服务安装程序..."
-          cargo build --release --bin clashnova-service-install
+          # 只编译服务安装程序，排除主程序
+          cargo build --release -p clashnova --bin clashnova-service-install
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-          cargo build --release --bin clashnova-service-uninstall
+          cargo build --release -p clashnova --bin clashnova-service-uninstall
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
           Write-Host "检查构建产物..."
-          Get-ChildItem target/release/*.exe | Select-Object Name, Length
+          Get-ChildItem target/release/clashnova-service-*.exe | Select-Object Name, Length
 
           Write-Host "创建 binaries 目录并复制文件..."
           New-Item -ItemType Directory -Force -Path src-tauri/binaries
