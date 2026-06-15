@@ -307,7 +307,8 @@ rules:
         let doc = parse(&out);
         let dns = doc.get("dns").expect("dns 段应存在");
         assert_eq!(dns.get("enhanced-mode"), Some(&Value::String("fake-ip".into())));
-        assert_eq!(dns.get("listen"), Some(&Value::String("0.0.0.0:53".into())));
+        // enable_dns=true 时使用 ov.dns_listen，而不是 profile 中的值
+        assert_eq!(dns.get("listen"), Some(&Value::String("127.0.0.1:5335".into())));
         // 高级 DNS 已启用时,覆写片段未显式给 enable 也会保持启用
         assert_eq!(dns.get("enable"), Some(&Value::Bool(true)));
         // 显式给 enable: true 则覆盖
