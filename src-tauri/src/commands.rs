@@ -472,62 +472,44 @@ pub fn open_url(app: AppHandle, url: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+#[tauri::command]
 pub async fn service_status() -> String {
-    tauri::async_runtime::spawn_blocking(|| {
-        if service::is_running() {
-            "running".to_string()
-        } else {
-            service::status().to_string()
+    let manager = crate::service_manager::get_service_manager();
+    let status = manager.current_status().await;
+
+    match status {
+        crate::service_manager::ServiceStatus::Ready => "ready".to_string(),
+        crate::service_manager::ServiceStatus::NeedsReinstall => "needs-reinstall".to_string(),
+        crate::service_manager::ServiceStatus::InstallRequired => "not-installed".to_string(),
+        crate::service_manager::ServiceStatus::UninstallRequired => "uninstall-required".to_string(),
+        crate::service_manager::ServiceStatus::ReinstallRequired => "reinstall-required".to_string(),
+        crate::service_manager::ServiceStatus::ForceReinstallRequired => "force-reinstall-required".to_string(),
+        crate::service_manager::ServiceStatus::Unavailable(reason) => {
+            format!("unavailable:{}", reason)
         }
-    })
-        .await
-        .unwrap_or_else(|_| "not-installed".into())
+    }
 }
 
 #[tauri::command]
 pub async fn install_service(app: AppHandle) -> Result<(), String> {
-    let dir = app.state::<AppState>().dirs.config.clone();
     let sidecar_was_running = core::is_sidecar_running(&app);
     if sidecar_was_running {
         core::stop_sidecar(&app)?;
     }
 
-    #[cfg(windows)]
-    let install_result = {
-        // 检查是否需要提权
-        use windows_service::service_manager::{ServiceManager, ServiceManagerAccess};
-        let manager_access = ServiceManagerAccess::CONNECT | ServiceManagerAccess::CREATE_SERVICE;
-        if ServiceManager::local_computer(None::<&str>, manager_access).is_err() {
-            // 需要提权，用 PowerShell 重启自身执行安装
-            elevate_install_service(&dir).await
-        } else {
-            // 已有管理员权限，直接安装
-            tauri::async_runtime::spawn_blocking(move || service::install(&dir))
-                .await
-                .map_err(|e| format!("任务失败: {e}"))
-                .and_then(|inner| inner)
-        }
-    };
-    #[cfg(not(windows))]
-    let install_result = tauri::async_runtime::spawn_blocking(move || service::install(&dir))
-        .await
-        .map_err(|e| format!("任务失败: {e}"))
-        .and_then(|inner| inner);
+    let manager = crate::service_manager::get_service_manager();
+    let result = manager
+        .handle_service_status(crate::service_manager::ServiceStatus::InstallRequired)
+        .await;
 
-    if let Err(err) = install_result {
+    if let Err(err) = result {
         if sidecar_was_running {
             let _ = core::start(&app);
         }
         return Err(err);
     }
-    if !service::is_running() {
-        if let Err(err) = service::start_or_elevate() {
-            if sidecar_was_running {
-                let _ = core::start(&app);
-            }
-            return Err(err);
-        }
-    }
+
+    // 安装成功，启动内核
     core::start(&app)?;
     tray::sync_tray(&app);
     Ok(())
@@ -538,37 +520,69 @@ pub async fn uninstall_service(app: AppHandle) -> Result<(), String> {
     let was_core_running = core::is_running(&app).await;
     let had_tun = app.state::<AppState>().settings_snapshot().tun;
 
-    // 检查是否需要提权
-    #[cfg(windows)]
-    let uninstall_result = {
-        use windows_service::service_manager::{ServiceManager, ServiceManagerAccess};
-        if ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT).is_err() {
-            // 需要提权，用 PowerShell 重启自身执行卸载
-            elevate_uninstall_service().await
-        } else {
-            // 已有管理员权限，直接卸载
-            tauri::async_runtime::spawn_blocking(service::uninstall)
-                .await
-                .map_err(|e| format!("任务失败: {e}"))
-                .and_then(|inner| inner)
-        }
-    };
-    #[cfg(not(windows))]
-    let uninstall_result = tauri::async_runtime::spawn_blocking(service::uninstall)
-        .await
-        .map_err(|e| format!("任务失败: {e}"))
-        .and_then(|inner| inner);
-
-    uninstall_result?;
+    let manager = crate::service_manager::get_service_manager();
+    manager
+        .handle_service_status(crate::service_manager::ServiceStatus::UninstallRequired)
+        .await?;
 
     if had_tun {
         let mut settings = app.state::<AppState>().settings_snapshot();
         settings.tun = false;
         save_settings(app.clone(), settings).await?;
     }
+
     if was_core_running {
         core::start(&app)?;
     }
+
+    tray::sync_tray(&app);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn reinstall_service(app: AppHandle) -> Result<(), String> {
+    let sidecar_was_running = core::is_sidecar_running(&app);
+    if sidecar_was_running {
+        core::stop_sidecar(&app)?;
+    }
+
+    let manager = crate::service_manager::get_service_manager();
+    let result = manager
+        .handle_service_status(crate::service_manager::ServiceStatus::ReinstallRequired)
+        .await;
+
+    if let Err(err) = result {
+        if sidecar_was_running {
+            let _ = core::start(&app);
+        }
+        return Err(err);
+    }
+
+    core::start(&app)?;
+    tray::sync_tray(&app);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn repair_service(app: AppHandle) -> Result<(), String> {
+    let sidecar_was_running = core::is_sidecar_running(&app);
+    if sidecar_was_running {
+        core::stop_sidecar(&app)?;
+    }
+
+    let manager = crate::service_manager::get_service_manager();
+    let result = manager
+        .handle_service_status(crate::service_manager::ServiceStatus::ForceReinstallRequired)
+        .await;
+
+    if let Err(err) = result {
+        if sidecar_was_running {
+            let _ = core::start(&app);
+        }
+        return Err(err);
+    }
+
+    core::start(&app)?;
     tray::sync_tray(&app);
     Ok(())
 }

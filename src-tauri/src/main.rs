@@ -7,6 +7,7 @@ mod core;
 mod hotkeys;
 mod profiles;
 mod service;
+mod service_manager;
 mod state;
 mod stats;
 mod sysproxy_win;
@@ -126,6 +127,8 @@ fn main() {
             commands::service_status,
             commands::install_service,
             commands::uninstall_service,
+            commands::reinstall_service,
+            commands::repair_service,
             commands::exempt_uwp_loopback,
             commands::check_update,
             commands::reset_settings,
@@ -138,6 +141,14 @@ fn main() {
             tray::create(&handle)?;
 
             let settings = handle.state::<AppState>().settings_snapshot();
+
+            // 初始化服务管理器
+            let service_manager = service_manager::get_service_manager();
+            tauri::async_runtime::spawn(async move {
+                if let Err(e) = service_manager.init().await {
+                    log::warn!("服务管理器初始化失败: {}", e);
+                }
+            });
 
             // 静默启动(或带 --silent 参数)时仅驻留托盘
             let silent = settings.silent_start
