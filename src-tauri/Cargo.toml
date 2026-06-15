@@ -28,12 +28,14 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_yaml = "0.9"
 nova-core = { path = "../crates/nova-core" }
+nova-service-ipc = { path = "../crates/nova-service-ipc", features = ["client"] }
 sysproxy = "0.3"
 rusqlite = { version = "0.32", features = ["bundled"] }
 dirs = "6"
 thiserror = "2"
 # tauri-plugin-log 的日志门面(写运行日志必需, 为其传递依赖, 不引入新依赖树)
 log = "0.4"
+env_logger = "0.11"
 
 # Windows 专属依赖按需补充; 当前注册表代理读写由 sysproxy crate 内部封装,
 # 进程树终止由 tauri-plugin-shell 的 CommandChild::kill 覆盖, 暂无额外条目。

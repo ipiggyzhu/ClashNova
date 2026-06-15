@@ -1,3 +1,3 @@
 [workspace]
-members = ["crates/nova-core", "src-tauri"]
+members = ["crates/nova-core", "crates/nova-service-ipc", "src-tauri"]
 resolver = "2"
