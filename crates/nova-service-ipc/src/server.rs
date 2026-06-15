@@ -28,6 +28,12 @@ struct CoreManager {
     config: Option<CoreConfig>,
     /// 日志缓冲区（最多保留 1000 行）
     logs: VecDeque<String>,
+    /// 是否启用自动重启
+    auto_restart: bool,
+    /// 崩溃次数（用于防止无限重启）
+    crash_count: u32,
+    /// 最后一次崩溃时间
+    last_crash_time: Option<i64>,
 }
 
 impl CoreManager {
@@ -37,6 +43,9 @@ impl CoreManager {
             start_time: None,
             config: None,
             logs: VecDeque::with_capacity(1000),
+            auto_restart: true,
+            crash_count: 0,
+            last_crash_time: None,
         }
     }
 
@@ -146,6 +155,107 @@ impl CoreManager {
         let count = lines.min(self.logs.len());
         self.logs.iter().rev().take(count).rev().cloned().collect()
     }
+
+    /// 检查进程是否崩溃并决定是否重启
+    fn check_and_restart(&mut self) -> bool {
+        // 检查进程是否退出
+        if let Some(process) = &mut self.process {
+            match process.try_wait() {
+                Ok(Some(status)) => {
+                    let now = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs() as i64;
+
+                    log::warn!("内核进程已退出: {:?}", status);
+                    self.process = None;
+                    self.start_time = None;
+
+                    // 记录崩溃
+                    self.record_crash(now);
+
+                    // 判断是否应该重启
+                    if self.should_auto_restart(now) {
+                        log::info!("尝试自动重启内核（崩溃次数: {}）", self.crash_count);
+                        if let Some(config) = self.config.clone() {
+                            if let Err(e) = self.start(config) {
+                                log::error!("自动重启失败: {}", e);
+                                return false;
+                            }
+                            log::info!("自动重启成功");
+                            return true;
+                        }
+                    } else {
+                        log::error!("崩溃次数过多，停止自动重启");
+                    }
+
+                    return false;
+                }
+                Ok(None) => {
+                    // 进程仍在运行
+                    return true;
+                }
+                Err(e) => {
+                    log::error!("检查进程状态失败: {}", e);
+                    return false;
+                }
+            }
+        }
+
+        false
+    }
+
+    /// 记录崩溃
+    fn record_crash(&mut self, now: i64) {
+        // 如果距离上次崩溃超过 5 分钟，重置计数
+        if let Some(last_crash) = self.last_crash_time {
+            if now - last_crash > 300 {
+                self.crash_count = 0;
+            }
+        }
+
+        self.crash_count += 1;
+        self.last_crash_time = Some(now);
+    }
+
+    /// 判断是否应该自动重启
+    fn should_auto_restart(&self, now: i64) -> bool {
+        if !self.auto_restart {
+            return false;
+        }
+
+        // 如果没有配置，不重启
+        if self.config.is_none() {
+            return false;
+        }
+
+        // 如果崩溃次数超过 5 次，不重启
+        if self.crash_count > 5 {
+            return false;
+        }
+
+        // 如果上次崩溃距离现在少于 10 秒，不重启（防止快速崩溃循环）
+        if let Some(last_crash) = self.last_crash_time {
+            if now - last_crash < 10 {
+                return false;
+            }
+        }
+
+        true
+    }
+
+    /// 启用/禁用自动重启
+    fn set_auto_restart(&mut self, enabled: bool) {
+        self.auto_restart = enabled;
+        log::info!("自动重启已{}", if enabled { "启用" } else { "禁用" });
+    }
+
+    /// 重置崩溃计数
+    fn reset_crash_count(&mut self) {
+        self.crash_count = 0;
+        self.last_crash_time = None;
+        log::info!("崩溃计数已重置");
+    }
 }
 
 /// IPC 服务端
@@ -158,6 +268,23 @@ impl IpcServer {
         Self {
             core_manager: Arc::new(Mutex::new(CoreManager::new())),
         }
+    }
+
+    /// 启动后台监控线程
+    fn start_monitor_thread(&self) {
+        let manager = self.core_manager.clone();
+
+        std::thread::spawn(move || {
+            log::info!("内核监控线程已启动");
+
+            loop {
+                // 每 5 秒检查一次
+                std::thread::sleep(std::time::Duration::from_secs(5));
+
+                let mut mgr = manager.lock().unwrap();
+                mgr.check_and_restart();
+            }
+        });
     }
 
     /// 处理客户端请求
@@ -223,6 +350,9 @@ impl IpcServer {
         use windows::core::PCWSTR;
 
         log::info!("启动 IPC 服务: {}", IPC_PATH);
+
+        // 启动后台监控线程
+        self.start_monitor_thread();
 
         let pipe_name: Vec<u16> = IPC_PATH.encode_utf16().chain(std::iter::once(0)).collect();
 

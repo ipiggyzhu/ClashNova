@@ -141,9 +141,63 @@ impl ServiceManager {
             return Ok(());
         }
 
-        // 一切正常
+        // 一切正常，启动健康检查
+        self.start_health_check();
+
         self.set_status(ServiceStatus::Ready).await;
         log::info!("服务管理器初始化成功");
+        Ok(())
+    }
+
+    /// 启动健康检查
+    fn start_health_check(&self) {
+        if nova_service_ipc::is_health_check_running() {
+            log::debug!("健康检查已在运行");
+            return;
+        }
+
+        log::info!("启动服务健康检查");
+
+        nova_service_ipc::start_health_check(|| {
+            log::error!("服务健康检查失败");
+
+            // 尝试通过全局管理器修复
+            let manager = get_service_manager();
+            tokio::spawn(async move {
+                if let Err(e) = manager.handle_unhealthy().await {
+                    log::error!("服务修复失败: {}", e);
+                }
+            });
+        });
+    }
+
+    /// 处理服务不健康
+    async fn handle_unhealthy(&self) -> Result<(), String> {
+        log::warn!("检测到服务不健康，开始诊断");
+
+        // 检查服务是否还在运行
+        if !crate::service::is_running() {
+            log::error!("服务进程已停止");
+            self.set_status(ServiceStatus::Unavailable("服务进程已停止".into())).await;
+
+            // 尝试重启服务
+            log::info!("尝试重启服务");
+            if let Err(e) = crate::service::start_or_elevate() {
+                log::error!("重启服务失败: {}", e);
+                return Err(format!("重启服务失败: {}", e));
+            }
+
+            // 等待 IPC 就绪
+            self.wait_for_ipc(20, std::time::Duration::from_millis(250)).await?;
+
+            self.set_status(ServiceStatus::Ready).await;
+            log::info!("服务已恢复");
+        } else {
+            // 服务在运行但 IPC 不可用，可能需要重装
+            log::warn!("服务在运行但 IPC 不可用，建议重装");
+            self.set_status(ServiceStatus::NeedsReinstall).await;
+        }
+
         Ok(())
     }
 
