@@ -83,23 +83,31 @@ pub async fn status(app: &AppHandle) -> CoreStatus {
 /// 启动内核(已运行则幂等返回)。
 pub fn start(app: &AppHandle) -> Result<(), String> {
     let state = app.state::<AppState>();
-    {
-        let guard = state.core.lock().expect("core 锁中毒");
-        if guard.child.is_some() {
-            return Ok(());
-        }
-    }
     // 无运行时配置时先用当前 profile 生成(无 profile 则写最小配置)
     if !state.dirs.runtime_config().exists() {
         crate::profiles::regenerate_runtime(app)?;
     }
     let settings = state.settings_snapshot();
+    let sidecar_running = {
+        let guard = state.core.lock().expect("core 锁中毒");
+        guard.child.is_some()
+    };
+    if sidecar_running {
+        if settings.tun {
+            log::info!("TUN 模式已启用, 停止普通 sidecar 并切换到服务托管");
+            stop_sidecar(app)?;
+        } else {
+            return Ok(());
+        }
+    }
     if settings.tun {
         if crate::service::status() != "installed" {
             return Err("TUN 模式需要服务模式支持，请先在设置中安装服务".into());
         }
         if !crate::service::is_running() {
-            crate::service::start()?;
+            stop_orphan_sidecars(app);
+            crate::service::start_or_elevate()
+                .map_err(|err| format!("TUN 模式需要服务运行，但服务启动失败: {err}"))?;
         }
         log::info!(
             "TUN 模式由服务 {} 托管, 跳过 sidecar 启动",
@@ -157,6 +165,47 @@ pub(crate) fn stop_sidecar(app: &AppHandle) -> Result<(), String> {
     }
     Ok(())
 }
+
+#[cfg(windows)]
+pub(crate) fn stop_orphan_sidecars(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    let config_dir = state
+        .dirs
+        .config
+        .to_string_lossy()
+        .replace('\'', "''");
+    let runtime_config = state
+        .dirs
+        .runtime_config()
+        .to_string_lossy()
+        .replace('\'', "''");
+    let script = format!(
+        "$dir = '{config_dir}'; \
+         $runtime = '{runtime_config}'; \
+         Get-CimInstance Win32_Process -Filter \"Name = 'mihomo.exe'\" | \
+         Where-Object {{ $cmd = $_.CommandLine; $cmd -and ($cmd.Contains($dir) -or $cmd.Contains($runtime)) }} | \
+         ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force -ErrorAction Stop; Write-Output $_.ProcessId }}"
+    );
+    match std::process::Command::new("powershell.exe")
+        .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", &script])
+        .output()
+    {
+        Ok(output) if output.status.success() => {
+            let killed = String::from_utf8_lossy(&output.stdout);
+            if !killed.trim().is_empty() {
+                log::info!("已清理旧 mihomo sidecar 进程: {}", killed.trim());
+            }
+        }
+        Ok(output) => {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            log::warn!("清理旧 mihomo sidecar 进程失败: {}", stderr.trim());
+        }
+        Err(err) => log::warn!("清理旧 mihomo sidecar 进程失败: {err}"),
+    }
+}
+
+#[cfg(not(windows))]
+pub(crate) fn stop_orphan_sidecars(_app: &AppHandle) {}
 
 /// 停止内核(同时处理 sidecar 与服务模式)。
 pub fn stop(app: &AppHandle) -> Result<(), String> {

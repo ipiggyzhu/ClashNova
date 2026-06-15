@@ -59,7 +59,7 @@ fn restore_core_after_tun_failure(
     service_was_running: bool,
 ) {
     if prev_settings.tun || service_was_running {
-        let _ = service::start();
+        let _ = service::start_or_elevate();
         let _ = core::start(app);
         return;
     }
@@ -116,7 +116,8 @@ pub async fn apply_tun(app: &AppHandle, enable: bool) -> Result<(), String> {
         // 检查服务是否运行，未运行则启动
         if !service_was_running {
             log::info!("TUN 模式：服务未运行，尝试启动服务");
-            if let Err(err) = service::start() {
+            core::stop_orphan_sidecars(app);
+            if let Err(err) = service::start_or_elevate() {
                 rollback_tun_change(
                     app,
                     &prev_settings,
@@ -151,7 +152,7 @@ pub async fn apply_tun(app: &AppHandle, enable: bool) -> Result<(), String> {
     }
 
     let core_result = if service::is_running() {
-        let reload_result = if !enable || (service_was_running && !sidecar_was_running) {
+        let reload_result = if !enable || service_was_running {
             core::reload_runtime(app).await
         } else {
             Ok(())
@@ -520,7 +521,7 @@ pub async fn install_service(app: AppHandle) -> Result<(), String> {
         return Err(err);
     }
     if !service::is_running() {
-        if let Err(err) = service::start() {
+        if let Err(err) = service::start_or_elevate() {
             if sidecar_was_running {
                 let _ = core::start(&app);
             }
@@ -576,14 +577,20 @@ pub async fn uninstall_service(app: AppHandle) -> Result<(), String> {
 #[cfg(windows)]
 async fn elevate_install_service(config_dir: &std::path::Path) -> Result<(), String> {
     let exe = std::env::current_exe().map_err(|e| format!("定位自身失败: {e}"))?;
+    let exe = exe.to_string_lossy().replace('\'', "''");
+    let config_dir = config_dir.to_string_lossy().replace('\'', "''");
     let ps_cmd = format!(
-        "Start-Process '{}' -ArgumentList '--install-service','--dir','{}' -Verb RunAs -Wait",
-        exe.display(),
-        config_dir.display()
+        "try {{ \
+             $p = Start-Process -FilePath '{exe}' -ArgumentList @('--install-service','--dir','{config_dir}') -Verb RunAs -WindowStyle Hidden -Wait -PassThru -ErrorAction Stop; \
+             exit $p.ExitCode \
+         }} catch {{ \
+             Write-Error $_; \
+             exit 1 \
+         }}"
     );
 
     let output = std::process::Command::new("powershell.exe")
-        .args(&["-NoProfile", "-Command", &ps_cmd])
+        .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", &ps_cmd])
         .output()
         .map_err(|e| format!("执行 PowerShell 失败: {e}"))?;
 
@@ -602,13 +609,19 @@ async fn elevate_install_service(config_dir: &std::path::Path) -> Result<(), Str
 #[cfg(windows)]
 async fn elevate_uninstall_service() -> Result<(), String> {
     let exe = std::env::current_exe().map_err(|e| format!("定位自身失败: {e}"))?;
+    let exe = exe.to_string_lossy().replace('\'', "''");
     let ps_cmd = format!(
-        "Start-Process '{}' -ArgumentList '--uninstall-service' -Verb RunAs -Wait",
-        exe.display()
+        "try {{ \
+             $p = Start-Process -FilePath '{exe}' -ArgumentList @('--uninstall-service') -Verb RunAs -WindowStyle Hidden -Wait -PassThru -ErrorAction Stop; \
+             exit $p.ExitCode \
+         }} catch {{ \
+             Write-Error $_; \
+             exit 1 \
+         }}"
     );
 
     let output = std::process::Command::new("powershell.exe")
-        .args(&["-NoProfile", "-Command", &ps_cmd])
+        .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", &ps_cmd])
         .output()
         .map_err(|e| format!("执行 PowerShell 失败: {e}"))?;
 

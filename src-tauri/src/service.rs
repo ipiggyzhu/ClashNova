@@ -126,6 +126,74 @@ pub fn start() -> Result<(), String> {
     Err("服务启动后未进入运行状态".into())
 }
 
+#[cfg(windows)]
+fn is_access_denied(err: &str) -> bool {
+    err.contains("Access is denied")
+        || err.contains("拒绝访问")
+        || err.contains("os error 5")
+        || err.contains("ERROR_ACCESS_DENIED")
+}
+
+#[cfg(windows)]
+fn wait_running(timeout_ms: u64) -> Result<(), String> {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(timeout_ms);
+    while std::time::Instant::now() < deadline {
+        if is_running() {
+            return Ok(());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(300));
+    }
+    Err("服务启动后未进入运行状态".into())
+}
+
+#[cfg(windows)]
+fn start_elevated() -> Result<(), String> {
+    let script = format!(
+        "try {{ \
+             $p = Start-Process -FilePath sc.exe -ArgumentList @('start','{}') -Verb RunAs -WindowStyle Hidden -Wait -PassThru -ErrorAction Stop; \
+             exit $p.ExitCode \
+         }} catch {{ \
+             Write-Error $_; \
+             exit 1 \
+         }}",
+        SERVICE_NAME
+    );
+    let output = std::process::Command::new("powershell.exe")
+        .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", &script])
+        .output()
+        .map_err(|e| format!("提权启动服务失败: {e}"))?;
+
+    if !output.status.success() {
+        if is_running() {
+            return Ok(());
+        }
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if stderr.is_empty() {
+            return Err("提权启动服务失败或用户取消了 UAC 授权".into());
+        }
+        return Err(format!("提权启动服务失败: {stderr}"));
+    }
+
+    wait_running(15_000)
+}
+
+#[cfg(windows)]
+pub fn start_or_elevate() -> Result<(), String> {
+    match start() {
+        Ok(()) => Ok(()),
+        Err(err) if is_access_denied(&err) => {
+            log::warn!("启动服务被系统拒绝, 尝试通过 UAC 提权启动: {err}");
+            start_elevated()
+        }
+        Err(err) => Err(err),
+    }
+}
+
+#[cfg(not(windows))]
+pub fn start_or_elevate() -> Result<(), String> {
+    start()
+}
+
 #[cfg(not(windows))]
 pub fn start() -> Result<(), String> {
     Err("服务模式仅支持 Windows".into())

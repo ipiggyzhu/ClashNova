@@ -13,6 +13,7 @@ import { useT } from '../i18n'
 import { updateGeo } from '../services/api'
 import { call } from '../services/ipc'
 import { useAppStore } from '../stores/app'
+import { useNotificationStore } from '../stores/notifications'
 import type { AppSettings, Language, Theme } from '../types/clash'
 
 interface RowProps {
@@ -31,6 +32,12 @@ function Row({ title, desc, children }: RowProps) {
       {children}
     </div>
   )
+}
+
+function errorMessage(err: unknown): string {
+  if (err instanceof Error) return err.message
+  if (typeof err === 'string') return err
+  return String(err)
 }
 
 /** 热键动作(键名与 Rust 侧约定一致) */
@@ -119,6 +126,7 @@ export default function Settings() {
   const restartCore = useAppStore((s) => s.restartCore)
   const updateAvailable = useAppStore((s) => s.updateAvailable)
   const checkUpdate = useAppStore((s) => s.checkUpdate)
+  const notify = useNotificationStore((s) => s.add)
 
   /* 输入框本地草稿(失焦提交) */
   const [draft, setDraft] = useState<Partial<Record<keyof AppSettings, string>>>({})
@@ -136,7 +144,9 @@ export default function Settings() {
   }, [])
 
   const patch = (p: Partial<AppSettings>): void => {
-    void patchSettings(p).catch(() => {})
+    void patchSettings(p).catch((err) => {
+      notify('error', t('保存设置失败'), errorMessage(err))
+    })
   }
 
   const draftValue = (key: keyof AppSettings, fallback: string): string =>
@@ -172,7 +182,18 @@ export default function Settings() {
       await call(installing ? 'install_service' : 'uninstall_service')
       setService(await call('service_status'))
       await loadAll()
-    }).catch(() => {})
+    }).catch((err) => {
+      notify('error', t('服务模式操作失败'), errorMessage(err))
+    })
+  }
+
+  const toggleTun = (on: boolean): void => {
+    void withBusy('tun', async () => {
+      await setTun(on)
+      setService(await call('service_status'))
+    }).catch((err) => {
+      notify('error', t('TUN 切换失败'), errorMessage(err))
+    })
   }
 
   const handleCheckUpdate = (): void => {
@@ -235,7 +256,7 @@ export default function Settings() {
             />
           </Row>
           <Row title={t('TUN 模式')} desc={t('虚拟网卡接管全部流量, 需服务模式')}>
-            <Toggle on={settings.tun} onChange={(on) => void setTun(on).catch(() => {})} />
+            <Toggle on={settings.tun} onChange={toggleTun} disabled={busy === 'tun'} />
           </Row>
           <Row title={t('服务模式')} desc={t('以 Windows 服务运行内核, TUN 免管理员')}>
             {service === 'running' ? (
