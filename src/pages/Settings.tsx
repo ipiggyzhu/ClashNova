@@ -113,6 +113,7 @@ export default function Settings() {
   const t = useT()
   const settings = useAppStore((s) => s.settings)
   const patchSettings = useAppStore((s) => s.patchSettings)
+  const setTun = useAppStore((s) => s.setTun)
   const loadAll = useAppStore((s) => s.loadAll)
   const core = useAppStore((s) => s.coreStatus)
   const restartCore = useAppStore((s) => s.restartCore)
@@ -123,7 +124,7 @@ export default function Settings() {
   const [draft, setDraft] = useState<Partial<Record<keyof AppSettings, string>>>({})
   const [coreChannel, setCoreChannel] = useState('stable')
   const [drawer, setDrawer] = useState<DrawerState | null>(null)
-  const [service, setService] = useState<'installed' | 'not-installed' | null>(null)
+  const [service, setService] = useState<'running' | 'installed' | 'not-installed' | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [confirmReset, setConfirmReset] = useState(false)
   const [showDnsSettings, setShowDnsSettings] = useState(false)
@@ -166,10 +167,11 @@ export default function Settings() {
   }
 
   const toggleService = (): void => {
-    const installing = service !== 'installed'
+    const installing = service === 'not-installed'
     void withBusy('service', async () => {
       await call(installing ? 'install_service' : 'uninstall_service')
       setService(await call('service_status'))
+      await loadAll()
     }).catch(() => {})
   }
 
@@ -201,8 +203,10 @@ export default function Settings() {
     setDrawer(null)
   }
 
-  const enabledBadge = (v: string): JSX.Element =>
-    v.trim() ? <Badge tone="green">{t('已启用')}</Badge> : <Badge tone="gray">{t('未启用')}</Badge>
+  const enabledBadge = (v: string | boolean): JSX.Element => {
+    const enabled = typeof v === 'boolean' ? v : v.trim().length > 0
+    return enabled ? <Badge tone="green">{t('已启用')}</Badge> : <Badge tone="gray">{t('未启用')}</Badge>
+  }
 
   return (
     <div className="pg-settings">
@@ -231,16 +235,18 @@ export default function Settings() {
             />
           </Row>
           <Row title={t('TUN 模式')} desc={t('虚拟网卡接管全部流量, 需服务模式')}>
-            <Toggle on={settings.tun} onChange={(on) => patch({ tun: on })} />
+            <Toggle on={settings.tun} onChange={(on) => void setTun(on).catch(() => {})} />
           </Row>
           <Row title={t('服务模式')} desc={t('以 Windows 服务运行内核, TUN 免管理员')}>
-            {service === 'installed' ? (
+            {service === 'running' ? (
+              <Badge tone="green">{t('运行中')}</Badge>
+            ) : service === 'installed' ? (
               <Badge tone="green">{t('已安装')}</Badge>
             ) : (
               <Badge tone="gray">{t('未安装')}</Badge>
             )}
             <Button size="sm" onClick={toggleService} disabled={busy === 'service' || service === null}>
-              {service === 'installed' ? t('卸载') : t('安装')}
+              {service === 'not-installed' ? t('安装') : t('卸载')}
             </Button>
           </Row>
           <Row title={t('开机自启')} desc={t('登录 Windows 时自动启动')}>
@@ -402,7 +408,7 @@ export default function Settings() {
             </select>
           </Row>
           <Row title={t('DNS 覆写')}>
-            {enabledBadge(settings.dnsOverride ?? '')}
+            {enabledBadge(settings.enableDns)}
             <Button size="sm" onClick={() => setShowDnsSettings(true)}>
               <Icon name="zap" size={13} />
               {t('高级')}

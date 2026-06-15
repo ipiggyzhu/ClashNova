@@ -135,15 +135,6 @@ export default function DnsSettings({ onClose }: DnsSettingsProps) {
             </div>
           )}
 
-          {settings.dnsOverride && settings.dnsOverride.includes('enhanced-mode') && (
-            <div className="dns-warning">
-              <Icon name="bell" size={14} />
-              <span>
-                {t('DNS 覆写编辑器中包含 enhanced-mode 设置，将覆盖上方的增强模式配置')}
-              </span>
-            </div>
-          )}
-
           <Row title={t('启用 DNS')}>
             <Toggle on={settings.enableDns} onChange={(on) => patch({ enableDns: on })} />
           </Row>
@@ -238,7 +229,7 @@ export default function DnsSettings({ onClose }: DnsSettingsProps) {
           <div className="dns-note">
             <Icon name="bell" size={14} />
             <span>
-              {t('高级配置会覆盖下方的"DNS 覆写"编辑器设置。如需精细调整 nameserver、fallback 等，请使用编辑器。')}
+              {t('高级配置会与 DNS 覆写编辑器互相同步；编辑器中的 nameserver、fallback 等额外字段会保留。')}
             </span>
           </div>
         </div>

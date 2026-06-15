@@ -3,10 +3,11 @@
  * patchSettings 乐观更新 + ipc 持久化, 失败回滚。
  */
 import { create } from 'zustand'
-import { configureApi, getVersion, patchMode } from '../services/api'
+import { configureApi, getVersion } from '../services/api'
 import { call } from '../services/ipc'
 import { DEFAULT_SETTINGS } from '../services/mock'
 import type { AppSettings, CoreStatus, OutboundMode, Theme } from '../types/clash'
+import { normalizeDnsSettings, syncDnsSettings } from '../utils/dnsOverride'
 
 /** 把 theme(含 system) 解析为实际生效的明暗值并写到 <html data-theme> */
 export function applyTheme(theme: Theme): 'dark' | 'light' {
@@ -42,6 +43,7 @@ export interface AppStore {
   patchSettings: (patch: Partial<AppSettings>) => Promise<void>
   /** 出站模式: set_mode(后端 PATCH /configs + 持久化) + mihomo REST 同步 */
   setMode: (mode: OutboundMode) => Promise<void>
+  setTun: (enabled: boolean) => Promise<void>
   setTheme: (theme: Theme) => Promise<void>
   startCore: () => Promise<void>
   stopCore: () => Promise<void>
@@ -61,19 +63,20 @@ export const useAppStore = create<AppStore>((set, get) => ({
   updateAvailable: undefined,
 
   loadAll: async () => {
-    loadAllPromise ??= (async () => {
-      const [settings, coreStatus] = await Promise.all([
+    if (loadAllPromise) return loadAllPromise
+    loadAllPromise = (async () => {
+      const [rawSettings, coreStatus] = await Promise.all([
         call('get_settings'),
         call('core_status'),
       ])
+      const settings = normalizeDnsSettings(rawSettings)
       configureApi(settings.externalController, settings.secret)
       applyTheme(settings.theme)
       set({ settings, coreStatus, loaded: true })
       // 启动后静默检查更新
       void get().checkUpdate()
-    })().catch((err: unknown) => {
+    })().finally(() => {
       loadAllPromise = null
-      throw err
     })
     return loadAllPromise
   },
@@ -95,7 +98,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
   patchSettings: async (patch) => {
     const prev = get().settings
-    const next = { ...prev, ...patch }
+    const next = syncDnsSettings(prev, patch)
     set({ settings: next })
     if (patch.theme !== undefined) applyTheme(patch.theme)
     try {
@@ -105,6 +108,11 @@ export const useAppStore = create<AppStore>((set, get) => ({
       // 持久化失败 → 回滚乐观更新
       set({ settings: prev })
       if (prev.theme !== next.theme) applyTheme(prev.theme)
+      try {
+        await get().loadAll()
+      } catch {
+        // 维持本地回滚状态, 等下一轮启动/刷新再同步
+      }
       throw err
     }
   },
@@ -114,9 +122,30 @@ export const useAppStore = create<AppStore>((set, get) => ({
     set({ settings: { ...prev, mode } })
     try {
       await call('set_mode', { mode })
-      await patchMode(mode)
     } catch (err) {
       set({ settings: { ...get().settings, mode: prev.mode } })
+      try {
+        await get().loadAll()
+      } catch {
+        // 维持本地回滚状态, 等下一轮启动/刷新再同步
+      }
+      throw err
+    }
+  },
+
+  setTun: async (enabled) => {
+    const prev = get().settings
+    set({ settings: { ...prev, tun: enabled } })
+    try {
+      await call('set_tun', { enable: enabled })
+      await get().refreshCoreStatus()
+    } catch (err) {
+      set({ settings: prev })
+      try {
+        await get().loadAll()
+      } catch {
+        // 维持本地回滚状态, 等下一轮启动/刷新再同步
+      }
       throw err
     }
   },

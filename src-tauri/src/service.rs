@@ -57,6 +57,80 @@ pub fn is_running() -> bool {
     }
 }
 
+/// 停止已安装服务并等待进入 STOPPED。
+#[cfg(windows)]
+pub fn stop() -> Result<(), String> {
+    let manager = ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT)
+        .map_err(|e| format!("连接服务管理器失败: {e}"))?;
+    let service_access = ServiceAccess::QUERY_STATUS | ServiceAccess::STOP;
+    let service = manager.open_service(SERVICE_NAME, service_access)
+        .map_err(|e| format!("打开服务失败: {e}"))?;
+
+    if matches!(
+        service.query_status().map(|s| s.current_state),
+        Ok(ServiceState::Stopped)
+    ) {
+        return Ok(());
+    }
+
+    service
+        .stop()
+        .map_err(|e| format!("停止服务失败: {e}"))?;
+
+    for _ in 0..20 {
+        std::thread::sleep(std::time::Duration::from_millis(250));
+        if matches!(
+            service.query_status().map(|s| s.current_state),
+            Ok(ServiceState::Stopped)
+        ) {
+            return Ok(());
+        }
+    }
+    Err("服务停止超时".into())
+}
+
+#[cfg(not(windows))]
+pub fn stop() -> Result<(), String> {
+    Ok(())
+}
+
+/// 启动已安装服务并等待进入 RUNNING。
+#[cfg(windows)]
+pub fn start() -> Result<(), String> {
+    let manager = ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT)
+        .map_err(|e| format!("连接服务管理器失败: {e}"))?;
+    let service_access = ServiceAccess::QUERY_STATUS | ServiceAccess::START;
+    let service = manager.open_service(SERVICE_NAME, service_access)
+        .map_err(|e| format!("打开服务失败: {e}"))?;
+
+    if matches!(
+        service.query_status().map(|s| s.current_state),
+        Ok(ServiceState::Running)
+    ) {
+        return Ok(());
+    }
+
+    service
+        .start(&Vec::<&OsStr>::new())
+        .map_err(|e| format!("启动服务失败: {e}"))?;
+
+    for _ in 0..20 {
+        std::thread::sleep(std::time::Duration::from_millis(250));
+        if matches!(
+            service.query_status().map(|s| s.current_state),
+            Ok(ServiceState::Running)
+        ) {
+            return Ok(());
+        }
+    }
+    Err("服务启动后未进入运行状态".into())
+}
+
+#[cfg(not(windows))]
+pub fn start() -> Result<(), String> {
+    Err("服务模式仅支持 Windows".into())
+}
+
 /// 创建并启动服务(需要管理员权限)。
 #[cfg(windows)]
 pub fn install(config_dir: &Path) -> Result<(), String> {
@@ -88,8 +162,17 @@ pub fn install(config_dir: &Path) -> Result<(), String> {
                     log::info!("服务已存在但未运行,尝试启动");
                     service.start(&Vec::<&OsStr>::new())
                         .map_err(|e| format!("启动已有服务失败: {e}"))?;
-                    log::info!("服务启动成功");
-                    return Ok(());
+                    for _ in 0..20 {
+                        std::thread::sleep(std::time::Duration::from_millis(250));
+                        if matches!(
+                            service.query_status().map(|s| s.current_state),
+                            Ok(ServiceState::Running)
+                        ) {
+                            log::info!("服务启动成功");
+                            return Ok(());
+                        }
+                    }
+                    return Err("服务启动后未进入运行状态".into());
                 }
                 _ => {}
             }
@@ -110,7 +193,7 @@ pub fn install(config_dir: &Path) -> Result<(), String> {
         account_password: None,
     };
 
-    let create_access = ServiceAccess::CHANGE_CONFIG | ServiceAccess::START;
+    let create_access = ServiceAccess::CHANGE_CONFIG | ServiceAccess::START | ServiceAccess::QUERY_STATUS;
     let service = manager.create_service(&service_info, create_access)
         .map_err(|e| format!("创建服务失败: {e}"))?;
 
@@ -119,9 +202,18 @@ pub fn install(config_dir: &Path) -> Result<(), String> {
 
     service.start(&Vec::<&OsStr>::new())
         .map_err(|e| format!("启动服务失败: {e}"))?;
+    for _ in 0..20 {
+        std::thread::sleep(std::time::Duration::from_millis(250));
+        if matches!(
+            service.query_status().map(|s| s.current_state),
+            Ok(ServiceState::Running)
+        ) {
+            log::info!("服务安装并启动成功");
+            return Ok(());
+        }
+    }
 
-    log::info!("服务安装并启动成功");
-    Ok(())
+    Err("服务启动后未进入运行状态".into())
 }
 
 #[cfg(not(windows))]
@@ -181,6 +273,7 @@ pub fn run_dispatcher() {}
 #[cfg(windows)]
 mod service_impl {
     use std::ffi::OsString;
+    use std::io::Write;
     use std::sync::mpsc;
     use std::time::Duration;
 
@@ -241,17 +334,38 @@ mod service_impl {
         let dir = config_dir_from_args();
 
         if let (Some(core), Some(dir)) = (core, dir) {
+            let log_dir = dir.join("logs");
+            let _ = std::fs::create_dir_all(&log_dir);
+            let log_path = log_dir.join("mihomo.log");
             // 拉起-看护循环:正常停止信号到来前,内核退出 3 秒后重启
             loop {
-                let mut child = match std::process::Command::new(&core)
-                    .args(["-d"])
+                let mut cmd = std::process::Command::new(&core);
+                cmd.args(["-d"])
                     .arg(&dir)
                     .args(["-f"])
-                    .arg(dir.join("runtime.yaml"))
-                    .spawn()
+                    .arg(dir.join("runtime.yaml"));
+                if let Ok(log_file) = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(&log_path)
                 {
+                    if let Ok(stderr) = log_file.try_clone() {
+                        cmd.stderr(std::process::Stdio::from(stderr));
+                    }
+                    cmd.stdout(std::process::Stdio::from(log_file));
+                }
+                let mut child = match cmd.spawn() {
                     Ok(c) => c,
-                    Err(_) => break,
+                    Err(err) => {
+                        if let Ok(mut file) = std::fs::OpenOptions::new()
+                            .create(true)
+                            .append(true)
+                            .open(&log_path)
+                        {
+                            let _ = writeln!(file, "failed to start mihomo service child: {err}");
+                        }
+                        break;
+                    }
                 };
                 // 每 500ms 轮询: 停止信号 → 杀内核退出; 内核退出 → 重启
                 let mut stopped = false;

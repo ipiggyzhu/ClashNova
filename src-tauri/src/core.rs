@@ -93,14 +93,50 @@ pub fn start(app: &AppHandle) -> Result<(), String> {
     if !state.dirs.runtime_config().exists() {
         crate::profiles::regenerate_runtime(app)?;
     }
+    let settings = state.settings_snapshot();
+    if settings.tun {
+        if crate::service::status() != "installed" {
+            return Err("TUN 模式需要服务模式支持，请先在设置中安装服务".into());
+        }
+        if !crate::service::is_running() {
+            crate::service::start()?;
+        }
+        log::info!(
+            "TUN 模式由服务 {} 托管, 跳过 sidecar 启动",
+            crate::service::SERVICE_NAME
+        );
+        refresh_version_async(app.clone());
+        return Ok(());
+    }
     // 服务模式托管内核 → 不再拉起 sidecar, 仅经外部控制器对接
     if crate::service::is_running() {
         log::info!("内核由服务 {} 托管, 跳过 sidecar 启动", crate::service::SERVICE_NAME);
         refresh_version_async(app.clone());
         return Ok(());
     }
+    if crate::service::status() == "installed" {
+        match crate::service::start() {
+            Ok(()) => {
+                log::info!(
+                    "内核由服务 {} 托管, 跳过 sidecar 启动",
+                    crate::service::SERVICE_NAME
+                );
+                refresh_version_async(app.clone());
+                return Ok(());
+            }
+            Err(err) => {
+                log::warn!("服务模式启动失败, 回退普通 sidecar: {err}");
+            }
+        }
+    }
+    start_sidecar(app)?;
+    Ok(())
+}
+
+pub(crate) fn start_sidecar(app: &AppHandle) -> Result<(), String> {
     spawn_core(app)?;
     {
+        let state = app.state::<AppState>();
         let mut guard = state.core.lock().expect("core 锁中毒");
         guard.manual_stop = false;
         guard.restarts.clear();
@@ -109,8 +145,8 @@ pub fn start(app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// 停止内核(置 manual_stop, 杀进程)。
-pub fn stop(app: &AppHandle) -> Result<(), String> {
+/// 停止 sidecar(置 manual_stop, 杀进程)。
+pub(crate) fn stop_sidecar(app: &AppHandle) -> Result<(), String> {
     let state = app.state::<AppState>();
     let mut guard = state.core.lock().expect("core 锁中毒");
     guard.manual_stop = true;
@@ -118,6 +154,15 @@ pub fn stop(app: &AppHandle) -> Result<(), String> {
     guard.version = None;
     if let Some(child) = guard.child.take() {
         child.kill().map_err(|e| format!("停止内核失败: {e}"))?;
+    }
+    Ok(())
+}
+
+/// 停止内核(同时处理 sidecar 与服务模式)。
+pub fn stop(app: &AppHandle) -> Result<(), String> {
+    stop_sidecar(app)?;
+    if crate::service::is_running() {
+        crate::service::stop()?;
     }
     Ok(())
 }
@@ -274,6 +319,19 @@ fn refresh_version_async(app: AppHandle) {
 
 /// 通知 mihomo 热加载运行时配置(PUT /configs?force=true); 未运行时为 no-op。
 pub async fn reload_runtime(app: &AppHandle) -> Result<(), String> {
+    let (controller, secret) = {
+        let state = app.state::<AppState>();
+        let s = state.settings_snapshot();
+        (s.external_controller, s.secret)
+    };
+    reload_runtime_with_auth(app, controller, secret).await
+}
+
+pub async fn reload_runtime_with_auth(
+    app: &AppHandle,
+    controller: String,
+    secret: String,
+) -> Result<(), String> {
     let (sidecar_running, controller, secret, path) = {
         let state = app.state::<AppState>();
         let sidecar_running = state
@@ -281,11 +339,10 @@ pub async fn reload_runtime(app: &AppHandle) -> Result<(), String> {
             .lock()
             .map(|g| g.child.is_some())
             .unwrap_or(false);
-        let s = state.settings_snapshot();
         (
             sidecar_running,
-            s.external_controller,
-            s.secret,
+            controller,
+            secret,
             state.dirs.runtime_config().to_string_lossy().to_string(),
         )
     };
@@ -324,4 +381,66 @@ pub async fn reload_runtime(app: &AppHandle) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+pub async fn wait_runtime_tun(
+    app: &AppHandle,
+    expected: bool,
+    timeout: Duration,
+) -> Result<(), String> {
+    let client = reqwest::Client::new();
+    let started = Instant::now();
+    let mut last = String::from("控制器未返回配置");
+
+    loop {
+        let (controller, secret) = {
+            let state = app.state::<AppState>();
+            let settings = state.settings_snapshot();
+            (settings.external_controller, settings.secret)
+        };
+        let url = format!("http://{controller}/configs");
+        match client
+            .get(&url)
+            .bearer_auth(&secret)
+            .timeout(Duration::from_secs(2))
+            .send()
+            .await
+        {
+            Ok(resp) if resp.status().is_success() => {
+                match resp.json::<serde_json::Value>().await {
+                    Ok(json) => {
+                        let actual = json
+                            .get("tun")
+                            .and_then(|tun| tun.get("enable"))
+                            .and_then(serde_json::Value::as_bool)
+                            .unwrap_or(false);
+                        if actual == expected {
+                            return Ok(());
+                        }
+                        last = format!(
+                            "内核 TUN 实际状态为 {}",
+                            if actual { "开启" } else { "关闭" }
+                        );
+                    }
+                    Err(err) => {
+                        last = format!("解析 /configs 响应失败: {err}");
+                    }
+                }
+            }
+            Ok(resp) => {
+                last = format!("控制器返回 HTTP {}", resp.status());
+            }
+            Err(err) => {
+                last = format!("控制器未就绪: {err}");
+            }
+        }
+
+        if started.elapsed() >= timeout {
+            return Err(format!(
+                "等待内核应用 TUN={} 超时: {last}",
+                if expected { "true" } else { "false" }
+            ));
+        }
+        tokio::time::sleep(Duration::from_millis(300)).await;
+    }
 }

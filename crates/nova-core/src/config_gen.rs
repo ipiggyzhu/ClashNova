@@ -33,6 +33,17 @@ pub struct RuntimeOverrides {
     pub use_system_hosts: bool,
 }
 
+fn normalize_dns_override(raw: &str) -> Result<Value, CoreError> {
+    let value: Value = serde_yaml::from_str(raw)?;
+    if let Some(dns) = value.as_mapping().and_then(|map| map.get("dns")) {
+        if dns.is_mapping() {
+            return Ok(dns.clone());
+        }
+        return Err(CoreError::UnrecognizedFormat);
+    }
+    Ok(value)
+}
+
 /// 解析 profile YAML 并应用覆写,序列化回 YAML(锁定契约 D)。
 ///
 /// - 覆写 `mixed-port` / `external-controller` / `secret` / `mode` /
@@ -112,11 +123,14 @@ pub fn build_runtime_config(profile_yaml: &str, ov: &RuntimeOverrides) -> Result
         let mut patch_map = Mapping::new();
         patch_map.insert(Value::String("dns".into()), Value::Mapping(dns_map));
         deep_merge(&mut doc, &Value::Mapping(patch_map));
+    } else {
+        let patch: Value = serde_yaml::from_str("dns:\n  enable: false\n")?;
+        deep_merge(&mut doc, &patch);
     }
 
     // DNS 覆写:用户片段深合并进 dns: 段(无 enable 键时默认补 enable: true)
     if !ov.dns_override.trim().is_empty() {
-        let dns_val: Value = serde_yaml::from_str(&ov.dns_override)?;
+        let dns_val = normalize_dns_override(&ov.dns_override)?;
         if !dns_val.is_mapping() {
             return Err(CoreError::UnrecognizedFormat);
         }
@@ -130,6 +144,15 @@ pub fn build_runtime_config(profile_yaml: &str, ov: &RuntimeOverrides) -> Result
         {
             dns.entry(Value::String("enable".into()))
                 .or_insert(Value::Bool(true));
+        }
+    }
+    if !ov.enable_dns {
+        if let Some(dns) = doc
+            .as_mapping_mut()
+            .and_then(|m| m.get_mut("dns"))
+            .and_then(Value::as_mapping_mut)
+        {
+            dns.insert(Value::String("enable".into()), Value::Bool(false));
         }
     }
 
@@ -278,14 +301,15 @@ rules:
     fn dns_覆写深合并并强制_enable() {
         let profile = "dns:\n  enable: false\n  listen: 0.0.0.0:53\nproxies: []\n";
         let mut ov = overrides(false);
+        ov.enable_dns = true;
         ov.dns_override = "enhanced-mode: fake-ip\nnameserver:\n  - https://doh.pub/dns-query\n".into();
         let out = build_runtime_config(profile, &ov).expect("生成应成功");
         let doc = parse(&out);
         let dns = doc.get("dns").expect("dns 段应存在");
         assert_eq!(dns.get("enhanced-mode"), Some(&Value::String("fake-ip".into())));
         assert_eq!(dns.get("listen"), Some(&Value::String("0.0.0.0:53".into())));
-        // 覆写片段未显式给 enable, 原值 false 保留(entry or_insert 不覆盖已有键)
-        assert_eq!(dns.get("enable"), Some(&Value::Bool(false)));
+        // 高级 DNS 已启用时,覆写片段未显式给 enable 也会保持启用
+        assert_eq!(dns.get("enable"), Some(&Value::Bool(true)));
         // 显式给 enable: true 则覆盖
         ov.dns_override = "enable: true\n".into();
         let doc2 = parse(&build_runtime_config(profile, &ov).expect("生成应成功"));
@@ -299,6 +323,34 @@ rules:
             doc3.get("dns").and_then(|d| d.get("enable")),
             Some(&Value::Bool(true))
         );
+    }
+
+    #[test]
+    fn dns_高级关闭时强制_disable() {
+        let profile = "dns:\n  enable: true\n  listen: 0.0.0.0:53\nproxies: []\n";
+        let mut ov = overrides(false);
+        ov.enable_dns = false;
+        ov.dns_override = "enable: true\nnameserver:\n  - https://doh.pub/dns-query\n".into();
+        let out = build_runtime_config(profile, &ov).expect("生成应成功");
+        let doc = parse(&out);
+        assert_eq!(
+            doc.get("dns").and_then(|d| d.get("enable")),
+            Some(&Value::Bool(false))
+        );
+    }
+
+    #[test]
+    fn dns_覆写贴完整配置时仅提取_dns段() {
+        let profile = "proxies: []\n";
+        let mut ov = overrides(false);
+        ov.enable_dns = true;
+        ov.dns_override = "mixed-port: 7890\ndns:\n  enable: true\n  nameserver:\n    - https://doh.pub/dns-query\nproxies:\n  - name: should-not-enter-dns\n".into();
+        let out = build_runtime_config(profile, &ov).expect("生成应成功");
+        let doc = parse(&out);
+        let dns = doc.get("dns").expect("dns 段应存在");
+        assert!(dns.get("nameserver").is_some());
+        assert!(dns.get("proxies").is_none());
+        assert_eq!(doc.get("mixed-port"), Some(&Value::from(7897u64)));
     }
 
     #[test]

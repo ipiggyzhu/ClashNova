@@ -67,7 +67,12 @@ pub fn restart_guard(app: &AppHandle) {
             let want = expected(&settings);
             let actual = Sysproxy::get_system_proxy().ok();
             let drifted = actual
-                .map(|a| a.enable != want.enable || a.host != want.host || a.port != want.port)
+                .map(|a| {
+                    a.enable != want.enable
+                        || a.host != want.host
+                        || a.port != want.port
+                        || a.bypass != want.bypass
+                })
                 .unwrap_or(true);
             if drifted {
                 log::warn!("检测到系统代理被外部修改, 恢复中…");

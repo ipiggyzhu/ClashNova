@@ -87,6 +87,7 @@ if (typeof location !== 'undefined') {
 
 /** 服务模式安装状态(M2 mock) */
 let serviceInstalled = false
+let serviceRunning = false
 
 /* ============================== 内核状态 ============================== */
 
@@ -557,6 +558,13 @@ export const mockHandlers: Record<string, MockHandler> = {
     return undefined
   },
   set_tun: (args) => {
+    if (Boolean(args['enable']) && !serviceInstalled) {
+      throw new Error('TUN 模式需要先安装服务模式')
+    }
+    if (Boolean(args['enable'])) {
+      serviceRunning = true
+      core.running = true
+    }
     settings = { ...settings, tun: Boolean(args['enable']) }
     return undefined
   },
@@ -572,13 +580,18 @@ export const mockHandlers: Record<string, MockHandler> = {
     window.open(argString(args, 'url'), '_blank')
     return undefined
   },
-  service_status: () => (serviceInstalled ? 'installed' : 'not-installed'),
+  service_status: () => (serviceRunning ? 'running' : serviceInstalled ? 'installed' : 'not-installed'),
   install_service: () => {
     serviceInstalled = true
+    serviceRunning = true
+    core.running = true
     return undefined
   },
   uninstall_service: () => {
     serviceInstalled = false
+    serviceRunning = false
+    settings = { ...settings, tun: false }
+    core.running = true
     return undefined
   },
   exempt_uwp_loopback: () => undefined,

@@ -3,6 +3,7 @@
 use tauri::{AppHandle, Manager};
 use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_opener::OpenerExt;
+use std::time::Duration;
 
 use crate::core::{self, CoreStatus};
 use crate::profiles::{self, EnhancerMeta, ProfileMeta};
@@ -14,71 +15,172 @@ use crate::{hotkeys, service, sysproxy_win, tray};
 /// 切换系统代理:更新设置 → 应用注册表 → 重启守卫 → 持久化。
 pub fn apply_sys_proxy(app: &AppHandle, enable: bool) -> Result<(), String> {
     let state = app.state::<AppState>();
-    let mut settings = state.settings_snapshot();
+    let prev = state.settings_snapshot();
+    let mut settings = prev.clone();
     settings.sys_proxy = enable;
     sysproxy_win::apply(&settings)?;
-    {
+
+    let write_result = (|| {
         let mut guard = state.settings.write().map_err(|_| "settings 锁中毒")?;
         *guard = settings.clone();
+        state.persist_settings(&settings)
+    })();
+    if let Err(err) = write_result {
+        if let Ok(mut guard) = state.settings.write() {
+            *guard = prev.clone();
+        }
+        let _ = state.persist_settings(&prev);
+        if settings.sys_proxy || prev.sys_proxy {
+            let _ = sysproxy_win::apply(&prev);
+        }
+        sysproxy_win::restart_guard(app);
+        return Err(err);
     }
-    state.persist_settings(&settings)?;
+
     sysproxy_win::restart_guard(app);
     Ok(())
+}
+
+fn restore_settings(app: &AppHandle, settings: &AppSettings, regenerate_runtime: bool) {
+    let state = app.state::<AppState>();
+    if let Ok(mut guard) = state.settings.write() {
+        *guard = settings.clone();
+    }
+    let _ = state.persist_settings(settings);
+    if regenerate_runtime {
+        let _ = profiles::regenerate_runtime(app);
+    }
+}
+
+fn restore_core_after_tun_failure(
+    app: &AppHandle,
+    prev_settings: &AppSettings,
+    sidecar_was_running: bool,
+    service_was_running: bool,
+) {
+    if prev_settings.tun || service_was_running {
+        let _ = service::start();
+        let _ = core::start(app);
+        return;
+    }
+
+    if !service_was_running && service::is_running() {
+        let _ = service::stop();
+    }
+    if sidecar_was_running {
+        let _ = core::start_sidecar(app);
+    }
+}
+
+async fn rollback_tun_change(
+    app: &AppHandle,
+    prev_settings: &AppSettings,
+    sidecar_was_running: bool,
+    service_was_running: bool,
+) {
+    restore_settings(app, prev_settings, true);
+    restore_core_after_tun_failure(
+        app,
+        prev_settings,
+        sidecar_was_running,
+        service_was_running,
+    );
+    let _ = core::reload_runtime(app).await;
 }
 
 /// 切换 TUN:更新设置 → 检查服务 → 重生成配置 → 重启内核。
 pub async fn apply_tun(app: &AppHandle, enable: bool) -> Result<(), String> {
     let state = app.state::<AppState>();
-    let mut settings = state.settings_snapshot();
+    if enable && service::status() != "installed" {
+        return Err("TUN 模式需要服务模式支持，请先在设置中安装服务".into());
+    }
+    let service_was_running = service::is_running();
+    let sidecar_was_running = core::is_sidecar_running(app);
+    let prev_settings = state.settings_snapshot();
+    let mut settings = prev_settings.clone();
     settings.tun = enable;
     {
         let mut guard = state.settings.write().map_err(|_| "settings 锁中毒")?;
         *guard = settings.clone();
     }
-    state.persist_settings(&settings)?;
+    if let Err(err) = profiles::regenerate_runtime(app) {
+        restore_settings(app, &prev_settings, false);
+        return Err(err);
+    }
 
     // 开启 TUN 时检查服务状态
     if enable {
-        // 检查服务是否安装
-        if service::status() != "installed" {
-            return Err("TUN 模式需要服务模式支持，请先在设置中安装服务".into());
+        if sidecar_was_running {
+            let _ = core::stop_sidecar(app);
         }
         // 检查服务是否运行，未运行则启动
-        if !service::is_running() {
+        if !service_was_running {
             log::info!("TUN 模式：服务未运行，尝试启动服务");
-            #[cfg(windows)]
-            {
-                use windows_service::service_manager::{ServiceManager, ServiceManagerAccess};
-                use windows_service::service::{ServiceAccess, ServiceState};
-
-                let manager = ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT)
-                    .map_err(|e| format!("连接服务管理器失败: {e}"))?;
-                let service_access = ServiceAccess::QUERY_STATUS | ServiceAccess::START;
-                let svc = manager.open_service(service::SERVICE_NAME, service_access)
-                    .map_err(|e| format!("打开服务失败: {e}"))?;
-
-                // 检查状态并启动
-                if let Ok(status) = svc.query_status() {
-                    if status.current_state != ServiceState::Running {
-                        use std::ffi::OsStr;
-                        svc.start(&Vec::<&OsStr>::new())
-                            .map_err(|e| format!("启动服务失败: {e}"))?;
-                        log::info!("TUN 模式：服务已启动");
-                        // 等待服务完全启动
-                        std::thread::sleep(std::time::Duration::from_millis(1000));
-                    }
-                }
+            if let Err(err) = service::start() {
+                rollback_tun_change(
+                    app,
+                    &prev_settings,
+                    sidecar_was_running,
+                    service_was_running,
+                )
+                .await;
+                return Err(err);
             }
         }
-        // 停止 sidecar 内核，让服务接管
-        let _ = core::stop(app);
+        if !service::is_running() {
+            rollback_tun_change(
+                app,
+                &prev_settings,
+                sidecar_was_running,
+                service_was_running,
+            )
+            .await;
+            return Err("TUN 模式需要服务正在运行，但服务启动后未处于运行状态".into());
+        }
     }
 
-    // 重新生成配置
-    profiles::regenerate_runtime(app)?;
+    if let Err(err) = state.persist_settings(&settings) {
+        rollback_tun_change(
+            app,
+            &prev_settings,
+            sidecar_was_running,
+            service_was_running,
+        )
+        .await;
+        return Err(err);
+    }
 
-    // 重启内核
-    core::restart(app)?;
+    let core_result = if service::is_running() {
+        let reload_result = if !enable || (service_was_running && !sidecar_was_running) {
+            core::reload_runtime(app).await
+        } else {
+            Ok(())
+        };
+        reload_result.and_then(|_| core::start(app))
+    } else {
+        core::restart(app)
+    };
+    if let Err(err) = core_result {
+        rollback_tun_change(
+            app,
+            &prev_settings,
+            sidecar_was_running,
+            service_was_running,
+        )
+        .await;
+        return Err(err);
+    }
+
+    if let Err(err) = core::wait_runtime_tun(app, enable, Duration::from_secs(8)).await {
+        rollback_tun_change(
+            app,
+            &prev_settings,
+            sidecar_was_running,
+            service_was_running,
+        )
+        .await;
+        return Err(err);
+    }
 
     Ok(())
 }
@@ -90,22 +192,8 @@ pub async fn apply_mode(app: &AppHandle, mode: String) -> Result<(), String> {
     }
     let state = app.state::<AppState>();
     let mut settings = state.settings_snapshot();
-    settings.mode = mode.clone();
-    {
-        let mut guard = state.settings.write().map_err(|_| "settings 锁中毒")?;
-        *guard = settings.clone();
-    }
-    state.persist_settings(&settings)?;
-    // 运行中 → PATCH /configs 轻量切换(前端 REST 也会同步, 此处兜底)
-    let (controller, secret) = (settings.external_controller, settings.secret);
-    let url = format!("http://{controller}/configs");
-    let _ = reqwest::Client::new()
-        .patch(&url)
-        .bearer_auth(&secret)
-        .json(&serde_json::json!({ "mode": mode }))
-        .timeout(std::time::Duration::from_secs(3))
-        .send()
-        .await;
+    settings.mode = mode;
+    save_settings(app.clone(), settings).await?;
     Ok(())
 }
 
@@ -121,20 +209,56 @@ pub fn get_settings(app: AppHandle) -> AppSettings {
 pub async fn save_settings(app: AppHandle, settings: AppSettings) -> Result<(), String> {
     let state = app.state::<AppState>();
     let prev = state.settings_snapshot();
+    if settings.tun && settings.tun != prev.tun {
+        return Err("开启 TUN 请使用 set_tun 命令，以确保服务模式接管内核".into());
+    }
+    let sys_proxy_changed = settings.sys_proxy != prev.sys_proxy
+        || settings.bypass != prev.bypass
+        || settings.mixed_port != prev.mixed_port
+        || settings.guard != prev.guard
+        || settings.guard_interval_sec != prev.guard_interval_sec;
+    let runtime_changed = settings.mixed_port != prev.mixed_port
+        || settings.external_controller != prev.external_controller
+        || settings.secret != prev.secret
+        || settings.allow_lan != prev.allow_lan
+        || settings.ipv6 != prev.ipv6
+        || settings.log_level != prev.log_level
+        || settings.tun != prev.tun
+        || settings.mode != prev.mode
+        || settings.dns_override != prev.dns_override
+        || settings.hosts != prev.hosts
+        || settings.enable_dns != prev.enable_dns
+        || settings.dns_listen != prev.dns_listen
+        || settings.dns_enhanced_mode != prev.dns_enhanced_mode
+        || settings.fake_ip_range != prev.fake_ip_range
+        || settings.fake_ip_filter_mode != prev.fake_ip_filter_mode
+        || settings.ipv6_dns != prev.ipv6_dns
+        || settings.prefer_h3 != prev.prefer_h3
+        || settings.respect_rules != prev.respect_rules
+        || settings.use_hosts != prev.use_hosts
+        || settings.use_system_hosts != prev.use_system_hosts;
     {
         let mut guard = state.settings.write().map_err(|_| "settings 锁中毒")?;
         *guard = settings.clone();
     }
-    state.persist_settings(&settings)?;
+    if runtime_changed {
+        if let Err(err) = profiles::regenerate_runtime(&app) {
+            restore_settings(&app, &prev, false);
+            return Err(err);
+        }
+    }
+    if let Err(err) = state.persist_settings(&settings) {
+        restore_settings(&app, &prev, runtime_changed);
+        return Err(err);
+    }
 
     // 系统代理开关/参数变化 → 重新应用注册表 + 守卫换代（不触发内核重载）
-    if settings.sys_proxy != prev.sys_proxy
-        || settings.bypass != prev.bypass
-        || settings.guard != prev.guard
-        || settings.guard_interval_sec != prev.guard_interval_sec
-    {
+    if sys_proxy_changed {
         if settings.sys_proxy || prev.sys_proxy {
-            sysproxy_win::apply(&settings)?;
+            if let Err(err) = sysproxy_win::apply(&settings) {
+                restore_settings(&app, &prev, runtime_changed);
+                return Err(err);
+            }
         }
         sysproxy_win::restart_guard(&app);
     }
@@ -147,23 +271,50 @@ pub async fn save_settings(app: AppHandle, settings: AppSettings) -> Result<(), 
         } else {
             autolaunch.disable()
         };
-        result.map_err(|e| format!("设置开机自启失败: {e}"))?;
+        if let Err(err) = result.map_err(|e| format!("设置开机自启失败: {e}")) {
+            restore_settings(&app, &prev, runtime_changed);
+            if sys_proxy_changed && (settings.sys_proxy || prev.sys_proxy) {
+                let _ = sysproxy_win::apply(&prev);
+                sysproxy_win::restart_guard(&app);
+            }
+            return Err(err);
+        }
     }
 
     // 影响 mihomo 运行时配置的项 → 重生成 + 热加载
-    if settings.mixed_port != prev.mixed_port
-        || settings.external_controller != prev.external_controller
-        || settings.secret != prev.secret
-        || settings.allow_lan != prev.allow_lan
-        || settings.ipv6 != prev.ipv6
-        || settings.log_level != prev.log_level
-        || settings.tun != prev.tun
-        || settings.mode != prev.mode
-        || settings.dns_override != prev.dns_override
-        || settings.hosts != prev.hosts
-    {
-        profiles::regenerate_runtime(&app)?;
-        core::reload_runtime(&app).await?;
+    if runtime_changed {
+        let reload_result = if settings.external_controller != prev.external_controller || settings.secret != prev.secret {
+            core::reload_runtime_with_auth(
+                &app,
+                prev.external_controller.clone(),
+                prev.secret.clone(),
+            )
+            .await
+        } else {
+            core::reload_runtime(&app).await
+        };
+        if let Err(err) = reload_result {
+            restore_settings(&app, &prev, true);
+            if sys_proxy_changed && (settings.sys_proxy || prev.sys_proxy) {
+                let _ = sysproxy_win::apply(&prev);
+                sysproxy_win::restart_guard(&app);
+            }
+            if settings.autostart != prev.autostart {
+                let autolaunch = app.autolaunch();
+                let _ = if prev.autostart {
+                    autolaunch.enable()
+                } else {
+                    autolaunch.disable()
+                };
+            }
+            let _ = core::reload_runtime_with_auth(
+                &app,
+                prev.external_controller.clone(),
+                prev.secret.clone(),
+            )
+            .await;
+            return Err(err);
+        }
     }
 
     // 热键绑定变化 → 重注册
@@ -321,7 +472,13 @@ pub fn open_url(app: AppHandle, url: String) -> Result<(), String> {
 
 #[tauri::command]
 pub async fn service_status() -> String {
-    tauri::async_runtime::spawn_blocking(|| service::status().to_string())
+    tauri::async_runtime::spawn_blocking(|| {
+        if service::is_running() {
+            "running".to_string()
+        } else {
+            service::status().to_string()
+        }
+    })
         .await
         .unwrap_or_else(|_| "not-installed".into())
 }
@@ -329,40 +486,90 @@ pub async fn service_status() -> String {
 #[tauri::command]
 pub async fn install_service(app: AppHandle) -> Result<(), String> {
     let dir = app.state::<AppState>().dirs.config.clone();
+    let sidecar_was_running = core::is_sidecar_running(&app);
+    if sidecar_was_running {
+        core::stop_sidecar(&app)?;
+    }
 
-    // 检查是否需要提权
     #[cfg(windows)]
-    {
+    let install_result = {
+        // 检查是否需要提权
         use windows_service::service_manager::{ServiceManager, ServiceManagerAccess};
         let manager_access = ServiceManagerAccess::CONNECT | ServiceManagerAccess::CREATE_SERVICE;
         if ServiceManager::local_computer(None::<&str>, manager_access).is_err() {
             // 需要提权，用 PowerShell 重启自身执行安装
-            return elevate_install_service(&dir).await;
+            elevate_install_service(&dir).await
+        } else {
+            // 已有管理员权限，直接安装
+            tauri::async_runtime::spawn_blocking(move || service::install(&dir))
+                .await
+                .map_err(|e| format!("任务失败: {e}"))
+                .and_then(|inner| inner)
+        }
+    };
+    #[cfg(not(windows))]
+    let install_result = tauri::async_runtime::spawn_blocking(move || service::install(&dir))
+        .await
+        .map_err(|e| format!("任务失败: {e}"))
+        .and_then(|inner| inner);
+
+    if let Err(err) = install_result {
+        if sidecar_was_running {
+            let _ = core::start(&app);
+        }
+        return Err(err);
+    }
+    if !service::is_running() {
+        if let Err(err) = service::start() {
+            if sidecar_was_running {
+                let _ = core::start(&app);
+            }
+            return Err(err);
         }
     }
-
-    // 已有管理员权限，直接安装
-    tauri::async_runtime::spawn_blocking(move || service::install(&dir))
-        .await
-        .map_err(|e| format!("任务失败: {e}"))?
+    core::start(&app)?;
+    tray::sync_tray(&app);
+    Ok(())
 }
 
 #[tauri::command]
-pub async fn uninstall_service() -> Result<(), String> {
+pub async fn uninstall_service(app: AppHandle) -> Result<(), String> {
+    let was_core_running = core::is_running(&app).await;
+    let had_tun = app.state::<AppState>().settings_snapshot().tun;
+
     // 检查是否需要提权
     #[cfg(windows)]
-    {
+    let uninstall_result = {
         use windows_service::service_manager::{ServiceManager, ServiceManagerAccess};
         if ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT).is_err() {
             // 需要提权，用 PowerShell 重启自身执行卸载
-            return elevate_uninstall_service().await;
+            elevate_uninstall_service().await
+        } else {
+            // 已有管理员权限，直接卸载
+            tauri::async_runtime::spawn_blocking(service::uninstall)
+                .await
+                .map_err(|e| format!("任务失败: {e}"))
+                .and_then(|inner| inner)
         }
-    }
-
-    // 已有管理员权限，直接卸载
-    tauri::async_runtime::spawn_blocking(service::uninstall)
+    };
+    #[cfg(not(windows))]
+    let uninstall_result = tauri::async_runtime::spawn_blocking(service::uninstall)
         .await
-        .map_err(|e| format!("任务失败: {e}"))?
+        .map_err(|e| format!("任务失败: {e}"))
+        .and_then(|inner| inner);
+
+    uninstall_result?;
+
+    if had_tun {
+        let mut settings = app.state::<AppState>().settings_snapshot();
+        settings.tun = false;
+        save_settings(app.clone(), settings).await?;
+    }
+    if was_core_running {
+        core::start(&app)?;
+    }
+    tray::sync_tray(&app);
+    Ok(())
 }
 
 /// 用 PowerShell 提权执行服务安装（通过重启自身并传递 --install-service 参数）
