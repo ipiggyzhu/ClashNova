@@ -10,6 +10,16 @@ license = "MIT"
 name = "clashnova"
 path = "src/main.rs"
 
+# 服务安装程序（独立可执行文件）
+[[bin]]
+name = "clashnova-service-install"
+path = "src/bin/service_install.rs"
+
+# 服务卸载程序（独立可执行文件）
+[[bin]]
+name = "clashnova-service-uninstall"
+path = "src/bin/service_uninstall.rs"
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 

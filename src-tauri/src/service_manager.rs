@@ -206,16 +206,13 @@ impl ServiceManager {
             ServiceStatus::InstallRequired => {
                 log::info!("开始安装服务");
 
-                // 安装服务
-                tokio::task::spawn_blocking(|| {
-                    let config_dir = crate::state::AppState::init()
-                        .map_err(|e| format!("获取配置目录失败: {}", e))?
-                        .dirs
-                        .app_home;
-                    crate::service::install(&config_dir)
-                })
-                .await
-                .map_err(|e| format!("安装服务任务失败: {}", e))??;
+                // 使用独立安装程序安装服务
+                let config_dir = AppState::init()
+                    .map_err(|e| format!("获取配置目录失败: {}", e))?
+                    .dirs
+                    .app_home;
+
+                crate::service_installer::install_with_installer(&config_dir).await?;
 
                 log::info!("服务安装成功，等待 IPC 就绪");
 
@@ -238,10 +235,7 @@ impl ServiceManager {
 
                 // 先卸载
                 log::info!("卸载旧服务");
-                if let Err(e) = tokio::task::spawn_blocking(crate::service::uninstall)
-                    .await
-                    .map_err(|e| format!("卸载任务失败: {}", e))?
-                {
+                if let Err(e) = crate::service_installer::uninstall_with_installer().await {
                     log::warn!("卸载服务失败（可能不存在）: {}", e);
                 }
 
@@ -250,15 +244,12 @@ impl ServiceManager {
 
                 // 再安装
                 log::info!("安装新服务");
-                tokio::task::spawn_blocking(|| {
-                    let config_dir = crate::state::AppState::init()
-                        .map_err(|e| format!("获取配置目录失败: {}", e))?
-                        .dirs
-                        .app_home;
-                    crate::service::install(&config_dir)
-                })
-                .await
-                .map_err(|e| format!("安装服务任务失败: {}", e))??;
+                let config_dir = AppState::init()
+                    .map_err(|e| format!("获取配置目录失败: {}", e))?
+                    .dirs
+                    .app_home;
+
+                crate::service_installer::install_with_installer(&config_dir).await?;
 
                 log::info!("服务重装成功，等待 IPC 就绪");
 
@@ -277,9 +268,7 @@ impl ServiceManager {
             ServiceStatus::UninstallRequired => {
                 log::info!("开始卸载服务");
 
-                tokio::task::spawn_blocking(crate::service::uninstall)
-                    .await
-                    .map_err(|e| format!("卸载任务失败: {}", e))??;
+                crate::service_installer::uninstall_with_installer().await?;
 
                 self.set_status(ServiceStatus::Unavailable("服务已卸载".into())).await;
                 log::info!("服务卸载成功");

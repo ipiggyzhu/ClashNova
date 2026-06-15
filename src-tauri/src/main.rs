@@ -7,6 +7,7 @@ mod core;
 mod hotkeys;
 mod profiles;
 mod service;
+mod service_installer;
 mod service_manager;
 mod state;
 mod stats;
