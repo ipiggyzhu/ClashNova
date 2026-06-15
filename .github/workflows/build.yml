@@ -71,11 +71,11 @@ jobs:
       - name: 构建服务安装程序
         shell: pwsh
         run: |
-          cargo build --release --manifest-path src-tauri/Cargo.toml --bin clashnova-service-install
-          cargo build --release --manifest-path src-tauri/Cargo.toml --bin clashnova-service-uninstall
+          cargo build --release --bin clashnova-service-install
+          cargo build --release --bin clashnova-service-uninstall
           New-Item -ItemType Directory -Force -Path src-tauri/binaries
-          Copy-Item src-tauri/target/release/clashnova-service-install.exe src-tauri/binaries/clashnova-service-install-x86_64-pc-windows-msvc.exe
-          Copy-Item src-tauri/target/release/clashnova-service-uninstall.exe src-tauri/binaries/clashnova-service-uninstall-x86_64-pc-windows-msvc.exe
+          Copy-Item target/release/clashnova-service-install.exe src-tauri/binaries/clashnova-service-install-x86_64-pc-windows-msvc.exe
+          Copy-Item target/release/clashnova-service-uninstall.exe src-tauri/binaries/clashnova-service-uninstall-x86_64-pc-windows-msvc.exe
 
       - name: Tauri 构建(msi + nsis)
         shell: pwsh
