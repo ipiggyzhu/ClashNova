@@ -340,7 +340,13 @@ impl IpcServer {
 
             // 在新线程中处理客户端请求
             let core_manager = self.core_manager.clone();
+            // 将 HANDLE 转换为 raw pointer 以便跨线程传递
+            let h_pipe_raw = h_pipe.0 as usize;
             std::thread::spawn(move || {
+                use windows::Win32::Foundation::HANDLE;
+                // 在新线程中重建 HANDLE
+                let h_pipe = HANDLE(h_pipe_raw as *mut _);
+
                 if let Err(e) = Self::handle_client(h_pipe, core_manager) {
                     log::error!("处理客户端请求失败: {}", e);
                 }
@@ -357,23 +363,25 @@ impl IpcServer {
     /// 在独立线程中处理单个客户端
     #[cfg(windows)]
     fn handle_client(h_pipe: windows::Win32::Foundation::HANDLE, core_manager: Arc<Mutex<CoreManager>>) -> Result<()> {
-        use std::os::windows::io::FromRawHandle;
+        use std::os::windows::io::{FromRawHandle, IntoRawHandle};
 
         // 使用标准库的文件 API 包装句柄
         let pipe_file = unsafe {
             std::fs::File::from_raw_handle(h_pipe.0 as *mut _)
         };
 
-        let mut reader = BufReader::new(&pipe_file);
-        let mut writer = BufWriter::new(&pipe_file);
-
         // 读取请求
         let mut request_line = String::new();
-        reader.read_line(&mut request_line)
-            .context("读取请求失败")?;
+        {
+            let mut reader = BufReader::new(&pipe_file);
+            reader.read_line(&mut request_line)
+                .context("读取请求失败")?;
+        }
 
         if request_line.is_empty() {
             log::warn!("客户端发送空请求");
+            // 释放 pipe_file 但不关闭句柄
+            pipe_file.into_raw_handle();
             return Ok(());
         }
 
@@ -390,16 +398,19 @@ impl IpcServer {
         let response_json = serde_json::to_string(&response)
             .context("序列化响应失败")?;
 
-        writeln!(writer, "{}", response_json)
-            .context("发送响应失败")?;
+        {
+            let mut writer = BufWriter::new(&pipe_file);
+            writeln!(writer, "{}", response_json)
+                .context("发送响应失败")?;
 
-        writer.flush()
-            .context("刷新管道失败")?;
+            writer.flush()
+                .context("刷新管道失败")?;
+        }
 
         log::debug!("响应已发送");
 
-        // 避免 File 析构函数关闭句柄（我们在外部关闭）
-        std::mem::forget(pipe_file);
+        // 释放 pipe_file 但不关闭句柄（外部会关闭）
+        pipe_file.into_raw_handle();
 
         Ok(())
     }

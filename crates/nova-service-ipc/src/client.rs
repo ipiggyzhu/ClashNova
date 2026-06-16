@@ -5,6 +5,8 @@ use anyhow::{Context, Result};
 use std::fs::File;
 #[cfg(windows)]
 use std::io::{BufRead, BufReader, BufWriter, Write};
+#[cfg(windows)]
+use std::path::Path;
 
 /// IPC 客户端
 pub struct IpcClient {
@@ -19,8 +21,6 @@ impl IpcClient {
     /// 发送请求并接收响应
     #[cfg(windows)]
     fn send_request(&self, request: &ServiceRequest) -> Result<Vec<u8>> {
-        use std::io::ErrorKind;
-
         // 尝试多次连接（最多重试 3 次）
         let mut last_error = None;
         for attempt in 1..=3 {
@@ -42,7 +42,6 @@ impl IpcClient {
     #[cfg(windows)]
     fn try_send_request(&self, request: &ServiceRequest) -> Result<Vec<u8>> {
         use std::io::ErrorKind;
-        use std::time::Duration;
 
         // 打开命名管道
         let pipe = match File::options()
@@ -65,11 +64,8 @@ impl IpcClient {
             }
         };
 
-        // 设置读写超时
-        pipe.set_read_timeout(Some(Duration::from_secs(5)))
-            .context("设置读取超时失败")?;
-        pipe.set_write_timeout(Some(Duration::from_secs(5)))
-            .context("设置写入超时失败")?;
+        // 注意：Windows 命名管道不支持 set_read_timeout/set_write_timeout
+        // 超时由服务端的管道创建参数控制
 
         let mut writer = BufWriter::new(&pipe);
         let mut reader = BufReader::new(&pipe);
