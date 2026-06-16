@@ -193,7 +193,7 @@ export default function Settings() {
     const installing = service === 'not-installed'
     void withBusy('service', async () => {
       await call(installing ? 'install_service' : 'uninstall_service')
-      const status = await call<string>('service_status')
+      const status = (await call('service_status')) as string
       setService(mapServiceStatus(status))
       await loadAll()
     }).catch((err) => {
@@ -204,7 +204,7 @@ export default function Settings() {
   const toggleTun = (on: boolean): void => {
     void withBusy('tun', async () => {
       await setTun(on)
-      const status = await call<string>('service_status')
+      const status = (await call('service_status')) as string
       setService(mapServiceStatus(status))
     }).catch((err) => {
       notify('error', t('TUN 切换失败'), errorMessage(err))
