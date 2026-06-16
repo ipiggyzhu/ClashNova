@@ -18,10 +18,8 @@ use windows::Win32::System::Pipes::{
 #[cfg(windows)]
 use windows::Win32::Security::{
     InitializeSecurityDescriptor, SetSecurityDescriptorDacl,
-    PSECURITY_DESCRIPTOR, SECURITY_DESCRIPTOR_REVISION,
+    PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES,
 };
-#[cfg(windows)]
-use windows::Win32::System::SystemServices::SECURITY_ATTRIBUTES;
 
 /// 内核管理器
 struct CoreManager {
@@ -311,12 +309,12 @@ impl IpcServer {
         let pipe_name: Vec<u16> = IPC_PATH.encode_utf16().chain(std::iter::once(0)).collect();
 
         // 创建允许所有用户访问的安全描述符
-        let mut sd = vec![0u8; std::mem::size_of::<PSECURITY_DESCRIPTOR>() + 128];
-        let sa = unsafe {
-            let psd = sd.as_mut_ptr() as PSECURITY_DESCRIPTOR;
+        let mut sd_buffer = vec![0u8; 1024]; // 足够大的缓冲区
+        let psd = PSECURITY_DESCRIPTOR(sd_buffer.as_mut_ptr() as *mut _);
 
-            // 初始化安全描述符
-            if InitializeSecurityDescriptor(psd, SECURITY_DESCRIPTOR_REVISION).is_err() {
+        let sa = unsafe {
+            // 初始化安全描述符 (SECURITY_DESCRIPTOR_REVISION = 1)
+            if InitializeSecurityDescriptor(psd, 1).is_err() {
                 log::error!("初始化安全描述符失败");
                 return Err(anyhow::anyhow!("初始化安全描述符失败"));
             }
