@@ -590,64 +590,40 @@ pub async fn repair_service(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// 用 PowerShell 提权执行服务安装（通过重启自身并传递 --install-service 参数）
+/// 使用 runas 库提权执行服务安装（通过重启自身并传递 --install-service 参数）
 #[cfg(windows)]
 async fn elevate_install_service(config_dir: &std::path::Path) -> Result<(), String> {
     let exe = std::env::current_exe().map_err(|e| format!("定位自身失败: {e}"))?;
-    let exe = exe.to_string_lossy().replace('\'', "''");
-    let config_dir = config_dir.to_string_lossy().replace('\'', "''");
-    let ps_cmd = format!(
-        "try {{ \
-             $p = Start-Process -FilePath '{exe}' -ArgumentList @('--install-service','--dir','{config_dir}') -Verb RunAs -WindowStyle Hidden -Wait -PassThru -ErrorAction Stop; \
-             exit $p.ExitCode \
-         }} catch {{ \
-             Write-Error $_; \
-             exit 1 \
-         }}"
-    );
+    let exe_str = exe.to_string_lossy().to_string();
+    let config_dir_str = config_dir.to_string_lossy().to_string();
 
-    let output = std::process::Command::new("powershell.exe")
-        .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", &ps_cmd])
-        .output()
-        .map_err(|e| format!("执行 PowerShell 失败: {e}"))?;
+    let status = runas::Command::new(&exe_str)
+        .arg("--install-service")
+        .arg("--dir")
+        .arg(&config_dir_str)
+        .status()
+        .map_err(|e| format!("执行 runas 失败: {e}"))?;
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        if stderr.is_empty() || stderr.contains("canceled") || stderr.contains("取消") {
-            return Err("用户取消了 UAC 授权".into());
-        }
-        return Err(format!("提权失败: {}", stderr));
+    if !status.success() {
+        return Err(format!("提权失败，退出码: {:?}", status.code()));
     }
 
     Ok(())
 }
 
-/// 用 PowerShell 提权执行服务卸载
+/// 使用 runas 库提权执行服务卸载
 #[cfg(windows)]
 async fn elevate_uninstall_service() -> Result<(), String> {
     let exe = std::env::current_exe().map_err(|e| format!("定位自身失败: {e}"))?;
-    let exe = exe.to_string_lossy().replace('\'', "''");
-    let ps_cmd = format!(
-        "try {{ \
-             $p = Start-Process -FilePath '{exe}' -ArgumentList @('--uninstall-service') -Verb RunAs -WindowStyle Hidden -Wait -PassThru -ErrorAction Stop; \
-             exit $p.ExitCode \
-         }} catch {{ \
-             Write-Error $_; \
-             exit 1 \
-         }}"
-    );
+    let exe_str = exe.to_string_lossy().to_string();
 
-    let output = std::process::Command::new("powershell.exe")
-        .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", &ps_cmd])
-        .output()
-        .map_err(|e| format!("执行 PowerShell 失败: {e}"))?;
+    let status = runas::Command::new(&exe_str)
+        .arg("--uninstall-service")
+        .status()
+        .map_err(|e| format!("执行 runas 失败: {e}"))?;
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        if stderr.is_empty() || stderr.contains("canceled") || stderr.contains("取消") {
-            return Err("用户取消了 UAC 授权".into());
-        }
-        return Err(format!("提权失败: {}", stderr));
+    if !status.success() {
+        return Err(format!("提权失败，退出码: {:?}", status.code()));
     }
 
     Ok(())

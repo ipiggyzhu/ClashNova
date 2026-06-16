@@ -178,6 +178,21 @@ export default function RouteMap() {
     const globe = globeRef.current
     if (!globe) return
     const pal = GLOBE_THEMES[resolvedTheme]
+
+    // 计算弧线中点的经纬度用于放置飞机图标
+    const arcMidpoints = regions.map((r) => {
+      // 简单的中点计算（实际应用球面大圆插值，但这里近似足够）
+      const midLat = (ORIGIN.lat + r.lat) / 2
+      const midLng = (ORIGIN.lng + r.lng) / 2
+      return {
+        code: `plane-${r.code}`,
+        name: '✈️',
+        lat: midLat,
+        lng: midLng,
+        isPlane: true,
+      }
+    })
+
     globe
       .arcsData(
         regions.map((r) => ({
@@ -210,14 +225,19 @@ export default function RouteMap() {
       .pointAltitude(0.012)
       // 文字标签走 HTML 层: three.js 内置字体无中文字形(会渲染成 ??);
       // CSS2DRenderer 每帧覆写外层 transform, 偏移要做在内层元素上
-      .htmlElementsData(labels)
+      .htmlElementsData([...labels, ...arcMidpoints])
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .htmlElement((d: any) => {
         const wrap = document.createElement('div')
-        wrap.className = 'globe-label'
-        const text = document.createElement('span')
-        text.textContent = d.name
-        wrap.appendChild(text)
+        if (d.isPlane) {
+          wrap.className = 'globe-plane'
+          wrap.textContent = '✈️'
+        } else {
+          wrap.className = 'globe-label'
+          const text = document.createElement('span')
+          text.textContent = d.name
+          wrap.appendChild(text)
+        }
         return wrap
       })
       .htmlAltitude(0.025)
@@ -296,6 +316,8 @@ export default function RouteMap() {
                 const [ox, oy] = flat.origin
                 const mx = (ox + t.x) / 2
                 const my = Math.min(oy, t.y) - Math.abs(t.x - ox) * 0.18 - 26
+                // Calculate angle for airplane rotation (pointing from origin to target)
+                const angle = Math.atan2(t.y - oy, t.x - ox) * (180 / Math.PI)
                 return (
                   <g key={t.code}>
                     <path
@@ -306,6 +328,15 @@ export default function RouteMap() {
                       strokeLinecap="round"
                       opacity={0.8}
                     />
+                    {/* Airplane icon in the middle of the arc */}
+                    <g transform={`translate(${mx}, ${my}) rotate(${angle}) scale(0.7)`}>
+                      <path
+                        d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z"
+                        transform="translate(-12, -12)"
+                        fill="#FFD60A"
+                        opacity={0.9}
+                      />
+                    </g>
                     <circle cx={t.x} cy={t.y} r={3 + (t.bytes / maxBytes) * 3} fill="#64D2FF" />
                     <text x={t.x + 8} y={t.y + 4}>{t.name}</text>
                     <text className="sub" x={t.x + 8} y={t.y + 16}>{fmtBytes(t.bytes)}</text>

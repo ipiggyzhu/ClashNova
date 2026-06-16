@@ -18,11 +18,9 @@ pub async fn install_with_installer(config_dir: &std::path::Path) -> Result<(), 
     // 检查是否需要提权
     #[cfg(windows)]
     {
-        use windows_service::service_manager::{ServiceManager, ServiceManagerAccess};
-
-        let manager_access = ServiceManagerAccess::CONNECT | ServiceManagerAccess::CREATE_SERVICE;
-        if ServiceManager::local_computer(None::<&str>, manager_access).is_err() {
-            // 需要提权，使用 PowerShell RunAs
+        if !is_elevated() {
+            // 需要提权，使用 runas 库
+            log::info!("需要提权，使用 runas 库执行 UAC");
             return elevate_and_install(&installer_path, config_dir).await;
         }
     }
@@ -65,11 +63,9 @@ pub async fn uninstall_with_installer() -> Result<(), String> {
     // 检查是否需要提权
     #[cfg(windows)]
     {
-        use windows_service::service_manager::{ServiceManager, ServiceManagerAccess};
-
-        let manager_access = ServiceManagerAccess::CONNECT;
-        if ServiceManager::local_computer(None::<&str>, manager_access).is_err() {
-            // 需要提权，使用 PowerShell RunAs
+        if !is_elevated() {
+            // 需要提权，使用 runas 库
+            log::info!("需要提权，使用 runas 库执行 UAC");
             return elevate_and_uninstall(&uninstaller_path).await;
         }
     }
@@ -117,61 +113,58 @@ fn get_uninstaller_path() -> Result<PathBuf, String> {
     Ok(uninstaller)
 }
 
-/// 提权并安装服务
+/// 检查当前进程是否有管理员权限
+#[cfg(windows)]
+fn is_elevated() -> bool {
+    deelevate::token::is_elevated()
+}
+
+/// 提权并安装服务（使用 runas 库）
 #[cfg(windows)]
 async fn elevate_and_install(
     installer_path: &std::path::Path,
     config_dir: &std::path::Path,
 ) -> Result<(), String> {
-    log::info!("需要提权，通过 PowerShell RunAs 执行");
+    log::info!("使用 runas 库执行 UAC 提权");
 
     let installer_str = installer_path.to_string_lossy().to_string();
     let config_dir_str = config_dir.to_string_lossy().to_string();
 
-    let ps_cmd = format!(
-        "Start-Process '{}' -ArgumentList '--dir','{}' -Verb RunAs -Wait",
-        installer_str, config_dir_str
-    );
-
-    let output = tokio::task::spawn_blocking(move || {
-        Command::new("powershell.exe")
-            .args(["-NoProfile", "-Command", &ps_cmd])
-            .output()
+    let status = tokio::task::spawn_blocking(move || {
+        runas::Command::new(&installer_str)
+            .arg("--dir")
+            .arg(&config_dir_str)
+            .status()
     })
     .await
     .map_err(|e| format!("提权任务失败: {}", e))?
-    .map_err(|e| format!("执行 PowerShell 失败: {}", e))?;
+    .map_err(|e| format!("执行 runas 失败: {}", e))?;
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("提权安装失败: {}", stderr));
+    if !status.success() {
+        return Err(format!("提权安装失败，退出码: {:?}", status.code()));
     }
 
     log::info!("提权安装成功");
     Ok(())
 }
 
-/// 提权并卸载服务
+/// 提权并卸载服务（使用 runas 库）
 #[cfg(windows)]
 async fn elevate_and_uninstall(uninstaller_path: &std::path::Path) -> Result<(), String> {
-    log::info!("需要提权，通过 PowerShell RunAs 执行");
+    log::info!("使用 runas 库执行 UAC 提权");
 
     let uninstaller_str = uninstaller_path.to_string_lossy().to_string();
 
-    let ps_cmd = format!("Start-Process '{}' -Verb RunAs -Wait", uninstaller_str);
-
-    let output = tokio::task::spawn_blocking(move || {
-        Command::new("powershell.exe")
-            .args(["-NoProfile", "-Command", &ps_cmd])
-            .output()
+    let status = tokio::task::spawn_blocking(move || {
+        runas::Command::new(&uninstaller_str)
+            .status()
     })
     .await
     .map_err(|e| format!("提权任务失败: {}", e))?
-    .map_err(|e| format!("执行 PowerShell 失败: {}", e))?;
+    .map_err(|e| format!("执行 runas 失败: {}", e))?;
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("提权卸载失败: {}", stderr));
+    if !status.success() {
+        return Err(format!("提权卸载失败，退出码: {:?}", status.code()));
     }
 
     log::info!("提权卸载成功");
