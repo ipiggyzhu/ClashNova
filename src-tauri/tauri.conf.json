@@ -47,6 +47,7 @@
       "webviewInstallMode": {
         "type": "downloadBootstrapper"
       },
+      "icon": "icons/icon.ico",
       "nsis": {
         "languages": [
           "SimpChinese",
