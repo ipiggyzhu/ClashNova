@@ -15,6 +15,13 @@ use windows::Win32::System::Pipes::{
     CreateNamedPipeW, ConnectNamedPipe, DisconnectNamedPipe, PIPE_READMODE_BYTE,
     PIPE_TYPE_BYTE, PIPE_WAIT, PIPE_UNLIMITED_INSTANCES,
 };
+#[cfg(windows)]
+use windows::Win32::Security::{
+    InitializeSecurityDescriptor, SetSecurityDescriptorDacl,
+    PSECURITY_DESCRIPTOR, SECURITY_DESCRIPTOR_REVISION,
+};
+#[cfg(windows)]
+use windows::Win32::System::SystemServices::SECURITY_ATTRIBUTES;
 
 /// 内核管理器
 struct CoreManager {
@@ -303,18 +310,42 @@ impl IpcServer {
 
         let pipe_name: Vec<u16> = IPC_PATH.encode_utf16().chain(std::iter::once(0)).collect();
 
+        // 创建允许所有用户访问的安全描述符
+        let mut sd = vec![0u8; std::mem::size_of::<PSECURITY_DESCRIPTOR>() + 128];
+        let sa = unsafe {
+            let psd = sd.as_mut_ptr() as PSECURITY_DESCRIPTOR;
+
+            // 初始化安全描述符
+            if InitializeSecurityDescriptor(psd, SECURITY_DESCRIPTOR_REVISION).is_err() {
+                log::error!("初始化安全描述符失败");
+                return Err(anyhow::anyhow!("初始化安全描述符失败"));
+            }
+
+            // 设置 NULL DACL (允许所有人访问)
+            if SetSecurityDescriptorDacl(psd, true, None, false).is_err() {
+                log::error!("设置 DACL 失败");
+                return Err(anyhow::anyhow!("设置 DACL 失败"));
+            }
+
+            SECURITY_ATTRIBUTES {
+                nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
+                lpSecurityDescriptor: psd.0,
+                bInheritHandle: false.into(),
+            }
+        };
+
         loop {
-            // 创建命名管道 - 移除 FILE_FLAG_FIRST_PIPE_INSTANCE 以允许多个实例
+            // 创建命名管道 - 使用自定义安全描述符允许所有用户访问
             let h_pipe = unsafe {
                 CreateNamedPipeW(
                     PCWSTR(pipe_name.as_ptr()),
-                    PIPE_ACCESS_DUPLEX, // 移除 FILE_FLAG_FIRST_PIPE_INSTANCE
+                    PIPE_ACCESS_DUPLEX,
                     PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
                     PIPE_UNLIMITED_INSTANCES,
                     8192, // 输出缓冲区大小
                     8192, // 输入缓冲区大小
                     0,    // 默认超时
-                    None, // 默认安全属性
+                    Some(&sa as *const _ as *const _), // 自定义安全属性
                 )
             };
 
