@@ -28,9 +28,11 @@ pub async fn install_with_installer(config_dir: &std::path::Path) -> Result<(), 
     }
 
     // 已有管理员权限，直接执行
+    let config_dir = config_dir.to_path_buf();
     let output = tokio::task::spawn_blocking(move || {
         Command::new(&installer_path)
-            .args(["--dir", &config_dir.to_string_lossy()])
+            .arg("--dir")
+            .arg(&config_dir)
             .output()
     })
     .await

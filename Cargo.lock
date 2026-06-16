@@ -836,6 +836,7 @@ dependencies = [
  "log 0.4.32",
  "nova-core",
  "nova-service-ipc",
+ "once_cell",
  "reqwest 0.12.28",
  "rusqlite",
  "serde",

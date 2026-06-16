@@ -471,7 +471,7 @@ pub fn open_url(app: AppHandle, url: String) -> Result<(), String> {
         .map_err(|e| format!("打开链接失败: {e}"))
 }
 
-#[tauri::command]
+// 服务状态查询
 #[tauri::command]
 pub async fn service_status() -> String {
     let manager = crate::service_manager::get_service_manager();

@@ -52,6 +52,9 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
+      - name: 清理 Rust 构建缓存
+        run: cargo clean
+
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri

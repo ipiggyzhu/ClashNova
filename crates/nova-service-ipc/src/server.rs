@@ -7,10 +7,6 @@ use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[cfg(windows)]
-use std::fs::OpenOptions;
-#[cfg(windows)]
-use std::os::windows::fs::OpenOptionsExt;
-#[cfg(windows)]
 use windows::Win32::Storage::FileSystem::{FILE_FLAG_FIRST_PIPE_INSTANCE, PIPE_ACCESS_DUPLEX};
 #[cfg(windows)]
 use windows::Win32::System::Pipes::{

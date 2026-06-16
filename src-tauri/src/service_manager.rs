@@ -2,7 +2,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::sync::{Mutex, Notify};
 
-use crate::service;
 use crate::state::AppState;
 
 /// 服务状态
@@ -264,7 +263,7 @@ impl ServiceManager {
                 let config_dir = AppState::init()
                     .map_err(|e| format!("获取配置目录失败: {}", e))?
                     .dirs
-                    .app_home;
+                    .config;
 
                 crate::service_installer::install_with_installer(&config_dir).await?;
 
@@ -277,7 +276,8 @@ impl ServiceManager {
                 if nova_service_ipc::is_reinstall_needed() {
                     log::warn!("服务版本不匹配，需要重装");
                     self.set_status(ServiceStatus::NeedsReinstall).await;
-                    return self.apply_service_status(ServiceStatus::ReinstallRequired).await;
+                    return Box::pin(self.apply_service_status(ServiceStatus::ReinstallRequired))
+                        .await;
                 }
 
                 self.set_status(ServiceStatus::Ready).await;
@@ -301,7 +301,7 @@ impl ServiceManager {
                 let config_dir = AppState::init()
                     .map_err(|e| format!("获取配置目录失败: {}", e))?
                     .dirs
-                    .app_home;
+                    .config;
 
                 crate::service_installer::install_with_installer(&config_dir).await?;
 
@@ -316,7 +316,7 @@ impl ServiceManager {
 
             ServiceStatus::ForceReinstallRequired => {
                 log::info!("用户请求强制重装服务");
-                self.apply_service_status(ServiceStatus::ReinstallRequired).await
+                Box::pin(self.apply_service_status(ServiceStatus::ReinstallRequired)).await
             }
 
             ServiceStatus::UninstallRequired => {
