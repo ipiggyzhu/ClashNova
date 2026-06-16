@@ -96,7 +96,7 @@ jobs:
           Write-Host "验证最终文件..."
           Get-ChildItem src-tauri/binaries/*.exe | Select-Object Name, Length
 
-      - name: Tauri 构建(msi + nsis)
+      - name: Tauri 构建(NSIS)
         shell: pwsh
         run: |
           npm run tauri build 2>&1 | Tee-Object -FilePath build.log
@@ -115,13 +115,6 @@ jobs:
           gh release create buildlog build.log --title "CI build log (debug)" \
             --notes "自动上传的失败构建日志" --prerelease
 
-      - name: 上传 MSI 工件
-        uses: actions/upload-artifact@v4
-        with:
-          name: ClashNova-msi
-          path: target/release/bundle/msi/*.msi
-          if-no-files-found: error
-
       - name: 上传 NSIS 安装包工件
         uses: actions/upload-artifact@v4
         with:
@@ -137,9 +130,8 @@ jobs:
         run: |
           gh release create "$GITHUB_REF_NAME" \
             --title "ClashNova $GITHUB_REF_NAME" \
-            --notes "Windows 安装包：NSIS(.exe) 与 MSI 两种格式，任选其一安装。" \
+            --notes "Windows NSIS 安装包 (.exe)，双击安装即可。" \
             2>/dev/null || true
           gh release upload "$GITHUB_REF_NAME" \
-            target/release/bundle/msi/*.msi \
             target/release/bundle/nsis/*.exe \
             --clobber
