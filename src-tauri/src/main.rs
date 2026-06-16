@@ -21,19 +21,10 @@ use tauri_plugin_log::{Target, TargetKind};
 use crate::state::AppState;
 
 fn main() {
-    // 服务进程路径: SCM 调度, 启动 IPC 服务器
+    // 服务进程路径: 通过 Windows Service Control Manager 调度
     if std::env::args().any(|a| a == "--service") {
-        // 初始化日志
-        env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
-            .init();
-
-        log::info!("ClashNova 服务模式启动");
-
-        // 启动 IPC 服务器（阻塞）
-        if let Err(e) = nova_service_ipc::start_server() {
-            log::error!("IPC 服务器启动失败: {}", e);
-            std::process::exit(1);
-        }
+        // Windows 服务必须通过 SCM dispatcher 启动
+        service::run_dispatcher();
         return;
     }
 

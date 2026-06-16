@@ -372,6 +372,12 @@ mod service_impl {
     }
 
     fn run() -> windows_service::Result<()> {
+        // 初始化日志
+        env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
+            .init();
+
+        log::info!("ClashNova 服务模式启动");
+
         let (stop_tx, stop_rx) = mpsc::channel::<()>();
         let handler = move |control: ServiceControl| match control {
             ServiceControl::Stop | ServiceControl::Shutdown => {
@@ -395,68 +401,30 @@ mod service_impl {
         };
         set_state(ServiceState::Running, ServiceControlAccept::STOP)?;
 
-        // mihomo.exe 与本程序同目录(Tauri sidecar 安装布局)
-        let core = std::env::current_exe()
-            .ok()
-            .and_then(|p| p.parent().map(|d| d.join("mihomo.exe")));
-        let dir = config_dir_from_args();
+        log::info!("服务已进入 Running 状态，启动 IPC 服务器");
 
-        if let (Some(core), Some(dir)) = (core, dir) {
-            let log_dir = dir.join("logs");
-            let _ = std::fs::create_dir_all(&log_dir);
-            let log_path = log_dir.join("mihomo.log");
-            // 拉起-看护循环:正常停止信号到来前,内核退出 3 秒后重启
-            loop {
-                let mut cmd = std::process::Command::new(&core);
-                cmd.args(["-d"])
-                    .arg(&dir)
-                    .args(["-f"])
-                    .arg(dir.join("runtime.yaml"));
-                if let Ok(log_file) = std::fs::OpenOptions::new()
-                    .create(true)
-                    .append(true)
-                    .open(&log_path)
-                {
-                    if let Ok(stderr) = log_file.try_clone() {
-                        cmd.stderr(std::process::Stdio::from(stderr));
-                    }
-                    cmd.stdout(std::process::Stdio::from(log_file));
-                }
-                let mut child = match cmd.spawn() {
-                    Ok(c) => c,
-                    Err(err) => {
-                        if let Ok(mut file) = std::fs::OpenOptions::new()
-                            .create(true)
-                            .append(true)
-                            .open(&log_path)
-                        {
-                            let _ = writeln!(file, "failed to start mihomo service child: {err}");
-                        }
-                        break;
-                    }
-                };
-                // 每 500ms 轮询: 停止信号 → 杀内核退出; 内核退出 → 重启
-                let mut stopped = false;
-                loop {
-                    if stop_rx.recv_timeout(Duration::from_millis(500)).is_ok() {
-                        let _ = child.kill();
-                        stopped = true;
-                        break;
-                    }
-                    if let Ok(Some(_)) = child.try_wait() {
-                        break;
-                    }
-                }
-                if stopped {
-                    break;
-                }
-                if stop_rx.recv_timeout(Duration::from_secs(3)).is_ok() {
-                    break;
-                }
+        // 启动 IPC 服务器（在新线程中）
+        let ipc_handle = std::thread::spawn(|| {
+            if let Err(e) = nova_service_ipc::start_server() {
+                log::error!("IPC 服务器启动失败: {}", e);
             }
-        }
+        });
+
+        log::info!("等待停止信号...");
+
+        // 等待停止信号
+        let _ = stop_rx.recv();
+
+        log::info!("收到停止信号，关闭服务");
+
+        // 停止 IPC 服务器
+        nova_service_ipc::stop_server();
+
+        // 等待 IPC 线程退出
+        let _ = ipc_handle.join();
 
         set_state(ServiceState::Stopped, ServiceControlAccept::empty())?;
+        log::info!("服务已停止");
         Ok(())
     }
 }
