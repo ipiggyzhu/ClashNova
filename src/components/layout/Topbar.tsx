@@ -31,16 +31,6 @@ const MODE_ITEMS: { value: OutboundMode; label: string }[] = [
   { value: 'global', label: '全局' },
 ]
 
-/** 仅在 Tauri 环境下执行窗口操作, 浏览器/mock 下静默忽略 */
-async function winAction(action: 'minimize' | 'toggleMaximize' | 'close'): Promise<void> {
-  if (!('__TAURI_INTERNALS__' in window)) return
-  const { getCurrentWindow } = await import('@tauri-apps/api/window')
-  const win = getCurrentWindow()
-  if (action === 'minimize') await win.minimize()
-  else if (action === 'toggleMaximize') await win.toggleMaximize()
-  else await win.close()
-}
-
 export default function Topbar() {
   const t = useT()
   const { pathname } = useLocation()
@@ -54,9 +44,6 @@ export default function Topbar() {
 
   const unreadCount = useNotificationStore((s) => s.unreadCount)
   const [showNotifications, setShowNotifications] = useState(false)
-
-  // 判断是否在 Tauri 桌面环境
-  const isTauri = '__TAURI_INTERNALS__' in window
 
   /** system 主题按当前系统外观解析后再取反 */
   const resolvedTheme: 'dark' | 'light' =
@@ -94,24 +81,6 @@ export default function Topbar() {
       <button className="icon-btn" type="button" title={t('切换主题')} onClick={toggleTheme}>
         <Icon name={resolvedTheme === 'dark' ? 'sun' : 'moon'} />
       </button>
-      {isTauri && (
-        <div className="win-ctrl">
-          <button type="button" title={t('最小化')} onClick={() => void winAction('minimize')}>
-            <Icon name="minimize" />
-          </button>
-          <button type="button" title={t('最大化')} onClick={() => void winAction('toggleMaximize')}>
-            <Icon name="maximize" />
-          </button>
-          <button
-            type="button"
-            className="close"
-            title={t('关闭')}
-            onClick={() => void winAction('close')}
-          >
-            <Icon name="x" />
-          </button>
-        </div>
-      )}
     </header>
   )
 }
