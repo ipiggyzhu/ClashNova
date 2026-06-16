@@ -1,6 +1,5 @@
 use crate::types::*;
 use anyhow::{Context, Result};
-use std::path::Path;
 
 #[cfg(windows)]
 use std::fs::File;
@@ -20,17 +19,57 @@ impl IpcClient {
     /// 发送请求并接收响应
     #[cfg(windows)]
     fn send_request(&self, request: &ServiceRequest) -> Result<Vec<u8>> {
-        // 检查管道是否存在
-        if !Path::new(IPC_PATH).exists() {
-            anyhow::bail!("服务未运行（IPC 管道不存在）");
+        use std::io::ErrorKind;
+
+        // 尝试多次连接（最多重试 3 次）
+        let mut last_error = None;
+        for attempt in 1..=3 {
+            match self.try_send_request(request) {
+                Ok(response) => return Ok(response),
+                Err(e) => {
+                    last_error = Some(e);
+                    if attempt < 3 {
+                        std::thread::sleep(std::time::Duration::from_millis(100));
+                    }
+                }
+            }
         }
 
-        // 打开命名管道（阻塞直到服务端准备好）
-        let pipe = File::options()
+        Err(last_error.unwrap())
+    }
+
+    /// 尝试发送单次请求
+    #[cfg(windows)]
+    fn try_send_request(&self, request: &ServiceRequest) -> Result<Vec<u8>> {
+        use std::io::ErrorKind;
+        use std::time::Duration;
+
+        // 打开命名管道
+        let pipe = match File::options()
             .read(true)
             .write(true)
-            .open(IPC_PATH)
-            .context("无法连接到服务（命名管道打开失败）")?;
+            .open(IPC_PATH) {
+            Ok(p) => p,
+            Err(e) => {
+                return match e.kind() {
+                    ErrorKind::NotFound => {
+                        Err(anyhow::anyhow!("服务未运行（命名管道不存在）"))
+                    }
+                    ErrorKind::PermissionDenied => {
+                        Err(anyhow::anyhow!("权限不足，无法访问服务"))
+                    }
+                    _ => {
+                        Err(anyhow::anyhow!("无法连接到服务（命名管道打开失败）: {}", e))
+                    }
+                };
+            }
+        };
+
+        // 设置读写超时
+        pipe.set_read_timeout(Some(Duration::from_secs(5)))
+            .context("设置读取超时失败")?;
+        pipe.set_write_timeout(Some(Duration::from_secs(5)))
+            .context("设置写入超时失败")?;
 
         let mut writer = BufWriter::new(&pipe);
         let mut reader = BufReader::new(&pipe);
@@ -48,6 +87,10 @@ impl IpcClient {
         let mut response_line = String::new();
         reader.read_line(&mut response_line)
             .context("读取响应失败")?;
+
+        if response_line.is_empty() {
+            anyhow::bail!("服务返回空响应");
+        }
 
         Ok(response_line.into_bytes())
     }

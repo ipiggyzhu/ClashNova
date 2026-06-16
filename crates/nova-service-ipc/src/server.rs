@@ -1,13 +1,15 @@
 use crate::types::*;
 use anyhow::{Context, Result};
 use std::collections::VecDeque;
-use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[cfg(windows)]
-use windows::Win32::Storage::FileSystem::{FILE_FLAG_FIRST_PIPE_INSTANCE, PIPE_ACCESS_DUPLEX};
+use std::io::{BufRead, BufReader, BufWriter, Write};
+
+#[cfg(windows)]
+use windows::Win32::Storage::FileSystem::{PIPE_ACCESS_DUPLEX};
 #[cfg(windows)]
 use windows::Win32::System::Pipes::{
     CreateNamedPipeW, ConnectNamedPipe, DisconnectNamedPipe, PIPE_READMODE_BYTE,
@@ -267,6 +269,7 @@ impl IpcServer {
     }
 
     /// 启动后台监控线程
+    #[cfg(windows)]
     fn start_monitor_thread(&self) {
         let manager = self.core_manager.clone();
 
@@ -283,8 +286,127 @@ impl IpcServer {
         });
     }
 
-    /// 处理客户端请求
-    fn handle_request(&self, request: ServiceRequest) -> ServiceResponse<serde_json::Value> {
+
+    /// 启动 IPC 服务（Windows 命名管道）
+    #[cfg(windows)]
+    pub fn run(&self) -> Result<()> {
+        use windows::core::PCWSTR;
+        use windows::Win32::Foundation::CloseHandle;
+
+        log::info!("启动 IPC 服务: {}", IPC_PATH);
+
+        // 启动后台监控线程
+        self.start_monitor_thread();
+
+        let pipe_name: Vec<u16> = IPC_PATH.encode_utf16().chain(std::iter::once(0)).collect();
+
+        loop {
+            // 创建命名管道 - 移除 FILE_FLAG_FIRST_PIPE_INSTANCE 以允许多个实例
+            let h_pipe = unsafe {
+                CreateNamedPipeW(
+                    PCWSTR(pipe_name.as_ptr()),
+                    PIPE_ACCESS_DUPLEX, // 移除 FILE_FLAG_FIRST_PIPE_INSTANCE
+                    PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
+                    PIPE_UNLIMITED_INSTANCES,
+                    8192, // 输出缓冲区大小
+                    8192, // 输入缓冲区大小
+                    0,    // 默认超时
+                    None, // 默认安全属性
+                )
+            };
+
+            if h_pipe.is_invalid() {
+                let error = std::io::Error::last_os_error();
+                log::error!("创建命名管道失败: {}", error);
+                std::thread::sleep(std::time::Duration::from_secs(1));
+                continue;
+            }
+
+            log::debug!("等待客户端连接...");
+
+            // 等待客户端连接
+            let connected = unsafe { ConnectNamedPipe(h_pipe, None) };
+            if let Err(e) = connected {
+                let error_code = e.code().0;
+                // ERROR_PIPE_CONNECTED (535) 表示客户端已经连接
+                if error_code != 535 {
+                    log::warn!("客户端连接失败: {:?}", e);
+                    unsafe { CloseHandle(h_pipe).ok(); }
+                    continue;
+                }
+            }
+
+            log::debug!("客户端已连接");
+
+            // 在新线程中处理客户端请求
+            let core_manager = self.core_manager.clone();
+            std::thread::spawn(move || {
+                if let Err(e) = Self::handle_client(h_pipe, core_manager) {
+                    log::error!("处理客户端请求失败: {}", e);
+                }
+
+                // 断开连接并关闭句柄
+                unsafe {
+                    DisconnectNamedPipe(h_pipe).ok();
+                    CloseHandle(h_pipe).ok();
+                }
+            });
+        }
+    }
+
+    /// 在独立线程中处理单个客户端
+    #[cfg(windows)]
+    fn handle_client(h_pipe: windows::Win32::Foundation::HANDLE, core_manager: Arc<Mutex<CoreManager>>) -> Result<()> {
+        use std::os::windows::io::FromRawHandle;
+
+        // 使用标准库的文件 API 包装句柄
+        let pipe_file = unsafe {
+            std::fs::File::from_raw_handle(h_pipe.0 as *mut _)
+        };
+
+        let mut reader = BufReader::new(&pipe_file);
+        let mut writer = BufWriter::new(&pipe_file);
+
+        // 读取请求
+        let mut request_line = String::new();
+        reader.read_line(&mut request_line)
+            .context("读取请求失败")?;
+
+        if request_line.is_empty() {
+            log::warn!("客户端发送空请求");
+            return Ok(());
+        }
+
+        // 解析请求
+        let request: ServiceRequest = serde_json::from_str(&request_line)
+            .context("解析请求失败")?;
+
+        log::debug!("收到命令: {}", request.command);
+
+        // 处理请求
+        let response = Self::handle_request_static(request, core_manager);
+
+        // 发送响应
+        let response_json = serde_json::to_string(&response)
+            .context("序列化响应失败")?;
+
+        writeln!(writer, "{}", response_json)
+            .context("发送响应失败")?;
+
+        writer.flush()
+            .context("刷新管道失败")?;
+
+        log::debug!("响应已发送");
+
+        // 避免 File 析构函数关闭句柄（我们在外部关闭）
+        std::mem::forget(pipe_file);
+
+        Ok(())
+    }
+
+    /// 静态方法处理请求（用于多线程）
+    #[cfg(windows)]
+    fn handle_request_static(request: ServiceRequest, core_manager: Arc<Mutex<CoreManager>>) -> ServiceResponse<serde_json::Value> {
         match request.command.as_str() {
             "ping" => ServiceResponse::success(serde_json::json!({})),
 
@@ -297,7 +419,7 @@ impl IpcServer {
                     None => return ServiceResponse::error(1, "缺少内核配置".to_string()),
                 };
 
-                let mut manager = self.core_manager.lock().unwrap();
+                let mut manager = core_manager.lock().unwrap();
                 match manager.start(config) {
                     Ok(_) => ServiceResponse::success(serde_json::json!({})),
                     Err(e) => ServiceResponse::error(2, format!("启动内核失败: {}", e)),
@@ -305,7 +427,7 @@ impl IpcServer {
             }
 
             "stop" => {
-                let mut manager = self.core_manager.lock().unwrap();
+                let mut manager = core_manager.lock().unwrap();
                 match manager.stop() {
                     Ok(_) => ServiceResponse::success(serde_json::json!({})),
                     Err(e) => ServiceResponse::error(3, format!("停止内核失败: {}", e)),
@@ -313,7 +435,7 @@ impl IpcServer {
             }
 
             "status" => {
-                let mut manager = self.core_manager.lock().unwrap();
+                let mut manager = core_manager.lock().unwrap();
                 let status = manager.get_status();
                 ServiceResponse::success(serde_json::to_value(status).unwrap())
             }
@@ -324,7 +446,7 @@ impl IpcServer {
                     .and_then(|d| d.parse().ok())
                     .unwrap_or(100);
 
-                let manager = self.core_manager.lock().unwrap();
+                let manager = core_manager.lock().unwrap();
                 let logs = manager.get_logs(lines);
                 ServiceResponse::success(serde_json::to_value(logs).unwrap())
             }
@@ -337,114 +459,6 @@ impl IpcServer {
             }
 
             _ => ServiceResponse::error(404, format!("未知命令: {}", request.command)),
-        }
-    }
-
-    /// 启动 IPC 服务（Windows 命名管道）
-    #[cfg(windows)]
-    pub fn run(&self) -> Result<()> {
-        use windows::core::PCWSTR;
-
-        log::info!("启动 IPC 服务: {}", IPC_PATH);
-
-        // 启动后台监控线程
-        self.start_monitor_thread();
-
-        let pipe_name: Vec<u16> = IPC_PATH.encode_utf16().chain(std::iter::once(0)).collect();
-
-        loop {
-            // 创建命名管道
-            let h_pipe = unsafe {
-                CreateNamedPipeW(
-                    PCWSTR(pipe_name.as_ptr()),
-                    PIPE_ACCESS_DUPLEX | FILE_FLAG_FIRST_PIPE_INSTANCE,
-                    PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
-                    PIPE_UNLIMITED_INSTANCES,
-                    8192, // 输出缓冲区大小
-                    8192, // 输入缓冲区大小
-                    0,    // 默认超时
-                    None, // 默认安全属性
-                )
-            };
-
-            if h_pipe.is_invalid() {
-                log::error!("创建命名管道失败");
-                std::thread::sleep(std::time::Duration::from_secs(1));
-                continue;
-            }
-
-            log::info!("等待客户端连接...");
-
-            // 等待客户端连接
-            let connected = unsafe { ConnectNamedPipe(h_pipe, None) };
-            if connected.is_err() {
-                log::warn!("客户端连接失败");
-                unsafe { windows::Win32::Foundation::CloseHandle(h_pipe).ok(); }
-                continue;
-            }
-
-            log::info!("客户端已连接");
-
-            // 使用标准库的文件 API 包装句柄
-            let pipe_file = unsafe {
-                use std::os::windows::io::FromRawHandle;
-                std::fs::File::from_raw_handle(h_pipe.0 as *mut _)
-            };
-
-            let mut reader = BufReader::new(&pipe_file);
-            let mut writer = BufWriter::new(&pipe_file);
-
-            // 读取请求
-            let mut request_line = String::new();
-            match reader.read_line(&mut request_line) {
-                Ok(0) => {
-                    log::warn!("客户端断开连接");
-                    continue;
-                }
-                Err(e) => {
-                    log::error!("读取请求失败: {}", e);
-                    continue;
-                }
-                _ => {}
-            }
-
-            // 解析请求
-            let request: ServiceRequest = match serde_json::from_str(&request_line) {
-                Ok(r) => r,
-                Err(e) => {
-                    log::error!("解析请求失败: {}", e);
-                    continue;
-                }
-            };
-
-            log::info!("收到命令: {}", request.command);
-
-            // 处理请求
-            let response = self.handle_request(request);
-
-            // 发送响应
-            let response_json = match serde_json::to_string(&response) {
-                Ok(j) => j,
-                Err(e) => {
-                    log::error!("序列化响应失败: {}", e);
-                    continue;
-                }
-            };
-
-            if let Err(e) = writeln!(writer, "{}", response_json) {
-                log::error!("发送响应失败: {}", e);
-            }
-
-            if let Err(e) = writer.flush() {
-                log::error!("刷新管道失败: {}", e);
-            }
-
-            log::info!("响应已发送");
-
-            // 断开连接
-            unsafe {
-                DisconnectNamedPipe(h_pipe).ok();
-            }
         }
     }
 
