@@ -110,15 +110,23 @@ pub fn start(app: &AppHandle) -> Result<(), String> {
                 .map_err(|err| format!("TUN 模式需要服务运行，但服务启动失败: {err}"))?;
         }
         log::info!(
-            "TUN 模式由服务 {} 托管, 跳过 sidecar 启动",
+            "TUN 模式由服务 {} 托管，通过 IPC 启动",
             crate::service::SERVICE_NAME
         );
+
+        // 通过 IPC 启动 mihomo
+        start_core_via_service(app)?;
+
         refresh_version_async(app.clone());
         return Ok(());
     }
     // 服务模式托管内核 → 不再拉起 sidecar, 仅经外部控制器对接
     if crate::service::is_running() {
-        log::info!("内核由服务 {} 托管, 跳过 sidecar 启动", crate::service::SERVICE_NAME);
+        log::info!("内核由服务 {} 托管, 通过 IPC 启动", crate::service::SERVICE_NAME);
+
+        // 通过 IPC 启动 mihomo
+        start_core_via_service(app)?;
+
         refresh_version_async(app.clone());
         return Ok(());
     }
@@ -126,11 +134,17 @@ pub fn start(app: &AppHandle) -> Result<(), String> {
         match crate::service::start() {
             Ok(()) => {
                 log::info!(
-                    "内核由服务 {} 托管, 跳过 sidecar 启动",
+                    "内核由服务 {} 托管，通过 IPC 启动",
                     crate::service::SERVICE_NAME
                 );
-                refresh_version_async(app.clone());
-                return Ok(());
+
+                // 通过 IPC 启动 mihomo
+                if let Err(e) = start_core_via_service(app) {
+                    log::warn!("IPC 启动内核失败: {}, 回退普通 sidecar", e);
+                } else {
+                    refresh_version_async(app.clone());
+                    return Ok(());
+                }
             }
             Err(err) => {
                 log::warn!("服务模式启动失败, 回退普通 sidecar: {err}");
@@ -491,5 +505,47 @@ pub async fn wait_runtime_tun(
             ));
         }
         tokio::time::sleep(Duration::from_millis(300)).await;
+    }
+}
+
+/// 通过服务启动 mihomo 内核
+fn start_core_via_service(app: &AppHandle) -> Result<(), String> {
+    log::info!("通过 IPC 启动内核");
+
+    let state = app.state::<AppState>();
+    let config_dir = state.dirs.config.clone();
+    let runtime_config = state.dirs.runtime_config();
+    let settings = state.settings_snapshot();
+
+    // 获取 mihomo 可执行文件路径
+    let mihomo_path = std::env::current_exe()
+        .map_err(|e| format!("获取当前可执行文件路径失败: {}", e))?
+        .parent()
+        .ok_or("无法获取可执行文件所在目录")?
+        .join("mihomo.exe");
+
+    if !mihomo_path.exists() {
+        return Err(format!("mihomo.exe 不存在: {}", mihomo_path.display()));
+    }
+
+    // 构建内核配置
+    let core_config = nova_service_ipc::CoreConfig {
+        core_path: mihomo_path.to_string_lossy().to_string(),
+        config_path: runtime_config.to_string_lossy().to_string(),
+        config_dir: config_dir.to_string_lossy().to_string(),
+        external_controller: settings.external_controller.clone(),
+    };
+
+    // 通过 IPC 启动内核
+    match nova_service_ipc::start_core(&core_config) {
+        Ok(resp) => {
+            if resp.code == 0 {
+                log::info!("内核启动成功");
+                Ok(())
+            } else {
+                Err(format!("启动内核失败: {}", resp.message))
+            }
+        }
+        Err(e) => Err(format!("IPC 调用失败: {}", e)),
     }
 }
