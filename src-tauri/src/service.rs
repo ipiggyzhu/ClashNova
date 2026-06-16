@@ -132,6 +132,7 @@ fn is_access_denied(err: &str) -> bool {
         || err.contains("拒绝访问")
         || err.contains("os error 5")
         || err.contains("ERROR_ACCESS_DENIED")
+        || err.contains("IO error in winapi call") // Windows Service API 权限错误
 }
 
 #[cfg(windows)]
