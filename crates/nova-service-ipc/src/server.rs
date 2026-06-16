@@ -141,6 +141,7 @@ impl CoreManager {
     }
 
     /// 添加日志
+    #[allow(dead_code)]
     fn add_log(&mut self, line: String) {
         if self.logs.len() >= 1000 {
             self.logs.pop_front();
@@ -243,12 +244,14 @@ impl CoreManager {
     }
 
     /// 启用/禁用自动重启
+    #[allow(dead_code)]
     fn set_auto_restart(&mut self, enabled: bool) {
         self.auto_restart = enabled;
         log::info!("自动重启已{}", if enabled { "启用" } else { "禁用" });
     }
 
     /// 重置崩溃计数
+    #[allow(dead_code)]
     fn reset_crash_count(&mut self) {
         self.crash_count = 0;
         self.last_crash_time = None;
@@ -381,7 +384,7 @@ impl IpcServer {
         if request_line.is_empty() {
             log::warn!("客户端发送空请求");
             // 释放 pipe_file 但不关闭句柄
-            pipe_file.into_raw_handle();
+            let _ = pipe_file.into_raw_handle();
             return Ok(());
         }
 
@@ -410,7 +413,7 @@ impl IpcServer {
         log::debug!("响应已发送");
 
         // 释放 pipe_file 但不关闭句柄（外部会关闭）
-        pipe_file.into_raw_handle();
+        let _ = pipe_file.into_raw_handle();
 
         Ok(())
     }
