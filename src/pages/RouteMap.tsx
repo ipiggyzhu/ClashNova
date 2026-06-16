@@ -283,6 +283,12 @@ export default function RouteMap() {
               viewBox={`0 0 ${FLAT_W} ${FLAT_H}`}
               preserveAspectRatio="xMidYMid meet"
             >
+              <defs>
+                <linearGradient id="rm-arc" x1="0" y1="0" x2="1" y2="0">
+                  <stop offset="0" stopColor="#0A84FF" />
+                  <stop offset="1" stopColor="#64D2FF" />
+                </linearGradient>
+              </defs>
               {flat.land.map((d, i) => (
                 <path className="land" d={d} key={i} />
               ))}
@@ -306,12 +312,6 @@ export default function RouteMap() {
                   </g>
                 )
               })}
-              <defs>
-                <linearGradient id="rm-arc" x1="0" y1="0" x2="1" y2="0">
-                  <stop offset="0" stopColor="#0A84FF" />
-                  <stop offset="1" stopColor="#64D2FF" />
-                </linearGradient>
-              </defs>
               <circle cx={flat.origin[0]} cy={flat.origin[1]} r={5} fill="#FF9F0A" />
               <text x={flat.origin[0] + 9} y={flat.origin[1] + 4}>本机</text>
             </svg>
