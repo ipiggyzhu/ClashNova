@@ -91,7 +91,7 @@ async fn rollback_tun_change(
 /// 切换 TUN:更新设置 → 检查服务 → 重生成配置 → 重启内核。
 pub async fn apply_tun(app: &AppHandle, enable: bool) -> Result<(), String> {
     let state = app.state::<AppState>();
-    if enable && service::status() != "installed" {
+    if enable && service::status() == "not-installed" {
         return Err("TUN 模式需要服务模式支持，请先在设置中安装服务".into());
     }
     let service_was_running = service::is_running();
