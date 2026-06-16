@@ -137,9 +137,22 @@ export default function Settings() {
   const [confirmReset, setConfirmReset] = useState(false)
   const [showDnsSettings, setShowDnsSettings] = useState(false)
 
+  // 映射后端状态到前端显示状态
+  const mapServiceStatus = (status: string): 'running' | 'installed' | 'not-installed' | null => {
+    if (status === 'ready') {
+      return 'running'
+    } else if (status === 'not-installed') {
+      return 'not-installed'
+    } else if (status.startsWith('unavailable:') || status === 'needs-reinstall' || status === 'reinstall-required' || status === 'force-reinstall-required' || status === 'uninstall-required') {
+      return 'installed'
+    } else {
+      return null
+    }
+  }
+
   useEffect(() => {
     void call('service_status')
-      .then(setService)
+      .then((status: string) => setService(mapServiceStatus(status)))
       .catch(() => setService(null))
   }, [])
 
@@ -180,7 +193,8 @@ export default function Settings() {
     const installing = service === 'not-installed'
     void withBusy('service', async () => {
       await call(installing ? 'install_service' : 'uninstall_service')
-      setService(await call('service_status'))
+      const status = await call<string>('service_status')
+      setService(mapServiceStatus(status))
       await loadAll()
     }).catch((err) => {
       notify('error', t('服务模式操作失败'), errorMessage(err))
@@ -190,7 +204,8 @@ export default function Settings() {
   const toggleTun = (on: boolean): void => {
     void withBusy('tun', async () => {
       await setTun(on)
-      setService(await call('service_status'))
+      const status = await call<string>('service_status')
+      setService(mapServiceStatus(status))
     }).catch((err) => {
       notify('error', t('TUN 切换失败'), errorMessage(err))
     })
