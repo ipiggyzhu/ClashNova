@@ -408,6 +408,7 @@ mod service_impl {
             if let Err(e) = nova_service_ipc::start_server() {
                 log::error!("IPC 服务器启动失败: {}", e);
             }
+            log::info!("IPC 服务器已退出");
         });
 
         log::info!("等待停止信号...");
@@ -417,11 +418,9 @@ mod service_impl {
 
         log::info!("收到停止信号，关闭服务");
 
-        // 停止 IPC 服务器
-        nova_service_ipc::stop_server();
-
-        // 等待 IPC 线程退出
-        let _ = ipc_handle.join();
+        // IPC 服务器会在管道关闭时自动停止
+        // 这里给它一点时间来清理
+        std::thread::sleep(Duration::from_millis(500));
 
         set_state(ServiceState::Stopped, ServiceControlAccept::empty())?;
         log::info!("服务已停止");
