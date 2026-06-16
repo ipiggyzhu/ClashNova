@@ -48,43 +48,76 @@ async function main() {
   }
 
   console.log('查询 mihomo 最新 release ...')
-  const res = await fetch(API, { headers: apiHeaders })
-  if (!res.ok) {
-    throw new Error(`GitHub API 返回 ${res.status}: ${(await res.text()).slice(0, 200)}`)
+
+  // 重试机制：最多尝试 3 次
+  let lastError = null
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      console.log(`尝试 ${attempt}/3 ...`)
+
+      const res = await fetch(API, {
+        headers: apiHeaders,
+        signal: AbortSignal.timeout(30000) // 30 秒超时
+      })
+
+      if (!res.ok) {
+        const errorText = await res.text()
+        throw new Error(`GitHub API 返回 ${res.status}: ${errorText.slice(0, 200)}`)
+      }
+
+      const release = await res.json()
+      console.log(`找到 release: ${release.tag_name}`)
+
+      const assets = release.assets ?? []
+      const asset =
+        assets.find((a) => ASSET_STRICT.test(a.name)) ??
+        assets.find(
+          (a) => ASSET_LOOSE.test(a.name) && !/-go\d+/.test(a.name) && !a.name.includes('compatible'),
+        )
+
+      if (!asset) {
+        throw new Error(`未在 release ${release.tag_name} 中找到 mihomo-windows-amd64-v*.zip 资产`)
+      }
+
+      console.log(`下载 ${asset.name} (${(asset.size / 1048576).toFixed(1)} MB) ...`)
+      const dl = await fetch(asset.browser_download_url, {
+        headers: { 'User-Agent': apiHeaders['User-Agent'] },
+        signal: AbortSignal.timeout(300000) // 5 分钟超时
+      })
+
+      if (!dl.ok) throw new Error(`资产下载失败: HTTP ${dl.status}`)
+
+      const zipPath = path.join(os.tmpdir(), `mihomo-${process.pid}-${Date.now()}.zip`)
+      await writeFile(zipPath, Buffer.from(await dl.arrayBuffer()))
+
+      try {
+        const zip = new AdmZip(zipPath)
+        const entry = zip
+          .getEntries()
+          .find((e) => !e.isDirectory && e.entryName.toLowerCase().endsWith('.exe'))
+        if (!entry) throw new Error(`${asset.name} 中未找到 .exe 文件`)
+
+        await mkdir(path.dirname(outFile), { recursive: true })
+        await writeFile(outFile, entry.getData())
+        console.log(`完成: ${path.relative(root, outFile)} (内核 ${release.tag_name})`)
+        return // 成功，退出
+      } finally {
+        await rm(zipPath, { force: true })
+      }
+    } catch (err) {
+      lastError = err
+      console.error(`尝试 ${attempt} 失败: ${err.message}`)
+
+      if (attempt < 3) {
+        const waitTime = attempt * 2000 // 2秒, 4秒
+        console.log(`等待 ${waitTime/1000} 秒后重试...`)
+        await new Promise(resolve => setTimeout(resolve, waitTime))
+      }
+    }
   }
-  const release = await res.json()
-  const assets = release.assets ?? []
-  const asset =
-    assets.find((a) => ASSET_STRICT.test(a.name)) ??
-    assets.find(
-      (a) => ASSET_LOOSE.test(a.name) && !/-go\d+/.test(a.name) && !a.name.includes('compatible'),
-    )
-  if (!asset) {
-    throw new Error(`未在 release ${release.tag_name} 中找到 mihomo-windows-amd64-v*.zip 资产`)
-  }
 
-  console.log(`下载 ${asset.name} (${(asset.size / 1048576).toFixed(1)} MB) ...`)
-  const dl = await fetch(asset.browser_download_url, {
-    headers: { 'User-Agent': apiHeaders['User-Agent'] },
-  })
-  if (!dl.ok) throw new Error(`资产下载失败: HTTP ${dl.status}`)
-
-  const zipPath = path.join(os.tmpdir(), `mihomo-${process.pid}-${Date.now()}.zip`)
-  await writeFile(zipPath, Buffer.from(await dl.arrayBuffer()))
-
-  try {
-    const zip = new AdmZip(zipPath)
-    const entry = zip
-      .getEntries()
-      .find((e) => !e.isDirectory && e.entryName.toLowerCase().endsWith('.exe'))
-    if (!entry) throw new Error(`${asset.name} 中未找到 .exe 文件`)
-
-    await mkdir(path.dirname(outFile), { recursive: true })
-    await writeFile(outFile, entry.getData())
-    console.log(`完成: ${path.relative(root, outFile)} (内核 ${release.tag_name})`)
-  } finally {
-    await rm(zipPath, { force: true })
-  }
+  // 所有尝试都失败
+  throw lastError || new Error('未知错误')
 }
 
 main().catch((err) => {
