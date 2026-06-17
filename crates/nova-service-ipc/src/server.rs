@@ -9,7 +9,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use std::io::{BufRead, BufReader, BufWriter, Write};
 
 #[cfg(windows)]
-use windows::Win32::Storage::FileSystem::{PIPE_ACCESS_DUPLEX};
+use windows::Win32::Storage::FileSystem::{FlushFileBuffers, PIPE_ACCESS_DUPLEX};
 #[cfg(windows)]
 use windows::Win32::System::Pipes::{
     CreateNamedPipeW, ConnectNamedPipe, DisconnectNamedPipe, PIPE_READMODE_BYTE,
@@ -381,6 +381,14 @@ impl IpcServer {
 
                 if let Err(e) = Self::handle_client(h_pipe, core_manager) {
                     log::error!("处理客户端请求失败: {}", e);
+                }
+
+                // Windows 会在 DisconnectNamedPipe 时丢弃客户端尚未读取的数据。
+                // 这里先刷新服务端缓冲区，确保响应在断开前被客户端读走。
+                unsafe {
+                    if let Err(err) = FlushFileBuffers(h_pipe) {
+                        log::debug!("刷新命名管道缓冲区失败: {:?}", err);
+                    }
                 }
 
                 // 断开连接并关闭句柄
