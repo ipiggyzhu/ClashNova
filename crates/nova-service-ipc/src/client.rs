@@ -1,5 +1,6 @@
 use crate::types::*;
 use anyhow::{Context, Result};
+use serde::de::DeserializeOwned;
 
 #[cfg(windows)]
 use std::fs::File;
@@ -14,6 +15,40 @@ pub struct IpcClient {
 }
 
 impl IpcClient {
+    fn parse_response<T: DeserializeOwned>(&self, response_data: &[u8], action: &str) -> Result<ServiceResponse<T>> {
+        match serde_json::from_slice(response_data) {
+            Ok(response) => Ok(response),
+            Err(primary_err) => {
+                let fallback: ServiceResponse<serde_json::Value> = serde_json::from_slice(response_data)
+                    .with_context(|| format!("解析{action}响应失败"))?;
+
+                if fallback.code != 0 {
+                    anyhow::bail!("{}", fallback.message);
+                }
+
+                let data = match fallback.data {
+                    Some(value) if value.is_null() || value == serde_json::json!({}) => None,
+                    Some(value) => Some(
+                        serde_json::from_value(value)
+                            .with_context(|| format!("解析{action}响应数据失败"))?,
+                    ),
+                    None => None,
+                };
+
+                if data.is_none() {
+                    // 保留原始错误上下文，便于发现真正的不兼容响应
+                    log::debug!("按旧协议兼容解析 {action} 响应: {primary_err}");
+                }
+
+                Ok(ServiceResponse {
+                    code: fallback.code,
+                    message: fallback.message,
+                    data,
+                })
+            }
+        }
+    }
+
     pub fn new(config: IpcConfig) -> Self {
         Self { _config: config }
     }
@@ -104,8 +139,7 @@ impl IpcClient {
         };
 
         let response_data = self.send_request(&request)?;
-        let response: ServiceResponse<()> = serde_json::from_slice(&response_data)
-            .context("解析响应失败")?;
+        let response: ServiceResponse<()> = self.parse_response(&response_data, "连接")?;
 
         if response.code != 0 {
             anyhow::bail!("连接失败: {}", response.message);
@@ -125,8 +159,7 @@ impl IpcClient {
         };
 
         let response_data = self.send_request(&request)?;
-        let response: ServiceResponse<()> = serde_json::from_slice(&response_data)
-            .context("解析启动响应失败")?;
+        let response: ServiceResponse<()> = self.parse_response(&response_data, "启动")?;
 
         Ok(response)
     }
@@ -139,8 +172,7 @@ impl IpcClient {
         };
 
         let response_data = self.send_request(&request)?;
-        let response: ServiceResponse<()> = serde_json::from_slice(&response_data)
-            .context("解析停止响应失败")?;
+        let response: ServiceResponse<()> = self.parse_response(&response_data, "停止")?;
 
         Ok(response)
     }
@@ -153,8 +185,7 @@ impl IpcClient {
         };
 
         let response_data = self.send_request(&request)?;
-        let response: ServiceResponse<CoreStatus> = serde_json::from_slice(&response_data)
-            .context("解析状态响应失败")?;
+        let response: ServiceResponse<CoreStatus> = self.parse_response(&response_data, "状态")?;
 
         Ok(response)
     }
@@ -167,8 +198,7 @@ impl IpcClient {
         };
 
         let response_data = self.send_request(&request)?;
-        let response: ServiceResponse<Vec<String>> = serde_json::from_slice(&response_data)
-            .context("解析日志响应失败")?;
+        let response: ServiceResponse<Vec<String>> = self.parse_response(&response_data, "日志")?;
 
         Ok(response)
     }
@@ -181,8 +211,7 @@ impl IpcClient {
         };
 
         let response_data = self.send_request(&request)?;
-        let response: ServiceResponse<ServiceVersion> = serde_json::from_slice(&response_data)
-            .context("解析版本响应失败")?;
+        let response: ServiceResponse<ServiceVersion> = self.parse_response(&response_data, "版本")?;
 
         Ok(response)
     }

@@ -451,7 +451,7 @@ impl IpcServer {
     #[cfg(windows)]
     fn handle_request_static(request: ServiceRequest, core_manager: Arc<Mutex<CoreManager>>) -> ServiceResponse<serde_json::Value> {
         match request.command.as_str() {
-            "ping" => ServiceResponse::success(serde_json::json!({})),
+            "ping" => ServiceResponse::ok(),
 
             "start" => {
                 let config: CoreConfig = match request.data {
@@ -464,7 +464,7 @@ impl IpcServer {
 
                 let mut manager = core_manager.lock().unwrap();
                 match manager.start(config) {
-                    Ok(_) => ServiceResponse::success(serde_json::json!({})),
+                    Ok(_) => ServiceResponse::ok(),
                     Err(e) => ServiceResponse::error(2, format!("启动内核失败: {}", e)),
                 }
             }
@@ -472,7 +472,7 @@ impl IpcServer {
             "stop" => {
                 let mut manager = core_manager.lock().unwrap();
                 match manager.stop() {
-                    Ok(_) => ServiceResponse::success(serde_json::json!({})),
+                    Ok(_) => ServiceResponse::ok(),
                     Err(e) => ServiceResponse::error(3, format!("停止内核失败: {}", e)),
                 }
             }

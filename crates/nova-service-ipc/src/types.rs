@@ -71,6 +71,14 @@ impl<T> ServiceResponse<T> {
         }
     }
 
+    pub fn ok() -> Self {
+        Self {
+            code: 0,
+            message: String::new(),
+            data: None,
+        }
+    }
+
     pub fn error(code: i32, message: String) -> Self {
         Self {
             code,

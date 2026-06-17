@@ -333,6 +333,7 @@ pub fn run_dispatcher() {}
 
 #[cfg(windows)]
 mod service_impl {
+    use env_logger::Target;
     use std::ffi::OsString;
     use std::io::Write;
     use std::sync::mpsc;
@@ -360,14 +361,34 @@ mod service_impl {
             .map(std::path::PathBuf::from)
     }
 
+    fn init_service_logger(config_dir: Option<&std::path::Path>) {
+        let mut builder = env_logger::Builder::from_env(
+            env_logger::Env::default().default_filter_or("info")
+        );
+
+        if let Some(config_dir) = config_dir {
+            let log_dir = config_dir.join("logs");
+            let _ = std::fs::create_dir_all(&log_dir);
+            let log_path = log_dir.join("clashnova-service.log");
+            if let Ok(file) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(log_path)
+            {
+                builder.target(Target::Pipe(Box::new(file)));
+            }
+        }
+
+        let _ = builder.try_init();
+    }
+
     fn service_main(_args: Vec<OsString>) {
         let _ = run();
     }
 
     fn run() -> windows_service::Result<()> {
-        // 初始化日志
-        env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
-            .init();
+        let config_dir = config_dir_from_args();
+        init_service_logger(config_dir.as_deref());
 
         log::info!("ClashNova 服务模式启动");
 
