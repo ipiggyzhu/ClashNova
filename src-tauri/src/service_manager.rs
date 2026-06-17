@@ -76,26 +76,20 @@ impl ServiceManager {
         *s = status;
     }
 
-    /// 检查 IPC 是否可用
-    async fn is_ipc_available(&self) -> bool {
-        nova_service_ipc::is_ipc_available()
-    }
-
     /// 等待 IPC 就绪（带重试）
     async fn wait_for_ipc(&self, max_retries: usize, retry_delay: std::time::Duration) -> Result<(), String> {
         for i in 0..max_retries {
-            if self.is_ipc_available().await {
-                match nova_service_ipc::connect() {
-                    Ok(_) => {
-                        log::info!("IPC 连接成功");
-                        return Ok(());
-                    }
-                    Err(e) => {
-                        log::warn!("IPC 连接失败 ({}/{}): {}", i + 1, max_retries, e);
-                    }
+            match tokio::task::spawn_blocking(nova_service_ipc::connect).await {
+                Ok(Ok(())) => {
+                    log::info!("IPC 连接成功");
+                    return Ok(());
                 }
-            } else {
-                log::warn!("IPC 管道不存在 ({}/{})", i + 1, max_retries);
+                Ok(Err(e)) => {
+                    log::warn!("IPC 连接失败 ({}/{}): {}", i + 1, max_retries, e);
+                }
+                Err(e) => {
+                    log::warn!("IPC 连接任务失败 ({}/{}): {}", i + 1, max_retries, e);
+                }
             }
 
             if i < max_retries - 1 {
@@ -116,21 +110,21 @@ impl ServiceManager {
 
         if service_status != "installed" {
             self.set_status(ServiceStatus::InstallRequired).await;
-            return Err("服务未安装".into());
+            return Ok(());
         }
 
         // 检查服务是否正在运行
         if !crate::service::is_running() {
             log::warn!("服务已安装但未运行");
             self.set_status(ServiceStatus::Unavailable("服务未运行".into())).await;
-            return Err("服务未运行".into());
+            return Ok(());
         }
 
         // 检查 IPC 连接
         if let Err(e) = nova_service_ipc::connect() {
             log::warn!("IPC 连接失败: {}", e);
             self.set_status(ServiceStatus::Unavailable(format!("IPC 连接失败: {}", e))).await;
-            return Err(format!("IPC 连接失败: {}", e));
+            return Ok(());
         }
 
         // 检查版本

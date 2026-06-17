@@ -9,20 +9,26 @@
 .pg-routemap .globe-label span{display:block;transform:translateY(-17px);
   font-size:12px;font-weight:600;color:#fff;white-space:nowrap;
   text-shadow:0 1px 4px rgba(4,18,46,.65),0 0 2px rgba(4,18,46,.5)}
-.pg-routemap .globe-plane{pointer-events:none;font-size:16px;
-  transform:translateY(-10px);filter:drop-shadow(0 1px 3px rgba(4,18,46,.5));
-  transition:opacity .25s}
+.pg-routemap .globe-label--origin span{font-weight:700;color:#ffe1a2}
 .pg-routemap .flat-svg{position:absolute;inset:0;width:100%;height:100%}
 .pg-routemap .flat-svg .land{fill:rgba(120,160,255,.13);stroke:rgba(120,160,255,.22);stroke-width:.5}
 [data-theme="light"] .pg-routemap .flat-svg .land{fill:rgba(36,104,196,.16);stroke:rgba(36,104,196,.30)}
 [data-theme="light"] .pg-routemap .map-body{background:
   radial-gradient(ellipse at 50% 42%, rgba(143,192,255,.30), transparent 62%)}
-.pg-routemap .flat-svg text{font-size:11px;font-weight:600;fill:var(--text)}
-.pg-routemap .flat-svg text.sub{font-size:9.5px;font-weight:400;fill:var(--text-3)}
+.pg-routemap .flat-svg .route-path{fill:none;stroke:none}
+.pg-routemap .flat-svg .route-line{fill:none;stroke-linecap:round;stroke-linejoin:round}
+.pg-routemap .flat-svg .route-line--glow{filter:blur(1.4px)}
+.pg-routemap .flat-svg .route-plane{pointer-events:none;filter:drop-shadow(0 1px 4px rgba(4,18,46,.48))}
+.pg-routemap .flat-svg .route-node{stroke:#fff;stroke-width:1.2}
+.pg-routemap .flat-svg .route-node--origin{fill:#FF9F0A}
+.pg-routemap .flat-svg .route-node--target{fill:#64D2FF}
+.pg-routemap .flat-svg .route-label{font-size:11px;font-weight:600;fill:var(--text)}
+.pg-routemap .flat-svg .route-label.sub{font-size:9.5px;font-weight:400;fill:var(--text-3)}
+.pg-routemap .flat-svg .route-label--origin{fill:var(--text);font-weight:700}
 .pg-routemap .map-legend{flex:none;display:flex;align-items:center;gap:18px;flex-wrap:wrap;
   padding:11px 18px;border-top:1px solid var(--line);font-size:11px;color:var(--text-2)}
 .pg-routemap .map-legend .lg{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
-.pg-routemap .map-legend .lg i{width:8px;height:8px;border-radius:50%;flex:none;background:var(--cyan)}
+.pg-routemap .map-legend .lg i{width:8px;height:8px;border-radius:50%;flex:none;background:var(--route-color, var(--cyan))}
 .pg-routemap .map-legend .lg b{font-variant-numeric:tabular-nums}
 .pg-routemap .map-legend .lg-hint{margin-left:auto;color:var(--text-3);font-size:10.5px}
 .pg-routemap .empty{position:absolute;inset:0;display:flex;align-items:center;

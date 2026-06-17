@@ -5,6 +5,7 @@ import { useAppStore } from '../../stores/app'
 import { startLiveStreams, useLiveStore } from '../../stores/live'
 import Icon from '../ui/Icon'
 import type { IconName } from '../ui/Icon'
+import logoUrl from '/logo.png'
 
 interface NavEntry {
   key: IconName
@@ -79,9 +80,7 @@ export default function Sidebar() {
   return (
     <aside className="sidebar">
       <div className="brand">
-        <div className="brand-logo">
-          <Icon name="logo" />
-        </div>
+        <img className="brand-logo" src={logoUrl} alt="ClashNova" />
         <div>
           <div className="brand-name">ClashNova</div>
           <div className="brand-ver">v{__APP_VERSION__}</div>

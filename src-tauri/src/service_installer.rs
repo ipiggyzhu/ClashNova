@@ -156,6 +156,7 @@ async fn elevate_and_install(
         runas::Command::new(&installer_str)
             .arg("--dir")
             .arg(&config_dir_str)
+            .show(false)
             .status()
     })
     .await
@@ -179,6 +180,7 @@ async fn elevate_and_uninstall(uninstaller_path: &std::path::Path) -> Result<(),
 
     let status = tokio::task::spawn_blocking(move || {
         runas::Command::new(&uninstaller_str)
+            .show(false)
             .status()
     })
     .await

@@ -186,6 +186,10 @@ pub async fn apply_tun(app: &AppHandle, enable: bool) -> Result<(), String> {
         return Err(err);
     }
 
+    if service::is_running() {
+        let _ = crate::service_manager::get_service_manager().refresh().await;
+    }
+
     Ok(())
 }
 
@@ -601,6 +605,7 @@ async fn elevate_install_service(config_dir: &std::path::Path) -> Result<(), Str
         .arg("--install-service")
         .arg("--dir")
         .arg(&config_dir_str)
+        .show(false)
         .status()
         .map_err(|e| format!("执行 runas 失败: {e}"))?;
 
@@ -619,6 +624,7 @@ async fn elevate_uninstall_service() -> Result<(), String> {
 
     let status = runas::Command::new(&exe_str)
         .arg("--uninstall-service")
+        .show(false)
         .status()
         .map_err(|e| format!("执行 runas 失败: {e}"))?;
 

@@ -149,30 +149,22 @@ fn wait_running(timeout_ms: u64) -> Result<(), String> {
 
 #[cfg(windows)]
 fn start_elevated() -> Result<(), String> {
-    let script = format!(
-        "try {{ \
-             $p = Start-Process -FilePath sc.exe -ArgumentList @('start','{}') -Verb RunAs -WindowStyle Hidden -Wait -PassThru -ErrorAction Stop; \
-             exit $p.ExitCode \
-         }} catch {{ \
-             Write-Error $_; \
-             exit 1 \
-         }}",
-        SERVICE_NAME
-    );
-    let output = std::process::Command::new("powershell.exe")
-        .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", &script])
-        .output()
+    let exe = std::env::current_exe().map_err(|e| format!("定位自身失败: {e}"))?;
+    let exe_str = exe.to_string_lossy().to_string();
+    let status = runas::Command::new(&exe_str)
+        .arg("--start-service")
+        .show(false)
+        .status()
         .map_err(|e| format!("提权启动服务失败: {e}"))?;
 
-    if !output.status.success() {
+    if !status.success() {
         if is_running() {
             return Ok(());
         }
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        if stderr.is_empty() {
-            return Err("提权启动服务失败或用户取消了 UAC 授权".into());
-        }
-        return Err(format!("提权启动服务失败: {stderr}"));
+        return Err(format!(
+            "提权启动服务失败或用户取消了 UAC 授权，退出码: {:?}",
+            status.code()
+        ));
     }
 
     wait_running(15_000)
@@ -419,8 +411,13 @@ mod service_impl {
 
         log::info!("收到停止信号，关闭服务");
 
-        // IPC 服务器会在管道关闭时自动停止
-        // 这里给它一点时间来清理
+        match nova_service_ipc::stop_core() {
+            Ok(resp) if resp.code == 0 => log::info!("已停止服务托管内核"),
+            Ok(resp) => log::warn!("停止服务托管内核失败: {}", resp.message),
+            Err(err) => log::warn!("停止服务托管内核 IPC 调用失败: {err}"),
+        }
+
+        // 给 IPC 线程一点时间完成收尾
         std::thread::sleep(Duration::from_millis(500));
 
         set_state(ServiceState::Stopped, ServiceControlAccept::empty())?;

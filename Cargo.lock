@@ -871,6 +871,7 @@ dependencies = [
  "tauri-plugin-single-instance",
  "thiserror 2.0.18",
  "tokio",
+ "windows 0.58.0",
  "windows-service",
  "winres",
 ]

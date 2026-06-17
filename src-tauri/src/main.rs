@@ -21,15 +21,27 @@ use tauri_plugin_log::{Target, TargetKind};
 use crate::state::AppState;
 
 fn main() {
+    let args: Vec<String> = std::env::args().collect();
+
     // 服务进程路径: 通过 Windows Service Control Manager 调度
-    if std::env::args().any(|a| a == "--service") {
+    if args.iter().any(|a| a == "--service") {
         // Windows 服务必须通过 SCM dispatcher 启动
         service::run_dispatcher();
         return;
     }
 
-    // 提权安装/卸载服务（由 PowerShell RunAs 调用）
-    let args: Vec<String> = std::env::args().collect();
+    // 提权启动已安装服务（由 runas/UAC 调用）
+    if args.iter().any(|a| a == "--start-service") {
+        match service::start() {
+            Ok(_) => std::process::exit(0),
+            Err(e) => {
+                eprintln!("服务启动失败: {e}");
+                std::process::exit(1);
+            }
+        }
+    }
+
+    // 提权安装/卸载服务（由 runas/UAC 调用）
     if args.iter().any(|a| a == "--install-service") {
         let dir = args.iter()
             .position(|a| a == "--dir")
@@ -152,6 +164,13 @@ fn main() {
             // 启动内核
             if let Err(e) = core::start(&handle) {
                 log::error!("启动内核失败: {e}");
+            } else {
+                tauri::async_runtime::spawn(async move {
+                    let service_manager = service_manager::get_service_manager();
+                    if let Err(e) = service_manager.refresh().await {
+                        log::debug!("启动后刷新服务状态失败: {}", e);
+                    }
+                });
             }
 
             // 恢复系统代理与守卫、注册全局热键

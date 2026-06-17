@@ -2,7 +2,7 @@
 
 use std::collections::VecDeque;
 use std::io::Write;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::Deserialize;
 use tauri::{AppHandle, Manager};
@@ -50,16 +50,52 @@ pub(crate) async fn is_running(app: &AppHandle) -> bool {
     if is_sidecar_running(app) {
         true
     } else {
-        tauri::async_runtime::spawn_blocking(crate::service::is_running)
+        tauri::async_runtime::spawn_blocking(is_service_core_running)
             .await
             .unwrap_or(false)
     }
 }
 
+fn service_core_status() -> Option<nova_service_ipc::CoreStatus> {
+    if !crate::service::is_running() {
+        return None;
+    }
+
+    match nova_service_ipc::get_status() {
+        Ok(resp) if resp.code == 0 => resp.data,
+        Ok(resp) => {
+            log::warn!("获取服务托管内核状态失败: {}", resp.message);
+            None
+        }
+        Err(err) => {
+            log::warn!("IPC 查询服务托管内核状态失败: {err}");
+            None
+        }
+    }
+}
+
+fn is_service_core_running() -> bool {
+    service_core_status()
+        .map(|status| status.running)
+        .unwrap_or(false)
+}
+
+fn service_core_uptime_sec(start_time: Option<i64>) -> u64 {
+    let Some(start_time) = start_time.and_then(|value| u64::try_from(value).ok()) else {
+        return 0;
+    };
+
+    let Ok(now) = SystemTime::now().duration_since(UNIX_EPOCH) else {
+        return 0;
+    };
+
+    now.as_secs().saturating_sub(start_time)
+}
+
 /// 读取当前内核状态(锁内只读内存状态; 服务状态查询移到阻塞线程池)。
 pub async fn status(app: &AppHandle) -> CoreStatus {
     let state = app.state::<AppState>();
-    let (sidecar_running, version, uptime_sec) = {
+    let (sidecar_running, version, sidecar_uptime_sec) = {
         let guard = state.core.lock().expect("core 锁中毒");
         (
             guard.child.is_some(),
@@ -70,11 +106,25 @@ pub async fn status(app: &AppHandle) -> CoreStatus {
                 .unwrap_or(0),
         )
     };
-    let service_running = !sidecar_running && is_running(app).await;
+    let service_status = if sidecar_running {
+        None
+    } else {
+        tauri::async_runtime::spawn_blocking(service_core_status)
+            .await
+            .unwrap_or(None)
+    };
+    let service_running = service_status
+        .as_ref()
+        .map(|status| status.running)
+        .unwrap_or(false);
     CoreStatus {
         running: sidecar_running || service_running,
         version,
-        uptime_sec,
+        uptime_sec: if sidecar_running {
+            sidecar_uptime_sec
+        } else {
+            service_core_uptime_sec(service_status.and_then(|status| status.start_time))
+        },
         // M1: 内存占用经 WS /memory 提供(M2 接入), 此处先返回 0
         memory_bytes: 0,
     }
@@ -114,6 +164,8 @@ pub fn start(app: &AppHandle) -> Result<(), String> {
             crate::service::SERVICE_NAME
         );
 
+        wait_for_service_ipc_ready(Duration::from_secs(10), Duration::from_millis(250))?;
+
         // 通过 IPC 启动 mihomo
         start_core_via_service(app)?;
 
@@ -123,6 +175,8 @@ pub fn start(app: &AppHandle) -> Result<(), String> {
     // 服务模式托管内核 → 不再拉起 sidecar, 仅经外部控制器对接
     if crate::service::is_running() {
         log::info!("内核由服务 {} 托管, 通过 IPC 启动", crate::service::SERVICE_NAME);
+
+        wait_for_service_ipc_ready(Duration::from_secs(10), Duration::from_millis(250))?;
 
         // 通过 IPC 启动 mihomo
         start_core_via_service(app)?;
@@ -137,6 +191,8 @@ pub fn start(app: &AppHandle) -> Result<(), String> {
                     "内核由服务 {} 托管，通过 IPC 启动",
                     crate::service::SERVICE_NAME
                 );
+
+                wait_for_service_ipc_ready(Duration::from_secs(10), Duration::from_millis(250))?;
 
                 // 通过 IPC 启动 mihomo
                 if let Err(e) = start_core_via_service(app) {
@@ -182,6 +238,8 @@ pub(crate) fn stop_sidecar(app: &AppHandle) -> Result<(), String> {
 
 #[cfg(windows)]
 pub(crate) fn stop_orphan_sidecars(app: &AppHandle) {
+    use std::os::windows::process::CommandExt;
+
     let state = app.state::<AppState>();
     let config_dir = state
         .dirs
@@ -200,10 +258,10 @@ pub(crate) fn stop_orphan_sidecars(app: &AppHandle) {
          Where-Object {{ $cmd = $_.CommandLine; $cmd -and ($cmd.Contains($dir) -or $cmd.Contains($runtime)) }} | \
          ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force -ErrorAction Stop; Write-Output $_.ProcessId }}"
     );
-    match std::process::Command::new("powershell.exe")
-        .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", &script])
-        .output()
-    {
+    let mut cmd = std::process::Command::new("powershell.exe");
+    cmd.args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", &script]);
+    cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    match cmd.output() {
         Ok(output) if output.status.success() => {
             let killed = String::from_utf8_lossy(&output.stdout);
             if !killed.trim().is_empty() {
@@ -225,7 +283,7 @@ pub(crate) fn stop_orphan_sidecars(_app: &AppHandle) {}
 pub fn stop(app: &AppHandle) -> Result<(), String> {
     stop_sidecar(app)?;
     if crate::service::is_running() {
-        crate::service::stop()?;
+        stop_core_via_service()?;
     }
     Ok(())
 }
@@ -350,7 +408,7 @@ fn refresh_version_async(app: AppHandle) {
                 state.core.lock().map(|g| g.child.is_some()).unwrap_or(false)
             };
             if !running {
-                running = tauri::async_runtime::spawn_blocking(crate::service::is_running)
+                running = tauri::async_runtime::spawn_blocking(is_service_core_running)
                     .await
                     .unwrap_or(false);
             }
@@ -410,7 +468,7 @@ pub async fn reload_runtime_with_auth(
         )
     };
     let running = sidecar_running
-        || tauri::async_runtime::spawn_blocking(crate::service::is_running)
+        || tauri::async_runtime::spawn_blocking(is_service_core_running)
             .await
             .unwrap_or(false);
     if !running {
@@ -548,4 +606,40 @@ fn start_core_via_service(app: &AppHandle) -> Result<(), String> {
         }
         Err(e) => Err(format!("IPC 调用失败: {}", e)),
     }
+}
+
+fn stop_core_via_service() -> Result<(), String> {
+    log::info!("通过 IPC 停止服务托管内核");
+
+    match nova_service_ipc::stop_core() {
+        Ok(resp) => {
+            if resp.code == 0 {
+                log::info!("服务托管内核已停止");
+                Ok(())
+            } else {
+                Err(format!("停止内核失败: {}", resp.message))
+            }
+        }
+        Err(e) => Err(format!("IPC 调用失败: {}", e)),
+    }
+}
+
+fn wait_for_service_ipc_ready(timeout: Duration, retry_delay: Duration) -> Result<(), String> {
+    let deadline = Instant::now() + timeout;
+    let mut last_error = None;
+
+    while Instant::now() < deadline {
+        match nova_service_ipc::connect() {
+            Ok(_) => return Ok(()),
+            Err(e) => {
+                last_error = Some(e.to_string());
+                std::thread::sleep(retry_delay);
+            }
+        }
+    }
+
+    Err(format!(
+        "等待服务 IPC 就绪超时: {}",
+        last_error.unwrap_or_else(|| "未知错误".into())
+    ))
 }

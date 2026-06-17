@@ -4,3 +4,4 @@ target/
 *.log
 tsconfig.tsbuildinfo
 shots/
+.ace-tool/
