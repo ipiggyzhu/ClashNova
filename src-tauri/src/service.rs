@@ -381,8 +381,7 @@ pub fn run_dispatcher() {}
 #[cfg(windows)]
 mod service_impl {
     use env_logger::Target;
-    use std::ffi::OsString;
-    use std::io::Write;
+    use std::ffi::{OsStr, OsString};
     use std::sync::mpsc;
     use std::time::Duration;
 
@@ -483,7 +482,7 @@ mod service_impl {
         log::info!("服务已进入 Running 状态，启动 IPC 服务器");
 
         // 启动 IPC 服务器（在新线程中）
-        let ipc_handle = std::thread::spawn(|| {
+        let _ipc_handle = std::thread::spawn(|| {
             if let Err(e) = nova_service_ipc::start_server() {
                 log::error!("IPC 服务器启动失败: {}", e);
             }

@@ -162,8 +162,17 @@ fn main() {
             }
 
             // 启动内核
+            let startup_handle = handle.clone();
             if let Err(e) = core::start(&handle) {
                 log::error!("启动内核失败: {e}");
+                if service::is_running() && commands::is_service_ipc_failure(&e) {
+                    tauri::async_runtime::spawn(async move {
+                        log::warn!("启动阶段检测到服务 IPC 故障，尝试自动修复: {}", e);
+                        if let Err(repair_err) = commands::repair_service(startup_handle.clone()).await {
+                            log::error!("启动阶段自动修复服务失败: {}", repair_err);
+                        }
+                    });
+                }
             } else {
                 tauri::async_runtime::spawn(async move {
                     let service_manager = service_manager::get_service_manager();

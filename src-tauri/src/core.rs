@@ -133,7 +133,7 @@ pub async fn status(app: &AppHandle) -> CoreStatus {
         .unwrap_or(false);
     let version = if sidecar_running {
         version
-    } else if let Some(version) = version.filter(|v| v != "—") {
+    } else if version != "—" {
         version
     } else if service_running {
         service_core_version().unwrap_or_else(|| "—".into())

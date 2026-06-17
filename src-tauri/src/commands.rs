@@ -88,7 +88,7 @@ async fn rollback_tun_change(
     let _ = core::reload_runtime(app).await;
 }
 
-fn is_service_ipc_failure(err: &str) -> bool {
+pub(crate) fn is_service_ipc_failure(err: &str) -> bool {
     err.contains("IPC 调用失败")
         || err.contains("等待服务 IPC 就绪超时")
         || err.contains("解析响应失败")
