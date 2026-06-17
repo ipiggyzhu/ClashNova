@@ -86,6 +86,13 @@ impl ServiceManager {
                 }
                 Ok(Err(e)) => {
                     log::warn!("IPC 连接失败 ({}/{}): {}", i + 1, max_retries, e);
+                    if e.to_string().contains("解析响应失败")
+                        || e.to_string().contains("服务返回空响应")
+                        || e.to_string().contains("响应为空")
+                        || e.to_string().contains("等待服务 IPC 就绪超时")
+                    {
+                        return Err(format!("IPC 协议不匹配或服务未就绪: {}", e));
+                    }
                 }
                 Err(e) => {
                     log::warn!("IPC 连接任务失败 ({}/{}): {}", i + 1, max_retries, e);
@@ -123,7 +130,7 @@ impl ServiceManager {
         // 检查 IPC 连接
         if let Err(e) = nova_service_ipc::connect() {
             log::warn!("IPC 连接失败: {}", e);
-            self.set_status(ServiceStatus::Unavailable(format!("IPC 连接失败: {}", e))).await;
+            self.set_status(ServiceStatus::NeedsReinstall).await;
             return Ok(());
         }
 
@@ -215,12 +222,13 @@ impl ServiceManager {
 
             // 检查 IPC 连接
             if let Err(e) = nova_service_ipc::connect() {
-                self_ref.set_status(ServiceStatus::Unavailable(format!("IPC 连接失败: {}", e))).await;
+                self_ref.set_status(ServiceStatus::NeedsReinstall).await;
                 return Err(format!("IPC 连接失败: {}", e));
             }
 
             // 检查版本
             if nova_service_ipc::is_reinstall_needed() {
+                log::warn!("刷新时检测到服务版本不匹配，需要重装");
                 self_ref.set_status(ServiceStatus::NeedsReinstall).await;
             } else {
                 self_ref.set_status(ServiceStatus::Ready).await;
@@ -303,6 +311,11 @@ impl ServiceManager {
 
                 // 等待 IPC 就绪
                 self.wait_for_ipc(20, std::time::Duration::from_millis(250)).await?;
+
+                if nova_service_ipc::is_reinstall_needed() {
+                    self.set_status(ServiceStatus::NeedsReinstall).await;
+                    return Err("服务重装后版本仍不匹配".into());
+                }
 
                 self.set_status(ServiceStatus::Ready).await;
                 Ok(())

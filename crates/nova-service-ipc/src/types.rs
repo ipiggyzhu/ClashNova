@@ -104,4 +104,7 @@ pub struct CoreStatus {
 pub struct ServiceVersion {
     /// 服务版本
     pub version: String,
+    /// 构建签名（默认取编译时 commit 或时间戳）
+    #[serde(default)]
+    pub build_id: String,
 }

@@ -15,38 +15,41 @@ pub struct IpcClient {
 }
 
 impl IpcClient {
+    fn current_build_id() -> &'static str {
+        option_env!("CLASHNOVA_BUILD_ID").unwrap_or(env!("CARGO_PKG_VERSION"))
+    }
+
     fn parse_response<T: DeserializeOwned>(&self, response_data: &[u8], action: &str) -> Result<ServiceResponse<T>> {
-        match serde_json::from_slice(response_data) {
-            Ok(response) => Ok(response),
-            Err(primary_err) => {
-                let fallback: ServiceResponse<serde_json::Value> = serde_json::from_slice(response_data)
-                    .with_context(|| format!("解析{action}响应失败"))?;
-
-                if fallback.code != 0 {
-                    anyhow::bail!("{}", fallback.message);
-                }
-
-                let data = match fallback.data {
-                    Some(value) if value.is_null() || value == serde_json::json!({}) => None,
-                    Some(value) => Some(
-                        serde_json::from_value(value)
-                            .with_context(|| format!("解析{action}响应数据失败"))?,
-                    ),
-                    None => None,
-                };
-
-                if data.is_none() {
-                    // 保留原始错误上下文，便于发现真正的不兼容响应
-                    log::debug!("按旧协议兼容解析 {action} 响应: {primary_err}");
-                }
-
-                Ok(ServiceResponse {
-                    code: fallback.code,
-                    message: fallback.message,
-                    data,
-                })
-            }
+        let raw = String::from_utf8_lossy(response_data);
+        if raw.trim().is_empty() {
+            anyhow::bail!("{action}响应为空");
         }
+
+        if let Ok(response) = serde_json::from_slice::<ServiceResponse<T>>(response_data) {
+            return Ok(response);
+        }
+
+        let fallback: ServiceResponse<serde_json::Value> = serde_json::from_slice(response_data)
+            .with_context(|| format!("解析{action}响应失败: {raw}"))?;
+
+        if fallback.code != 0 {
+            anyhow::bail!("{}", fallback.message);
+        }
+
+        let data = match fallback.data {
+            Some(value) if value.is_null() || value == serde_json::json!({}) => None,
+            Some(value) => Some(
+                serde_json::from_value(value)
+                    .with_context(|| format!("解析{action}响应数据失败"))?,
+            ),
+            None => None,
+        };
+
+        Ok(ServiceResponse {
+            code: fallback.code,
+            message: fallback.message,
+            data,
+        })
     }
 
     pub fn new(config: IpcConfig) -> Self {
@@ -139,7 +142,7 @@ impl IpcClient {
         };
 
         let response_data = self.send_request(&request)?;
-        let response: ServiceResponse<()> = self.parse_response(&response_data, "连接")?;
+        let response: ServiceResponse<serde_json::Value> = self.parse_response(&response_data, "连接")?;
 
         if response.code != 0 {
             anyhow::bail!("连接失败: {}", response.message);
@@ -268,9 +271,11 @@ pub fn is_reinstall_needed() -> bool {
     match get_version() {
         Ok(response) if response.code == 0 => {
             if let Some(version_info) = response.data {
-                // 比对版本号
                 let current_version = env!("CARGO_PKG_VERSION");
+                let current_build_id = IpcClient::current_build_id();
                 version_info.version != current_version
+                    || version_info.build_id.is_empty()
+                    || version_info.build_id != current_build_id
             } else {
                 true
             }

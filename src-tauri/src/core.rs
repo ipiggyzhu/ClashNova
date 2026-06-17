@@ -92,6 +92,20 @@ fn service_core_uptime_sec(start_time: Option<i64>) -> u64 {
     now.as_secs().saturating_sub(start_time)
 }
 
+fn service_core_version() -> Option<String> {
+    match nova_service_ipc::get_version() {
+        Ok(resp) if resp.code == 0 => resp.data.map(|version| version.version),
+        Ok(resp) => {
+            log::warn!("获取服务版本失败: {}", resp.message);
+            None
+        }
+        Err(err) => {
+            log::warn!("IPC 查询服务版本失败: {err}");
+            None
+        }
+    }
+}
+
 /// 读取当前内核状态(锁内只读内存状态; 服务状态查询移到阻塞线程池)。
 pub async fn status(app: &AppHandle) -> CoreStatus {
     let state = app.state::<AppState>();
@@ -117,6 +131,15 @@ pub async fn status(app: &AppHandle) -> CoreStatus {
         .as_ref()
         .map(|status| status.running)
         .unwrap_or(false);
+    let version = if sidecar_running {
+        version
+    } else if let Some(version) = version.filter(|v| v != "—") {
+        version
+    } else if service_running {
+        service_core_version().unwrap_or_else(|| "—".into())
+    } else {
+        "—".into()
+    };
     CoreStatus {
         running: sidecar_running || service_running,
         version,
@@ -165,6 +188,9 @@ pub fn start(app: &AppHandle) -> Result<(), String> {
         );
 
         wait_for_service_ipc_ready(Duration::from_secs(10), Duration::from_millis(250))?;
+        if nova_service_ipc::is_reinstall_needed() {
+            return Err("服务版本不匹配，需要重装".into());
+        }
 
         // 通过 IPC 启动 mihomo
         start_core_via_service(app)?;
@@ -177,6 +203,9 @@ pub fn start(app: &AppHandle) -> Result<(), String> {
         log::info!("内核由服务 {} 托管, 通过 IPC 启动", crate::service::SERVICE_NAME);
 
         wait_for_service_ipc_ready(Duration::from_secs(10), Duration::from_millis(250))?;
+        if nova_service_ipc::is_reinstall_needed() {
+            return Err("服务版本不匹配，需要重装".into());
+        }
 
         // 通过 IPC 启动 mihomo
         start_core_via_service(app)?;
@@ -193,6 +222,9 @@ pub fn start(app: &AppHandle) -> Result<(), String> {
                 );
 
                 wait_for_service_ipc_ready(Duration::from_secs(10), Duration::from_millis(250))?;
+                if nova_service_ipc::is_reinstall_needed() {
+                    return Err("服务版本不匹配，需要重装".into());
+                }
 
                 // 通过 IPC 启动 mihomo
                 if let Err(e) = start_core_via_service(app) {
@@ -203,7 +235,30 @@ pub fn start(app: &AppHandle) -> Result<(), String> {
                 }
             }
             Err(err) => {
-                log::warn!("服务模式启动失败, 回退普通 sidecar: {err}");
+                log::warn!("服务模式启动失败, 尝试 UAC 提权后再次启动: {err}");
+                match crate::service::start_or_elevate() {
+                    Ok(()) => {
+                        log::info!(
+                            "内核由服务 {} 托管，通过 IPC 启动",
+                            crate::service::SERVICE_NAME
+                        );
+
+                        wait_for_service_ipc_ready(Duration::from_secs(10), Duration::from_millis(250))?;
+                        if nova_service_ipc::is_reinstall_needed() {
+                            return Err("服务版本不匹配，需要重装".into());
+                        }
+
+                        if let Err(e) = start_core_via_service(app) {
+                            log::warn!("IPC 启动内核失败: {}, 回退普通 sidecar", e);
+                        } else {
+                            refresh_version_async(app.clone());
+                            return Ok(());
+                        }
+                    }
+                    Err(err) => {
+                        log::warn!("提权启动服务失败, 回退普通 sidecar: {err}");
+                    }
+                }
             }
         }
     }
@@ -427,14 +482,25 @@ fn refresh_version_async(app: AppHandle) {
                 .timeout(Duration::from_secs(3))
                 .send()
                 .await;
-            let Ok(resp) = resp else { continue };
-            let Ok(v) = resp.json::<VersionPayload>().await else { continue };
+            let Ok(resp) = resp else {
+                if attempt >= 3 {
+                    log::debug!("第 {} 次获取内核版本失败: 请求 /version 超时或连接失败", attempt + 1);
+                }
+                continue
+            };
+            let Ok(v) = resp.json::<VersionPayload>().await else {
+                if attempt >= 3 {
+                    log::debug!("第 {} 次获取内核版本失败: /version 响应无法解析", attempt + 1);
+                }
+                continue
+            };
             let state = app.state::<AppState>();
             if let Ok(mut guard) = state.core.lock() {
                 guard.version = Some(v.version);
             };
             return;
         }
+        log::warn!("获取内核版本失败: 在 30 次重试内未从 /version 拿到有效响应");
     });
 }
 
@@ -632,7 +698,14 @@ fn wait_for_service_ipc_ready(timeout: Duration, retry_delay: Duration) -> Resul
         match nova_service_ipc::connect() {
             Ok(_) => return Ok(()),
             Err(e) => {
-                last_error = Some(e.to_string());
+                let err = e.to_string();
+                if err.contains("解析响应失败")
+                    || err.contains("服务返回空响应")
+                    || err.contains("响应为空")
+                {
+                    return Err(format!("服务 IPC 协议不匹配或服务未就绪: {err}"));
+                }
+                last_error = Some(err);
                 std::thread::sleep(retry_delay);
             }
         }

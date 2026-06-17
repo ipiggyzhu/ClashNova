@@ -16,6 +16,48 @@ use windows_service::{
     service_manager::{ServiceManager, ServiceManagerAccess},
 };
 
+#[cfg(windows)]
+fn expected_launch_args(config_dir: &Path) -> Vec<OsString> {
+    vec![
+        OsString::from("--service"),
+        OsString::from("--dir"),
+        OsString::from(config_dir),
+    ]
+}
+
+#[cfg(windows)]
+fn service_matches_expected(service: &windows_service::service::Service) -> bool {
+    match service.query_config() {
+        Ok(config) => {
+            let expected_exe = match std::env::current_exe() {
+                Ok(exe) => exe,
+                Err(_) => return false,
+            }
+            .to_string_lossy()
+            .to_ascii_lowercase();
+            let launch_command = config.executable_path.to_string_lossy().to_ascii_lowercase();
+            launch_command.contains(&expected_exe)
+                && launch_command.contains("--service")
+                && launch_command.contains("--dir")
+        }
+        Err(_) => false,
+    }
+}
+
+#[cfg(windows)]
+fn wait_until_removed(manager: &ServiceManager) -> Result<(), String> {
+    for _ in 0..40 {
+        if manager
+            .open_service(SERVICE_NAME, ServiceAccess::QUERY_STATUS)
+            .is_err()
+        {
+            return Ok(());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(250));
+    }
+    Err("旧服务删除超时".into())
+}
+
 /// 服务是否已创建。
 pub fn status() -> &'static str {
     #[cfg(not(windows))]
@@ -200,20 +242,22 @@ pub fn install(config_dir: &Path) -> Result<(), String> {
     let exe = std::env::current_exe().map_err(|e| format!("定位自身失败: {e}"))?;
     log::info!("服务可执行文件: {}", exe.display());
 
-    let launch_args = vec![
-        OsString::from("--service"),
-        OsString::from("--dir"),
-        OsString::from(config_dir),
-    ];
+    let launch_args = expected_launch_args(config_dir);
 
     let manager_access = ServiceManagerAccess::CONNECT | ServiceManagerAccess::CREATE_SERVICE;
     let manager = ServiceManager::local_computer(None::<&str>, manager_access)
         .map_err(|e| format!("连接服务管理器失败(需要管理员权限): {e}"))?;
 
     // 如果服务已存在,先尝试启动
-    let service_access = ServiceAccess::QUERY_STATUS | ServiceAccess::START;
+    let service_access = ServiceAccess::QUERY_STATUS | ServiceAccess::QUERY_CONFIG | ServiceAccess::START | ServiceAccess::STOP | ServiceAccess::DELETE | ServiceAccess::CHANGE_CONFIG;
     if let Ok(service) = manager.open_service(SERVICE_NAME, service_access) {
-        if let Ok(status) = service.query_status() {
+        if !service_matches_expected(&service) {
+            log::warn!("服务已存在但注册信息与当前构建不匹配，执行重装");
+            let _ = service.stop();
+            service.delete().map_err(|e| format!("删除旧服务失败: {e}"))?;
+            drop(service);
+            wait_until_removed(&manager)?;
+        } else if let Ok(status) = service.query_status() {
             match status.current_state {
                 ServiceState::Running => {
                     log::info!("服务已在运行");
@@ -308,6 +352,9 @@ pub fn uninstall() -> Result<(), String> {
     service.delete()
         .map_err(|e| format!("删除服务失败: {e}"))?;
 
+    drop(service);
+    wait_until_removed(&manager)?;
+
     log::info!("服务卸载成功");
     Ok(())
 }
@@ -352,13 +399,20 @@ mod service_impl {
         service_dispatcher::start(super::SERVICE_NAME, ffi_service_main)
     }
 
-    /// 从进程参数提取 `--dir <配置目录>`。
-    fn config_dir_from_args() -> Option<std::path::PathBuf> {
-        let args: Vec<String> = std::env::args().collect();
+    /// 从服务参数提取 `--dir <配置目录>`。
+    fn config_dir_from_args(args: &[OsString]) -> Option<std::path::PathBuf> {
         args.iter()
-            .position(|a| a == "--dir")
+            .position(|a| a == OsStr::new("--dir"))
             .and_then(|i| args.get(i + 1))
             .map(std::path::PathBuf::from)
+    }
+
+    fn fallback_service_log_dir() -> std::path::PathBuf {
+        std::env::var_os("ProgramData")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| std::path::PathBuf::from(r"C:\ProgramData"))
+            .join("ClashNova")
+            .join("logs")
     }
 
     fn init_service_logger(config_dir: Option<&std::path::Path>) {
@@ -366,9 +420,19 @@ mod service_impl {
             env_logger::Env::default().default_filter_or("info")
         );
 
-        if let Some(config_dir) = config_dir {
-            let log_dir = config_dir.join("logs");
-            let _ = std::fs::create_dir_all(&log_dir);
+        let primary_log_dir = config_dir
+            .map(|dir| dir.join("logs"))
+            .unwrap_or_else(fallback_service_log_dir);
+        let log_dirs = if config_dir.is_some() {
+            vec![primary_log_dir, fallback_service_log_dir()]
+        } else {
+            vec![primary_log_dir]
+        };
+
+        for log_dir in log_dirs {
+            if std::fs::create_dir_all(&log_dir).is_err() {
+                continue;
+            }
             let log_path = log_dir.join("clashnova-service.log");
             if let Ok(file) = std::fs::OpenOptions::new()
                 .create(true)
@@ -376,18 +440,19 @@ mod service_impl {
                 .open(log_path)
             {
                 builder.target(Target::Pipe(Box::new(file)));
+                break;
             }
         }
 
         let _ = builder.try_init();
     }
 
-    fn service_main(_args: Vec<OsString>) {
-        let _ = run();
+    fn service_main(args: Vec<OsString>) {
+        let _ = run(args);
     }
 
-    fn run() -> windows_service::Result<()> {
-        let config_dir = config_dir_from_args();
+    fn run(args: Vec<OsString>) -> windows_service::Result<()> {
+        let config_dir = config_dir_from_args(&args);
         init_service_logger(config_dir.as_deref());
 
         log::info!("ClashNova 服务模式启动");

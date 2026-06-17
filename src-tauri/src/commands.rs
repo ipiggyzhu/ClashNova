@@ -88,6 +88,15 @@ async fn rollback_tun_change(
     let _ = core::reload_runtime(app).await;
 }
 
+fn is_service_ipc_failure(err: &str) -> bool {
+    err.contains("IPC 调用失败")
+        || err.contains("等待服务 IPC 就绪超时")
+        || err.contains("解析响应失败")
+        || err.contains("服务返回空响应")
+        || err.contains("响应为空")
+        || err.contains("服务版本不匹配，需要重装")
+}
+
 /// 切换 TUN:更新设置 → 检查服务 → 重生成配置 → 重启内核。
 pub async fn apply_tun(app: &AppHandle, enable: bool) -> Result<(), String> {
     let state = app.state::<AppState>();
@@ -165,6 +174,33 @@ pub async fn apply_tun(app: &AppHandle, enable: bool) -> Result<(), String> {
         core::restart(app)
     };
     if let Err(err) = core_result {
+        if enable && service::is_running() && is_service_ipc_failure(&err) {
+            log::warn!("检测到服务 IPC 故障，尝试自动重装服务: {err}");
+            if let Err(repair_err) = repair_service(app.clone()).await {
+                rollback_tun_change(
+                    app,
+                    &prev_settings,
+                    sidecar_was_running,
+                    service_was_running,
+                )
+                .await;
+                return Err(format!("自动重装服务失败: {repair_err}"));
+            }
+            if let Err(tun_err) = core::wait_runtime_tun(app, enable, Duration::from_secs(8)).await {
+                rollback_tun_change(
+                    app,
+                    &prev_settings,
+                    sidecar_was_running,
+                    service_was_running,
+                )
+                .await;
+                return Err(tun_err);
+            }
+            if service::is_running() {
+                let _ = crate::service_manager::get_service_manager().refresh().await;
+            }
+            return Ok(());
+        }
         rollback_tun_change(
             app,
             &prev_settings,

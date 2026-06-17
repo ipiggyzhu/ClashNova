@@ -11,6 +11,20 @@ use windows_service::{
 
 const SERVICE_NAME: &str = "clashnova-core";
 
+#[cfg(windows)]
+fn wait_until_removed(manager: &ServiceManager) -> Result<(), String> {
+    for _ in 0..40 {
+        if manager
+            .open_service(SERVICE_NAME, ServiceAccess::QUERY_STATUS)
+            .is_err()
+        {
+            return Ok(());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(250));
+    }
+    Err("旧服务删除超时".into())
+}
+
 fn main() {
     // 初始化日志
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
@@ -81,6 +95,9 @@ fn uninstall() -> Result<(), String> {
     service
         .delete()
         .map_err(|e| format!("删除服务失败: {}", e))?;
+
+    drop(service);
+    wait_until_removed(&manager)?;
 
     log::info!("服务卸载成功");
     Ok(())

@@ -497,6 +497,7 @@ impl IpcServer {
             "version" => {
                 let version = ServiceVersion {
                     version: env!("CARGO_PKG_VERSION").to_string(),
+                    build_id: option_env!("CLASHNOVA_BUILD_ID").unwrap_or(env!("CARGO_PKG_VERSION")).to_string(),
                 };
                 ServiceResponse::success(serde_json::to_value(version).unwrap())
             }

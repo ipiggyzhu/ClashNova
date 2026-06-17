@@ -17,6 +17,37 @@ use windows_service::{
 
 const SERVICE_NAME: &str = "clashnova-core";
 
+#[cfg(windows)]
+fn service_matches_expected(
+    service: &windows_service::service::Service,
+    main_exe: &std::path::Path,
+) -> bool {
+    match service.query_config() {
+        Ok(config) => {
+            let expected_exe = main_exe.to_string_lossy().to_ascii_lowercase();
+            let launch_command = config.executable_path.to_string_lossy().to_ascii_lowercase();
+            launch_command.contains(&expected_exe)
+                && launch_command.contains("--service")
+                && launch_command.contains("--dir")
+        }
+        Err(_) => false,
+    }
+}
+
+#[cfg(windows)]
+fn wait_until_removed(manager: &ServiceManager) -> Result<(), String> {
+    for _ in 0..40 {
+        if manager
+            .open_service(SERVICE_NAME, ServiceAccess::QUERY_STATUS)
+            .is_err()
+        {
+            return Ok(());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(250));
+    }
+    Err("旧服务删除超时".into())
+}
+
 fn main() {
     // 初始化日志
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
@@ -92,12 +123,20 @@ fn install(config_dir: &std::path::Path) -> Result<(), String> {
         .map_err(|e| format!("连接服务管理器失败（需要管理员权限）: {}", e))?;
 
     // 检查服务是否已存在
-    let service_access = ServiceAccess::QUERY_STATUS | ServiceAccess::START | ServiceAccess::STOP;
+    let service_access = ServiceAccess::QUERY_STATUS
+        | ServiceAccess::QUERY_CONFIG
+        | ServiceAccess::START
+        | ServiceAccess::STOP
+        | ServiceAccess::DELETE;
     if let Ok(service) = manager.open_service(SERVICE_NAME, service_access) {
-        log::info!("服务已存在，检查状态");
-
-        // 查询服务状态
-        if let Ok(status) = service.query_status() {
+        if !service_matches_expected(&service, &main_exe) {
+            log::warn!("服务已存在但注册信息与当前安装包不匹配，执行重装");
+            let _ = service.stop();
+            service.delete().map_err(|e| format!("删除旧服务失败: {}", e))?;
+            drop(service);
+            wait_until_removed(&manager)?;
+        } else if let Ok(status) = service.query_status() {
+            log::info!("服务已存在，检查状态");
             match status.current_state {
                 ServiceState::Running => {
                     log::info!("服务已在运行");
