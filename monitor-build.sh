@@ -1,0 +1,20 @@
+#!/bin/bash
+# 监控 GitHub Actions 编译状态
+
+echo "========================================"
+echo "  监控 GitHub Actions 编译状态"
+echo "========================================"
+echo ""
+echo "Actions URL: https://github.com/ipiggyzhu/ClashNova/actions"
+echo ""
+echo "由于 GitHub API 速率限制，请："
+echo "1. 访问上述 URL 查看构建状态"
+echo "2. 如果构建失败，下载日志并查看错误"
+echo "3. 根据错误修复代码"
+echo "4. 运行: git add -A && git commit -m 'fix: 修复编译错误' && git push"
+echo "5. 重复步骤 1-4 直到成功"
+echo ""
+echo "预期产物:"
+echo "  - ClashNova-xxx-x64-setup.exe (NSIS 安装包)"
+echo "  - ClashNova-xxx-x64-en-US.msi (MSI 安装包)"
+echo ""
