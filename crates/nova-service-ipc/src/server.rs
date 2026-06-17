@@ -418,8 +418,21 @@ impl IpcServer {
         }
 
         // 解析请求
-        let request: ServiceRequest = serde_json::from_str(&request_line)
-            .context("解析请求失败")?;
+        let request_line = request_line
+            .trim_start_matches('\u{feff}')
+            .trim_matches(char::from(0))
+            .to_string();
+        log::debug!("收到原始请求: {}", request_line);
+        let request: ServiceRequest = match serde_json::from_str(&request_line) {
+            Ok(request) => request,
+            Err(err) => {
+                log::warn!("解析请求失败: {}", err);
+                let response = ServiceResponse::error(400, format!("解析请求失败: {}", err));
+                Self::write_response(&pipe_file, &response)?;
+                let _ = pipe_file.into_raw_handle();
+                return Ok(());
+            }
+        };
 
         log::debug!("收到命令: {}", request.command);
 
@@ -427,23 +440,29 @@ impl IpcServer {
         let response = Self::handle_request_static(request, core_manager);
 
         // 发送响应
-        let response_json = serde_json::to_string(&response)
-            .context("序列化响应失败")?;
-
-        {
-            let mut writer = BufWriter::new(&pipe_file);
-            writeln!(writer, "{}", response_json)
-                .context("发送响应失败")?;
-
-            writer.flush()
-                .context("刷新管道失败")?;
-        }
+        Self::write_response(&pipe_file, &response)?;
 
         log::debug!("响应已发送");
 
         // 释放 pipe_file 但不关闭句柄（外部会关闭）
         let _ = pipe_file.into_raw_handle();
 
+        Ok(())
+    }
+
+    #[cfg(windows)]
+    fn write_response(
+        pipe_file: &std::fs::File,
+        response: &ServiceResponse<serde_json::Value>,
+    ) -> Result<()> {
+        let response_json = serde_json::to_string(response)
+            .context("序列化响应失败")?;
+
+        let mut writer = BufWriter::new(pipe_file);
+        writeln!(writer, "{}", response_json)
+            .context("发送响应失败")?;
+        writer.flush()
+            .context("刷新管道失败")?;
         Ok(())
     }
 

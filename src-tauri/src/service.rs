@@ -382,6 +382,7 @@ pub fn run_dispatcher() {}
 mod service_impl {
     use env_logger::Target;
     use std::ffi::{OsStr, OsString};
+    use std::io::Write;
     use std::sync::mpsc;
     use std::time::Duration;
 
@@ -414,21 +415,45 @@ mod service_impl {
             .join("logs")
     }
 
+    fn service_log_dirs(config_dir: Option<&std::path::Path>) -> Vec<std::path::PathBuf> {
+        let primary_log_dir = config_dir
+            .map(|dir| dir.join("logs"))
+            .unwrap_or_else(fallback_service_log_dir);
+        if config_dir.is_some() {
+            vec![primary_log_dir, fallback_service_log_dir()]
+        } else {
+            vec![primary_log_dir]
+        }
+    }
+
+    fn append_bootstrap_log(config_dir: Option<&std::path::Path>, line: &str) {
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|value| value.as_secs())
+            .unwrap_or_default();
+        for log_dir in service_log_dirs(config_dir) {
+            if std::fs::create_dir_all(&log_dir).is_err() {
+                continue;
+            }
+            let log_path = log_dir.join("clashnova-service.log");
+            if let Ok(mut file) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(log_path)
+            {
+                let _ = writeln!(file, "[bootstrap][{timestamp}] {line}");
+                break;
+            }
+        }
+    }
+
     fn init_service_logger(config_dir: Option<&std::path::Path>) {
+        append_bootstrap_log(config_dir, "initializing service logger");
         let mut builder = env_logger::Builder::from_env(
             env_logger::Env::default().default_filter_or("info")
         );
 
-        let primary_log_dir = config_dir
-            .map(|dir| dir.join("logs"))
-            .unwrap_or_else(fallback_service_log_dir);
-        let log_dirs = if config_dir.is_some() {
-            vec![primary_log_dir, fallback_service_log_dir()]
-        } else {
-            vec![primary_log_dir]
-        };
-
-        for log_dir in log_dirs {
+        for log_dir in service_log_dirs(config_dir) {
             if std::fs::create_dir_all(&log_dir).is_err() {
                 continue;
             }
@@ -447,6 +472,8 @@ mod service_impl {
     }
 
     fn service_main(args: Vec<OsString>) {
+        let config_dir = config_dir_from_args(&args);
+        append_bootstrap_log(config_dir.as_deref(), "service_main invoked");
         let _ = run(args);
     }
 
