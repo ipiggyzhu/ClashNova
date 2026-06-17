@@ -116,7 +116,30 @@ fn get_uninstaller_path() -> Result<PathBuf, String> {
 /// 检查当前进程是否有管理员权限
 #[cfg(windows)]
 fn is_elevated() -> bool {
-    deelevate::token::is_elevated()
+    use windows::Win32::Foundation::BOOL;
+    use windows::Win32::Security::{GetTokenInformation, TokenElevation, TOKEN_ELEVATION, TOKEN_QUERY};
+    use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+    
+    unsafe {
+        let mut token = windows::Win32::Foundation::HANDLE::default();
+        if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token).is_err() {
+            return false;
+        }
+        
+        let mut elevation = TOKEN_ELEVATION { TokenIsElevated: BOOL(0) };
+        let mut size = 0u32;
+        if GetTokenInformation(
+            token, 
+            TokenElevation, 
+            Some(&mut elevation as *mut _ as *mut _), 
+            std::mem::size_of::<TOKEN_ELEVATION>() as u32, 
+            &mut size
+        ).is_err() {
+            return false;
+        }
+        
+        elevation.TokenIsElevated.as_bool()
+    }
 }
 
 /// 提权并安装服务（使用 runas 库）
