@@ -3,7 +3,8 @@ use anyhow::{Context, Result};
 use std::collections::VecDeque;
 #[cfg(windows)]
 use std::sync::mpsc;
-use std::process::{Child, Command, Stdio};
+use std::io::Read;
+use std::process::{Child, ChildStderr, ChildStdout, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -32,7 +33,7 @@ struct CoreManager {
     /// 内核配置
     config: Option<CoreConfig>,
     /// 日志缓冲区（最多保留 1000 行）
-    logs: VecDeque<String>,
+    logs: Arc<Mutex<VecDeque<String>>>,
     /// 是否启用自动重启
     auto_restart: bool,
     /// 崩溃次数（用于防止无限重启）
@@ -47,10 +48,65 @@ impl CoreManager {
             process: None,
             start_time: None,
             config: None,
-            logs: VecDeque::with_capacity(1000),
+            logs: Arc::new(Mutex::new(VecDeque::with_capacity(1000))),
             auto_restart: true,
             crash_count: 0,
             last_crash_time: None,
+        }
+    }
+
+    fn push_log(&self, line: String) {
+        if let Ok(mut logs) = self.logs.lock() {
+            if logs.len() >= 1000 {
+                logs.pop_front();
+            }
+            logs.push_back(line);
+        }
+    }
+
+    fn drain_pipe<R>(label: &'static str, pipe: R, lines: Arc<Mutex<VecDeque<String>>>)
+    where
+        R: Read + Send + 'static,
+    {
+        std::thread::spawn(move || {
+            let mut reader = BufReader::new(pipe);
+            let mut line = String::new();
+            loop {
+                line.clear();
+                match reader.read_line(&mut line) {
+                    Ok(0) => break,
+                    Ok(_) => {
+                        let text = line.trim_end_matches(['\r', '\n']).to_string();
+                        if text.is_empty() {
+                            continue;
+                        }
+                        log::info!("[mihomo {label}] {text}");
+                        if let Ok(mut logs) = lines.lock() {
+                            if logs.len() >= 1000 {
+                                logs.pop_front();
+                            }
+                            logs.push_back(format!("[{label}] {text}"));
+                        }
+                    }
+                    Err(err) => {
+                        log::warn!("读取 mihomo {label} 失败: {err}");
+                        break;
+                    }
+                }
+            }
+        });
+    }
+
+    fn attach_output_logs(
+        stdout: Option<ChildStdout>,
+        stderr: Option<ChildStderr>,
+        logs: Arc<Mutex<VecDeque<String>>>,
+    ) {
+        if let Some(stdout) = stdout {
+            Self::drain_pipe("stdout", stdout, logs.clone());
+        }
+        if let Some(stderr) = stderr {
+            Self::drain_pipe("stderr", stderr, logs);
         }
     }
 
@@ -66,13 +122,16 @@ impl CoreManager {
         log::info!("外部控制器: {}", config.external_controller);
 
         // 启动 mihomo 进程
-        let child = Command::new(&config.core_path)
+        let mut child = Command::new(&config.core_path)
             .args(["-f", &config.config_path])
             .args(["-d", &config.config_dir])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
             .context("启动内核进程失败")?;
+
+        let stdout = child.stdout.take();
+        let stderr = child.stderr.take();
 
         let start_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -82,6 +141,10 @@ impl CoreManager {
         self.process = Some(child);
         self.start_time = Some(start_time);
         self.config = Some(config);
+        self.crash_count = 0;
+        self.last_crash_time = None;
+        self.push_log("内核进程已启动".into());
+        Self::attach_output_logs(stdout, stderr, self.logs.clone());
 
         log::info!("内核进程已启动");
         Ok(())
@@ -115,7 +178,9 @@ impl CoreManager {
             // 检查进程是否还活着
             match process.try_wait() {
                 Ok(Some(status)) => {
-                    log::warn!("内核进程已退出: {:?}", status);
+                    let message = format!("内核进程已退出: {:?}", status);
+                    log::warn!("{message}");
+                    self.push_log(message);
                     self.process = None;
                     self.start_time = None;
                     false
@@ -150,16 +215,16 @@ impl CoreManager {
     /// 添加日志
     #[allow(dead_code)]
     fn add_log(&mut self, line: String) {
-        if self.logs.len() >= 1000 {
-            self.logs.pop_front();
-        }
-        self.logs.push_back(line);
+        self.push_log(line);
     }
 
     /// 获取日志
     fn get_logs(&self, lines: usize) -> Vec<String> {
-        let count = lines.min(self.logs.len());
-        self.logs.iter().rev().take(count).rev().cloned().collect()
+        let Ok(logs) = self.logs.lock() else {
+            return Vec::new();
+        };
+        let count = lines.min(logs.len());
+        logs.iter().rev().take(count).rev().cloned().collect()
     }
 
     /// 检查进程是否崩溃并决定是否重启
@@ -173,7 +238,9 @@ impl CoreManager {
                         .unwrap()
                         .as_secs() as i64;
 
-                    log::warn!("内核进程已退出: {:?}", status);
+                    let message = format!("内核进程已退出: {:?}", status);
+                    log::warn!("{message}");
+                    self.push_log(message);
                     self.process = None;
                     self.start_time = None;
 

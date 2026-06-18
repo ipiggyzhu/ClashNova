@@ -37,11 +37,28 @@ pub fn diagnose_installation() -> Result<(), String> {
         .ok_or("无法获取当前程序所在目录")?;
     let pending_exe = install_dir.join("clashnova.new.exe");
     if pending_exe.exists() {
-        log::warn!(
-            "检测到未完成的程序替换: {}，当前仍在运行 {}",
-            pending_exe.display(),
-            current_exe.display()
-        );
+        let pending_is_stale = std::fs::metadata(&pending_exe)
+            .and_then(|pending| {
+                let pending_modified = pending.modified()?;
+                let current_modified = std::fs::metadata(&current_exe)?.modified()?;
+                Ok(pending_modified <= current_modified)
+            })
+            .unwrap_or(false);
+        if pending_is_stale {
+            match std::fs::remove_file(&pending_exe) {
+                Ok(()) => log::info!("已清理旧的未完成替换文件: {}", pending_exe.display()),
+                Err(err) => log::warn!(
+                    "清理旧的未完成替换文件失败: {}: {err}",
+                    pending_exe.display()
+                ),
+            }
+        } else {
+            log::warn!(
+                "检测到未完成的程序替换: {}，当前仍在运行 {}",
+                pending_exe.display(),
+                current_exe.display()
+            );
+        }
     }
 
     let service_exe = expected_service_binary_path()?;
