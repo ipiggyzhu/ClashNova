@@ -21,6 +21,38 @@ fn expected_service_binary_path() -> Result<PathBuf, String> {
 }
 
 #[cfg(windows)]
+pub fn diagnose_installation() -> Result<(), String> {
+    let current_exe = std::env::current_exe()
+        .map_err(|e| format!("定位当前程序失败: {e}"))?;
+    let install_dir = current_exe
+        .parent()
+        .ok_or("无法获取当前程序所在目录")?;
+    let pending_exe = install_dir.join("clashnova.new.exe");
+    if pending_exe.exists() {
+        log::warn!(
+            "检测到未完成的程序替换: {}，当前仍在运行 {}",
+            pending_exe.display(),
+            current_exe.display()
+        );
+    }
+
+    let service_exe = expected_service_binary_path()?;
+    if !service_exe.exists() {
+        return Err(format!(
+            "服务宿主缺失: {}。请重新安装最新版本安装包，确保安装目录包含 clashnova-service.exe",
+            service_exe.display()
+        ));
+    }
+
+    Ok(())
+}
+
+#[cfg(not(windows))]
+pub fn diagnose_installation() -> Result<(), String> {
+    Ok(())
+}
+
+#[cfg(windows)]
 fn service_matches_expected(service: &windows_service::service::Service) -> bool {
     match service.query_config() {
         Ok(config) => {

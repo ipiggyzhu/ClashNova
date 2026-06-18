@@ -105,6 +105,9 @@ pub async fn apply_tun(app: &AppHandle, enable: bool) -> Result<(), String> {
     if enable && service::status() == "not-installed" {
         return Err("TUN 模式需要服务模式支持，请先在设置中安装服务".into());
     }
+    if enable {
+        service::diagnose_installation()?;
+    }
 
     let service_was_running = service::is_running();
     let sidecar_was_running = core::is_sidecar_running(app);

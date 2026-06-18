@@ -112,6 +112,12 @@ impl ServiceManager {
     pub async fn init(&self) -> Result<(), String> {
         log::info!("初始化服务管理器");
 
+        if let Err(err) = crate::service::diagnose_installation() {
+            log::warn!("服务安装诊断失败: {}", err);
+            self.set_status(ServiceStatus::NeedsReinstall).await;
+            return Ok(());
+        }
+
         // 检查服务是否已安装
         let service_status = crate::service::status();
         log::info!("服务状态: {}", service_status);
@@ -207,6 +213,11 @@ impl ServiceManager {
         let self_ref = self;
         self.run_operation(async move {
             log::info!("刷新服务状态");
+
+            if let Err(err) = crate::service::diagnose_installation() {
+                self_ref.set_status(ServiceStatus::NeedsReinstall).await;
+                return Err(err);
+            }
 
             // 检查服务是否已安装
             let service_status = crate::service::status();
