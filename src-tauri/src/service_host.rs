@@ -158,16 +158,35 @@ mod service_impl {
                 process_id: None,
             })
         };
-        set_state(ServiceState::Running, ServiceControlAccept::STOP)?;
+        set_state(ServiceState::StartPending, ServiceControlAccept::empty())?;
 
-        log::info!("服务已进入 Running 状态，启动 IPC 服务器");
+        log::info!("启动 IPC 服务器");
 
-        let _ipc_handle = std::thread::spawn(|| {
-            if let Err(e) = nova_service_ipc::start_server() {
+        let (ipc_ready_tx, ipc_ready_rx) = mpsc::channel();
+        let _ipc_handle = std::thread::spawn(move || {
+            let server = nova_service_ipc::IpcServer::new();
+            if let Err(e) = server.run_with_ready_signal(Some(ipc_ready_tx)) {
                 log::error!("IPC 服务器启动失败: {}", e);
             }
             log::info!("IPC 服务器已退出");
         });
+
+        match ipc_ready_rx.recv_timeout(Duration::from_secs(10)) {
+            Ok(Ok(())) => {
+                set_state(ServiceState::Running, ServiceControlAccept::STOP)?;
+                log::info!("服务已进入 Running 状态，IPC 已就绪");
+            }
+            Ok(Err(err)) => {
+                log::error!("IPC 初始化失败: {}", err);
+                set_state(ServiceState::Stopped, ServiceControlAccept::empty())?;
+                return Ok(());
+            }
+            Err(err) => {
+                log::error!("等待 IPC 初始化超时: {}", err);
+                set_state(ServiceState::Stopped, ServiceControlAccept::empty())?;
+                return Ok(());
+            }
+        }
 
         log::info!("等待停止信号...");
 

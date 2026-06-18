@@ -1,6 +1,8 @@
 use crate::types::*;
 use anyhow::{Context, Result};
 use std::collections::VecDeque;
+#[cfg(windows)]
+use std::sync::mpsc;
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -298,6 +300,11 @@ impl IpcServer {
     /// 启动 IPC 服务（Windows 命名管道）
     #[cfg(windows)]
     pub fn run(&self) -> Result<()> {
+        self.run_with_ready_signal(None)
+    }
+
+    #[cfg(windows)]
+    pub fn run_with_ready_signal(&self, ready_tx: Option<mpsc::Sender<Result<()>>>) -> Result<()> {
         use windows::core::PCWSTR;
         use windows::Win32::Foundation::CloseHandle;
 
@@ -307,6 +314,7 @@ impl IpcServer {
         self.start_monitor_thread();
 
         let pipe_name: Vec<u16> = IPC_PATH.encode_utf16().chain(std::iter::once(0)).collect();
+        let mut ready_tx = ready_tx;
 
         // 创建允许所有用户访问的安全描述符
         let mut sd_buffer = vec![0u8; 1024]; // 足够大的缓冲区
@@ -350,8 +358,15 @@ impl IpcServer {
             if h_pipe.is_invalid() {
                 let error = std::io::Error::last_os_error();
                 log::error!("创建命名管道失败: {}", error);
+                if let Some(tx) = ready_tx.take() {
+                    let _ = tx.send(Err(anyhow::anyhow!("创建命名管道失败: {}", error)));
+                }
                 std::thread::sleep(std::time::Duration::from_secs(1));
                 continue;
+            }
+
+            if let Some(tx) = ready_tx.take() {
+                let _ = tx.send(Ok(()));
             }
 
             log::debug!("等待客户端连接...");
@@ -535,6 +550,11 @@ impl IpcServer {
 
     #[cfg(not(windows))]
     pub fn run(&self) -> Result<()> {
+        anyhow::bail!("IPC 服务仅支持 Windows 平台")
+    }
+
+    #[cfg(not(windows))]
+    pub fn run_with_ready_signal(&self, _ready_tx: Option<std::sync::mpsc::Sender<Result<()>>>) -> Result<()> {
         anyhow::bail!("IPC 服务仅支持 Windows 平台")
     }
 }
