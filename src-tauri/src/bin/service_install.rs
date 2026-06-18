@@ -80,6 +80,56 @@ fn wait_until_running(service: &windows_service::service::Service) -> Result<(),
     ))
 }
 
+#[cfg(windows)]
+fn wait_until_stopped(service: &windows_service::service::Service) -> Result<(), String> {
+    let deadline = std::time::Instant::now() + SERVICE_START_WAIT;
+    let mut last_state = None;
+
+    while std::time::Instant::now() < deadline {
+        match service.query_status() {
+            Ok(status) if status.current_state == ServiceState::Stopped => {
+                log::info!("服务已停止");
+                return Ok(());
+            }
+            Ok(status) => {
+                last_state = Some(format!("{:?}", status.current_state));
+            }
+            Err(err) => {
+                last_state = Some(format!("查询服务状态失败: {err}"));
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(250));
+    }
+
+    Err(format!(
+        "服务停止超时，最后状态: {}",
+        last_state.unwrap_or_else(|| "未知".into())
+    ))
+}
+
+#[cfg(windows)]
+fn restart_existing_service(service: &windows_service::service::Service) -> Result<(), String> {
+    log::info!("重启已有服务，确保加载当前安装包的服务宿主");
+    match service.query_status() {
+        Ok(status) if status.current_state == ServiceState::Stopped => {}
+        Ok(status) if status.current_state == ServiceState::StopPending => {
+            wait_until_stopped(service)?;
+        }
+        Ok(_) => {
+            service
+                .stop()
+                .map_err(|e| format!("停止已有服务失败: {}", e))?;
+            wait_until_stopped(service)?;
+        }
+        Err(err) => return Err(format!("查询已有服务状态失败: {}", err)),
+    }
+
+    service
+        .start(&Vec::<&std::ffi::OsStr>::new())
+        .map_err(|e| format!("启动已有服务失败: {}", e))?;
+    wait_until_running(service)
+}
+
 fn main() {
     // 初始化日志
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
@@ -167,17 +217,14 @@ fn install(config_dir: &std::path::Path) -> Result<(), String> {
             log::info!("服务已存在，检查状态");
             match status.current_state {
                 ServiceState::Running => {
-                    log::info!("服务已在运行");
+                    log::info!("服务已在运行，执行重启以加载当前安装包");
+                    restart_existing_service(&service)?;
                     return Ok(());
                 }
                 ServiceState::Stopped | ServiceState::StopPending | ServiceState::Paused | ServiceState::PausePending => {
                     log::info!("服务已存在但未运行，尝试启动");
 
-                    service
-                        .start(&Vec::<&std::ffi::OsStr>::new())
-                        .map_err(|e| format!("启动已有服务失败: {}", e))?;
-
-                    wait_until_running(&service)?;
+                    restart_existing_service(&service)?;
                     return Ok(());
                 }
                 _ => {
