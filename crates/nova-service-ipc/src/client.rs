@@ -35,6 +35,23 @@ impl IpcClient {
         response[start..end].to_vec()
     }
 
+    fn response_debug(response_data: &[u8]) -> String {
+        let text = String::from_utf8_lossy(response_data);
+        let preview: String = text.chars().take(512).collect();
+        let hex = response_data
+            .iter()
+            .take(64)
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<Vec<_>>()
+            .join(" ");
+        format!(
+            "len={}, text=`{}`, hex={}",
+            response_data.len(),
+            preview.replace('\r', "\\r").replace('\n', "\\n"),
+            hex
+        )
+    }
+
     fn parse_response<T: DeserializeOwned>(&self, response_data: &[u8], action: &str) -> Result<ServiceResponse<T>> {
         let response_data = Self::normalize_response(response_data);
         let raw = String::from_utf8_lossy(&response_data);
@@ -47,7 +64,12 @@ impl IpcClient {
         }
 
         let fallback: ServiceResponse<serde_json::Value> = serde_json::from_slice(&response_data)
-            .with_context(|| format!("解析{action}响应失败: {raw}"))?;
+            .with_context(|| {
+                format!(
+                    "解析{action}响应失败: {}",
+                    Self::response_debug(&response_data)
+                )
+            })?;
 
         if fallback.code != 0 {
             anyhow::bail!("{}", fallback.message);
@@ -134,16 +156,17 @@ impl IpcClient {
         writer.flush()
             .context("刷新管道失败")?;
 
-        // 读取响应（单行 JSON）
-        let mut response_line = String::new();
-        reader.read_line(&mut response_line)
+        // 读取响应（单行 JSON）。按原始字节读，避免非 UTF-8 或尾部 NUL 让 read_line(String) 提前失败。
+        let mut response_line = Vec::new();
+        let read = reader
+            .read_until(b'\n', &mut response_line)
             .context("读取响应失败")?;
 
-        if response_line.is_empty() {
+        if read == 0 || response_line.is_empty() {
             anyhow::bail!("服务返回空响应");
         }
 
-        Ok(response_line.into_bytes())
+        Ok(response_line)
     }
 
     #[cfg(not(windows))]

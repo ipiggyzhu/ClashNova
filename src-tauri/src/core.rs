@@ -2,6 +2,7 @@
 
 use std::collections::VecDeque;
 use std::io::Write;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::Deserialize;
@@ -14,6 +15,7 @@ use crate::state::AppState;
 /// 崩溃重启退避窗口与上限:30 秒窗口内最多 3 次。
 const RESTART_WINDOW: Duration = Duration::from_secs(30);
 const RESTART_MAX: usize = 3;
+static VERSION_REFRESH_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
 
 /// 内核句柄(挂在 `AppState.core` 的 Mutex 内, 只做短临界区读写)。
 #[derive(Default)]
@@ -117,6 +119,9 @@ pub async fn status(app: &AppHandle) -> CoreStatus {
         .as_ref()
         .map(|status| status.running)
         .unwrap_or(false);
+    if !sidecar_running && service_running && version == "—" {
+        refresh_version_async(app.clone());
+    }
     let version = if sidecar_running {
         version
     } else if version != "—" {
@@ -436,7 +441,15 @@ struct VersionPayload {
 /// 异步刷新版本缓存(GET /version)。
 /// 内核冷启动耗时不定(首启建缓存可达数秒), 持续重试直到拿到版本(~2 分钟上限)。
 fn refresh_version_async(app: AppHandle) {
+    if VERSION_REFRESH_IN_FLIGHT
+        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+        .is_err()
+    {
+        return;
+    }
+
     tauri::async_runtime::spawn(async move {
+        let _guard = VersionRefreshGuard;
         let client = reqwest::Client::new();
         for attempt in 0u32..30 {
             let wait = if attempt == 0 { 800 } else { 4000 };
@@ -486,6 +499,14 @@ fn refresh_version_async(app: AppHandle) {
         }
         log::warn!("获取内核版本失败: 在 30 次重试内未从 /version 拿到有效响应");
     });
+}
+
+struct VersionRefreshGuard;
+
+impl Drop for VersionRefreshGuard {
+    fn drop(&mut self) {
+        VERSION_REFRESH_IN_FLIGHT.store(false, Ordering::Release);
+    }
 }
 
 /// 通知 mihomo 热加载运行时配置(PUT /configs?force=true); 未运行时为 no-op。

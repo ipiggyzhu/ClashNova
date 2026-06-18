@@ -261,16 +261,7 @@ pub fn start() -> Result<(), String> {
         .start(&Vec::<&OsStr>::new())
         .map_err(|e| format!("启动服务失败: {e}"))?;
 
-    for _ in 0..20 {
-        std::thread::sleep(std::time::Duration::from_millis(250));
-        if matches!(
-            service.query_status().map(|s| s.current_state),
-            Ok(ServiceState::Running)
-        ) {
-            return Ok(());
-        }
-    }
-    Err("服务启动后未进入运行状态".into())
+    wait_until_running(&service)
 }
 
 #[cfg(windows)]
