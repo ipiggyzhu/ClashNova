@@ -7,6 +7,7 @@ mod core;
 mod hotkeys;
 mod profiles;
 mod service;
+mod service_host;
 mod service_installer;
 mod service_manager;
 mod state;
@@ -26,7 +27,7 @@ fn main() {
     // 服务进程路径: 通过 Windows Service Control Manager 调度
     if args.iter().any(|a| a == "--service") {
         // Windows 服务必须通过 SCM dispatcher 启动
-        service::run_dispatcher();
+        service_host::run_dispatcher();
         return;
     }
 

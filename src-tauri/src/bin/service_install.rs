@@ -1,3 +1,5 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 //! ClashNova 服务安装程序
 //!
 //! 这是一个独立的可执行文件，用于安装 ClashNova 内核服务。
@@ -5,6 +7,9 @@
 
 use std::ffi::OsString;
 use std::path::PathBuf;
+
+#[path = "../service_host.rs"]
+mod service_host;
 
 #[cfg(windows)]
 use windows_service::{
@@ -16,6 +21,7 @@ use windows_service::{
 };
 
 const SERVICE_NAME: &str = "clashnova-core";
+const SERVICE_START_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
 
 #[cfg(windows)]
 fn service_matches_expected(
@@ -27,7 +33,6 @@ fn service_matches_expected(
             let expected_exe = main_exe.to_string_lossy().to_ascii_lowercase();
             let launch_command = config.executable_path.to_string_lossy().to_ascii_lowercase();
             launch_command.contains(&expected_exe)
-                && launch_command.contains("--service")
                 && launch_command.contains("--dir")
         }
         Err(_) => false,
@@ -46,6 +51,33 @@ fn wait_until_removed(manager: &ServiceManager) -> Result<(), String> {
         std::thread::sleep(std::time::Duration::from_millis(250));
     }
     Err("旧服务删除超时".into())
+}
+
+#[cfg(windows)]
+fn wait_until_running(service: &windows_service::service::Service) -> Result<(), String> {
+    let deadline = std::time::Instant::now() + SERVICE_START_WAIT;
+    let mut last_state = None;
+
+    while std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(250));
+        match service.query_status() {
+            Ok(status) if status.current_state == ServiceState::Running => {
+                log::info!("服务启动成功");
+                return Ok(());
+            }
+            Ok(status) => {
+                last_state = Some(format!("{:?}", status.current_state));
+            }
+            Err(err) => {
+                last_state = Some(format!("查询服务状态失败: {err}"));
+            }
+        }
+    }
+
+    Err(format!(
+        "服务启动超时，最后状态: {}",
+        last_state.unwrap_or_else(|| "未知".into())
+    ))
 }
 
 fn main() {
@@ -92,30 +124,26 @@ fn main() {
 fn install(config_dir: &std::path::Path) -> Result<(), String> {
     log::info!("开始安装服务: {}", SERVICE_NAME);
 
-    // 获取主程序路径（与安装程序同目录的 clashnova.exe）
+    // 获取服务宿主路径（与安装程序同目录的 clashnova-service.exe）
     let exe = std::env::current_exe()
         .map_err(|e| format!("获取当前可执行文件路径失败: {}", e))?;
 
-    let main_exe = exe
+    let service_exe = exe
         .parent()
         .ok_or("无法获取安装程序所在目录")?
-        .join("clashnova.exe");
+        .join("clashnova-service.exe");
 
-    if !main_exe.exists() {
+    if !service_exe.exists() {
         return Err(format!(
-            "主程序不存在: {}",
-            main_exe.display()
+            "服务宿主不存在: {}",
+            service_exe.display()
         ));
     }
 
-    log::info!("主程序路径: {}", main_exe.display());
+    log::info!("服务宿主路径: {}", service_exe.display());
 
     // 服务启动参数
-    let launch_args = vec![
-        OsString::from("--service"),
-        OsString::from("--dir"),
-        OsString::from(config_dir),
-    ];
+    let launch_args = service_host::expected_launch_args(config_dir);
 
     // 连接到服务管理器
     let manager_access = ServiceManagerAccess::CONNECT | ServiceManagerAccess::CREATE_SERVICE;
@@ -129,7 +157,7 @@ fn install(config_dir: &std::path::Path) -> Result<(), String> {
         | ServiceAccess::STOP
         | ServiceAccess::DELETE;
     if let Ok(service) = manager.open_service(SERVICE_NAME, service_access) {
-        if !service_matches_expected(&service, &main_exe) {
+        if !service_matches_expected(&service, &service_exe) {
             log::warn!("服务已存在但注册信息与当前安装包不匹配，执行重装");
             let _ = service.stop();
             service.delete().map_err(|e| format!("删除旧服务失败: {}", e))?;
@@ -145,23 +173,12 @@ fn install(config_dir: &std::path::Path) -> Result<(), String> {
                 ServiceState::Stopped | ServiceState::StopPending | ServiceState::Paused | ServiceState::PausePending => {
                     log::info!("服务已存在但未运行，尝试启动");
 
-                    // 启动服务
                     service
                         .start(&Vec::<&std::ffi::OsStr>::new())
                         .map_err(|e| format!("启动已有服务失败: {}", e))?;
 
-                    // 等待服务启动
-                    for _ in 0..20 {
-                        std::thread::sleep(std::time::Duration::from_millis(250));
-                        if let Ok(status) = service.query_status() {
-                            if status.current_state == ServiceState::Running {
-                                log::info!("服务启动成功");
-                                return Ok(());
-                            }
-                        }
-                    }
-
-                    return Err("服务启动超时".into());
+                    wait_until_running(&service)?;
+                    return Ok(());
                 }
                 _ => {
                     log::warn!("服务处于未知状态: {:?}", status.current_state);
@@ -179,7 +196,7 @@ fn install(config_dir: &std::path::Path) -> Result<(), String> {
         service_type: ServiceType::OWN_PROCESS,
         start_type: ServiceStartType::AutoStart,
         error_control: ServiceErrorControl::Normal,
-        executable_path: main_exe,
+        executable_path: service_exe,
         launch_arguments: launch_args,
         dependencies: vec![],
         account_name: None, // LocalSystem
@@ -202,18 +219,9 @@ fn install(config_dir: &std::path::Path) -> Result<(), String> {
         .start(&Vec::<&std::ffi::OsStr>::new())
         .map_err(|e| format!("启动服务失败: {}", e))?;
 
-    // 等待服务启动
-    for _ in 0..20 {
-        std::thread::sleep(std::time::Duration::from_millis(250));
-        if let Ok(status) = service.query_status() {
-            if status.current_state == ServiceState::Running {
-                log::info!("服务安装并启动成功");
-                return Ok(());
-            }
-        }
-    }
-
-    Err("服务启动超时".into())
+    wait_until_running(&service)?;
+    log::info!("服务安装并启动成功");
+    Ok(())
 }
 
 #[cfg(not(windows))]

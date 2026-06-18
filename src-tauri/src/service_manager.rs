@@ -78,6 +78,7 @@ impl ServiceManager {
 
     /// 等待 IPC 就绪（带重试）
     async fn wait_for_ipc(&self, max_retries: usize, retry_delay: std::time::Duration) -> Result<(), String> {
+        let mut last_error: Option<String> = None;
         for i in 0..max_retries {
             match tokio::task::spawn_blocking(nova_service_ipc::connect).await {
                 Ok(Ok(())) => {
@@ -85,17 +86,14 @@ impl ServiceManager {
                     return Ok(());
                 }
                 Ok(Err(e)) => {
-                    log::warn!("IPC 连接失败 ({}/{}): {}", i + 1, max_retries, e);
-                    if e.to_string().contains("解析响应失败")
-                        || e.to_string().contains("服务返回空响应")
-                        || e.to_string().contains("响应为空")
-                        || e.to_string().contains("等待服务 IPC 就绪超时")
-                    {
-                        return Err(format!("IPC 协议不匹配或服务未就绪: {}", e));
-                    }
+                    let message = e.to_string();
+                    log::warn!("IPC 连接失败 ({}/{}): {}", i + 1, max_retries, message);
+                    last_error = Some(message);
                 }
                 Err(e) => {
-                    log::warn!("IPC 连接任务失败 ({}/{}): {}", i + 1, max_retries, e);
+                    let message = e.to_string();
+                    log::warn!("IPC 连接任务失败 ({}/{}): {}", i + 1, max_retries, message);
+                    last_error = Some(message);
                 }
             }
 
@@ -104,7 +102,10 @@ impl ServiceManager {
             }
         }
 
-        Err(format!("等待 IPC 就绪超时（{}次重试）", max_retries))
+        match last_error {
+            Some(err) => Err(format!("等待 IPC 就绪超时（{}次重试）: {}", max_retries, err)),
+            None => Err(format!("等待 IPC 就绪超时（{}次重试）", max_retries)),
+        }
     }
 
     /// 初始化服务管理器
@@ -127,8 +128,8 @@ impl ServiceManager {
             return Ok(());
         }
 
-        // 检查 IPC 连接
-        if let Err(e) = nova_service_ipc::connect() {
+        // 检查 IPC 连接。服务进入 Running 后命名管道可能还在初始化，给它一个启动窗口。
+        if let Err(e) = self.wait_for_ipc(120, std::time::Duration::from_millis(250)).await {
             log::warn!("IPC 连接失败: {}", e);
             self.set_status(ServiceStatus::NeedsReinstall).await;
             return Ok(());
@@ -188,7 +189,7 @@ impl ServiceManager {
             }
 
             // 等待 IPC 就绪
-            self.wait_for_ipc(20, std::time::Duration::from_millis(250)).await?;
+            self.wait_for_ipc(120, std::time::Duration::from_millis(250)).await?;
 
             self.set_status(ServiceStatus::Ready).await;
             log::info!("服务已恢复");
@@ -272,7 +273,7 @@ impl ServiceManager {
                 log::info!("服务安装成功，等待 IPC 就绪");
 
                 // 等待 IPC 就绪
-                self.wait_for_ipc(20, std::time::Duration::from_millis(250)).await?;
+                self.wait_for_ipc(120, std::time::Duration::from_millis(250)).await?;
 
                 // 检查版本
                 if nova_service_ipc::is_reinstall_needed() {
@@ -310,7 +311,7 @@ impl ServiceManager {
                 log::info!("服务重装成功，等待 IPC 就绪");
 
                 // 等待 IPC 就绪
-                self.wait_for_ipc(20, std::time::Duration::from_millis(250)).await?;
+                self.wait_for_ipc(120, std::time::Duration::from_millis(250)).await?;
 
                 if nova_service_ipc::is_reinstall_needed() {
                     self.set_status(ServiceStatus::NeedsReinstall).await;

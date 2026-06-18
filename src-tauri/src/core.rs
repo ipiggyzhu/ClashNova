@@ -92,20 +92,6 @@ fn service_core_uptime_sec(start_time: Option<i64>) -> u64 {
     now.as_secs().saturating_sub(start_time)
 }
 
-fn service_core_version() -> Option<String> {
-    match nova_service_ipc::get_version() {
-        Ok(resp) if resp.code == 0 => resp.data.map(|version| version.version),
-        Ok(resp) => {
-            log::warn!("获取服务版本失败: {}", resp.message);
-            None
-        }
-        Err(err) => {
-            log::warn!("IPC 查询服务版本失败: {err}");
-            None
-        }
-    }
-}
-
 /// 读取当前内核状态(锁内只读内存状态; 服务状态查询移到阻塞线程池)。
 pub async fn status(app: &AppHandle) -> CoreStatus {
     let state = app.state::<AppState>();
@@ -135,8 +121,6 @@ pub async fn status(app: &AppHandle) -> CoreStatus {
         version
     } else if version != "—" {
         version
-    } else if service_running {
-        service_core_version().unwrap_or_else(|| "—".into())
     } else {
         "—".into()
     };
@@ -187,7 +171,7 @@ pub fn start(app: &AppHandle) -> Result<(), String> {
             crate::service::SERVICE_NAME
         );
 
-        wait_for_service_ipc_ready(Duration::from_secs(10), Duration::from_millis(250))?;
+        wait_for_service_ipc_ready(Duration::from_secs(30), Duration::from_millis(250))?;
         if nova_service_ipc::is_reinstall_needed() {
             return Err("服务版本不匹配，需要重装".into());
         }
@@ -202,7 +186,7 @@ pub fn start(app: &AppHandle) -> Result<(), String> {
     if crate::service::is_running() {
         log::info!("内核由服务 {} 托管, 通过 IPC 启动", crate::service::SERVICE_NAME);
 
-        wait_for_service_ipc_ready(Duration::from_secs(10), Duration::from_millis(250))?;
+        wait_for_service_ipc_ready(Duration::from_secs(30), Duration::from_millis(250))?;
         if nova_service_ipc::is_reinstall_needed() {
             return Err("服务版本不匹配，需要重装".into());
         }
@@ -221,7 +205,7 @@ pub fn start(app: &AppHandle) -> Result<(), String> {
                     crate::service::SERVICE_NAME
                 );
 
-                wait_for_service_ipc_ready(Duration::from_secs(10), Duration::from_millis(250))?;
+                wait_for_service_ipc_ready(Duration::from_secs(30), Duration::from_millis(250))?;
                 if nova_service_ipc::is_reinstall_needed() {
                     return Err("服务版本不匹配，需要重装".into());
                 }
@@ -243,7 +227,7 @@ pub fn start(app: &AppHandle) -> Result<(), String> {
                             crate::service::SERVICE_NAME
                         );
 
-                        wait_for_service_ipc_ready(Duration::from_secs(10), Duration::from_millis(250))?;
+                        wait_for_service_ipc_ready(Duration::from_secs(30), Duration::from_millis(250))?;
                         if nova_service_ipc::is_reinstall_needed() {
                             return Err("服务版本不匹配，需要重装".into());
                         }
@@ -698,14 +682,7 @@ fn wait_for_service_ipc_ready(timeout: Duration, retry_delay: Duration) -> Resul
         match nova_service_ipc::connect() {
             Ok(_) => return Ok(()),
             Err(e) => {
-                let err = e.to_string();
-                if err.contains("解析响应失败")
-                    || err.contains("服务返回空响应")
-                    || err.contains("响应为空")
-                {
-                    return Err(format!("服务 IPC 协议不匹配或服务未就绪: {err}"));
-                }
-                last_error = Some(err);
+                last_error = Some(e.to_string());
                 std::thread::sleep(retry_delay);
             }
         }

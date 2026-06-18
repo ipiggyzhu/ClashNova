@@ -19,17 +19,34 @@ impl IpcClient {
         option_env!("CLASHNOVA_BUILD_ID").unwrap_or(env!("CARGO_PKG_VERSION"))
     }
 
+    fn normalize_response(response_data: &[u8]) -> Vec<u8> {
+        let response = response_data
+            .strip_prefix(&[0xef, 0xbb, 0xbf])
+            .unwrap_or(response_data);
+        let start = response
+            .iter()
+            .position(|b| !b.is_ascii_whitespace() && *b != 0)
+            .unwrap_or(response.len());
+        let end = response
+            .iter()
+            .rposition(|b| !b.is_ascii_whitespace() && *b != 0)
+            .map(|idx| idx + 1)
+            .unwrap_or(start);
+        response[start..end].to_vec()
+    }
+
     fn parse_response<T: DeserializeOwned>(&self, response_data: &[u8], action: &str) -> Result<ServiceResponse<T>> {
-        let raw = String::from_utf8_lossy(response_data);
+        let response_data = Self::normalize_response(response_data);
+        let raw = String::from_utf8_lossy(&response_data);
         if raw.trim().is_empty() {
             anyhow::bail!("{action}响应为空");
         }
 
-        if let Ok(response) = serde_json::from_slice::<ServiceResponse<T>>(response_data) {
+        if let Ok(response) = serde_json::from_slice::<ServiceResponse<T>>(&response_data) {
             return Ok(response);
         }
 
-        let fallback: ServiceResponse<serde_json::Value> = serde_json::from_slice(response_data)
+        let fallback: ServiceResponse<serde_json::Value> = serde_json::from_slice(&response_data)
             .with_context(|| format!("解析{action}响应失败: {raw}"))?;
 
         if fallback.code != 0 {

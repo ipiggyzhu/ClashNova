@@ -76,10 +76,14 @@ jobs:
         run: |
           # 创建占位文件，让 Tauri build.rs 检查通过
           New-Item -ItemType Directory -Force -Path src-tauri/binaries
+          New-Item -ItemType File -Force -Path src-tauri/binaries/clashnova-service-x86_64-pc-windows-msvc.exe
           New-Item -ItemType File -Force -Path src-tauri/binaries/clashnova-service-install-x86_64-pc-windows-msvc.exe
           New-Item -ItemType File -Force -Path src-tauri/binaries/clashnova-service-uninstall-x86_64-pc-windows-msvc.exe
 
           Write-Host "开始构建服务安装程序..."
+          cargo build --release --bin clashnova-service
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
           cargo build --release --bin clashnova-service-install
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
@@ -90,6 +94,7 @@ jobs:
           Get-ChildItem target/release/clashnova-service-*.exe | Select-Object Name, Length
 
           Write-Host "替换为实际构建的文件..."
+          Copy-Item -Force target/release/clashnova-service.exe src-tauri/binaries/clashnova-service-x86_64-pc-windows-msvc.exe
           Copy-Item -Force target/release/clashnova-service-install.exe src-tauri/binaries/clashnova-service-install-x86_64-pc-windows-msvc.exe
           Copy-Item -Force target/release/clashnova-service-uninstall.exe src-tauri/binaries/clashnova-service-uninstall-x86_64-pc-windows-msvc.exe
 

@@ -20,6 +20,10 @@ path = "src/bin/service_install.rs"
 name = "clashnova-service-uninstall"
 path = "src/bin/service_uninstall.rs"
 
+[[bin]]
+name = "clashnova-service"
+path = "src/bin/service_host.rs"
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 

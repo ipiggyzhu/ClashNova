@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import './RouteMap.css'
 import Globe from 'globe.gl'
-import { geoEquirectangular, geoPath } from 'd3-geo'
+import { geoEquirectangular, geoInterpolate, geoPath } from 'd3-geo'
 import * as topojson from 'topojson-client'
 import type { Topology as TopoTopology, Objects } from 'topojson-specification'
 import type { FeatureCollection, Geometry } from 'geojson'
@@ -50,6 +50,7 @@ interface RegionTraffic {
   lat: number
   lng: number
   bytes: number
+  color: string
 }
 
 /** HTML 标签数据要求对象身份稳定(three-globe 按身份 diff, 否则每帧重建 DOM) */
@@ -62,6 +63,12 @@ interface LabelDatum {
 
 const ORIGIN_LABEL: LabelDatum = { code: '__origin', name: '本机', lat: ORIGIN.lat, lng: ORIGIN.lng }
 const LABEL_CACHE = new Map<string, LabelDatum>()
+const ROUTE_COLORS = ['#0A84FF', '#32D74B', '#FF9F0A', '#BF5AF2', '#FF375F', '#64D2FF', '#FFD60A', '#30D158']
+
+function routeColor(code: string): string {
+  const hash = [...code].reduce((sum, ch) => (sum * 31 + ch.charCodeAt(0)) >>> 0, 0)
+  return ROUTE_COLORS[hash % ROUTE_COLORS.length]
+}
 
 /** 球面主题配色: 浅色=蓝色海洋球, 深色=暗夜科技球 */
 const GLOBE_THEMES = {
@@ -113,7 +120,7 @@ export default function RouteMap() {
       if (!exit || exit === 'DIRECT' || exit === 'REJECT') continue
       const region = REGIONS.find((r) => r.match.test(exit))
       if (!region) continue
-      const slot = acc.get(region.code) ?? { ...region, bytes: 0 }
+      const slot = acc.get(region.code) ?? { ...region, bytes: 0, color: routeColor(region.code) }
       slot.bytes += c.upload + c.download
       acc.set(region.code, slot)
     }
@@ -129,7 +136,7 @@ export default function RouteMap() {
       ...regions.map((r) => {
         let l = LABEL_CACHE.get(r.code)
         if (!l) {
-          l = { code: r.code, name: r.name, lat: r.lat, lng: r.lng }
+          l = { code: r.code, name: '目的地', lat: r.lat, lng: r.lng }
           LABEL_CACHE.set(r.code, l)
         }
         return l
@@ -142,20 +149,19 @@ export default function RouteMap() {
   useEffect(() => {
     if (view !== 'globe' || !hostRef.current) return
     const el = hostRef.current
-    const pal = GLOBE_THEMES[resolvedTheme]
     const globe = new Globe(el, { animateIn: true })
       .backgroundColor('rgba(0,0,0,0)')
       .showAtmosphere(true)
-      .atmosphereColor(pal.atmosphere)
+      .atmosphereColor(GLOBE_THEMES[resolvedTheme].atmosphere)
       .atmosphereAltitude(0.16)
       .hexPolygonsData(LAND.features)
       .hexPolygonResolution(3)
       .hexPolygonMargin(0.6)
-      .hexPolygonColor(() => pal.hex)
+      .hexPolygonColor(() => GLOBE_THEMES[resolvedTheme].hex)
       .width(el.clientWidth)
       .height(el.clientHeight)
 
-    globe.globeMaterial().color.set(pal.globe)
+    globe.globeMaterial().color.set(GLOBE_THEMES[resolvedTheme].globe)
     globe.controls().autoRotate = true
     globe.controls().autoRotateSpeed = 0.55
     globe.pointOfView({ lat: 24, lng: 110, altitude: 1.85 }, 0)
@@ -176,19 +182,6 @@ export default function RouteMap() {
   useEffect(() => {
     const globe = globeRef.current
     if (!globe) return
-    const pal = GLOBE_THEMES[resolvedTheme]
-
-    const arcMidpoints = regions.map((r) => {
-      const midLat = (ORIGIN.lat + r.lat) / 2
-      const midLng = (ORIGIN.lng + r.lng) / 2
-      return {
-        code: `plane-${r.code}`,
-        name: '✈️',
-        lat: midLat,
-        lng: midLng,
-        isPlane: true,
-      }
-    })
 
     globe
       .arcsData(
@@ -198,9 +191,10 @@ export default function RouteMap() {
           endLat: r.lat,
           endLng: r.lng,
           weight: r.bytes,
+          color: r.color,
         })),
       )
-      .arcColor(() => [...pal.arc])
+      .arcColor((d: any) => d.color)
       .arcAltitudeAutoScale(0.42)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .arcStroke((d: any) => 0.35 + (d.weight / maxBytes) * 1.1)
@@ -212,7 +206,7 @@ export default function RouteMap() {
         ...regions.map((r) => ({
           ...r,
           size: 0.5 + (r.bytes / maxBytes) * 0.9,
-          color: pal.point,
+          color: r.color,
         })),
       ])
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -220,13 +214,14 @@ export default function RouteMap() {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .pointRadius((d: any) => d.size * 0.45)
       .pointAltitude(0.012)
-      .htmlElementsData([...labels, ...arcMidpoints])
+      .htmlElementsData(labels)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .htmlElement((d: any) => {
         const wrap = document.createElement('div')
         if (d.isPlane) {
           wrap.className = 'globe-plane'
           wrap.textContent = '✈️'
+          wrap.style.color = d.color ?? '#FFD60A'
         } else {
           wrap.className = d.code === '__origin' ? 'globe-label globe-label--origin' : 'globe-label'
           const text = document.createElement('span')
@@ -242,7 +237,41 @@ export default function RouteMap() {
         label.style.opacity = isVisible ? '1' : '0'
       })
     }
-  }, [regions, labels, maxBytes, view, resolvedTheme])
+  }, [regions, labels, maxBytes, view])
+
+  useEffect(() => {
+    if (view !== 'globe' || !globeRef.current || regions.length === 0) return
+    const globe = globeRef.current
+    const start = performance.now()
+    let frame = 0
+    let cancelled = false
+
+    const tick = (now: number) => {
+      if (cancelled || globeRef.current !== globe) return
+      const flightMs = 2600
+      const planeData = regions.map((r, index) => {
+        const interpolate = geoInterpolate([ORIGIN.lng, ORIGIN.lat], [r.lng, r.lat])
+        const phase = ((now - start) / flightMs + index / Math.max(1, regions.length)) % 1
+        const [lng, lat] = interpolate(phase)
+        return {
+          code: `plane-${r.code}`,
+          name: '✈️',
+          lat,
+          lng,
+          color: r.color,
+          isPlane: true,
+        }
+      })
+      globe.htmlElementsData([...labels, ...planeData])
+      frame = window.requestAnimationFrame(tick)
+    }
+
+    frame = window.requestAnimationFrame(tick)
+    return () => {
+      cancelled = true
+      window.cancelAnimationFrame(frame)
+    }
+  }, [labels, regions, view])
 
   const FLAT_W = 1100
   const FLAT_H = 540
@@ -259,7 +288,7 @@ export default function RouteMap() {
     const origin = projection([ORIGIN.lng, ORIGIN.lat]) ?? [0, 0]
     const targets = regions.map((r) => {
       const [x, y] = projection([r.lng, r.lat]) ?? [0, 0]
-      return { ...r, x, y }
+      return { ...r, x, y, color: r.color }
     })
     return { land, origin, targets }
   }, [regions])
@@ -297,41 +326,46 @@ export default function RouteMap() {
               viewBox={`0 0 ${FLAT_W} ${FLAT_H}`}
               preserveAspectRatio="xMidYMid meet"
             >
-              <defs>
-                <linearGradient id="rm-arc" x1="0" y1="0" x2="1" y2="0">
-                  <stop offset="0" stopColor="#0A84FF" />
-                  <stop offset="1" stopColor="#64D2FF" />
-                </linearGradient>
-              </defs>
               {flat.land.map((d, i) => (
                 <path className="land" d={d} key={i} />
               ))}
-              {flat.targets.map((t) => {
+              {flat.targets.map((t, index) => {
                 const [ox, oy] = flat.origin
                 const mx = (ox + t.x) / 2
                 const my = Math.min(oy, t.y) - Math.abs(t.x - ox) * 0.18 - 26
-                const angle = Math.atan2(t.y - oy, t.x - ox) * (180 / Math.PI)
+                const flightMs = 2600 + (index % 5) * 180
                 return (
                   <g key={t.code}>
                     <path
                       d={`M${ox},${oy} Q${mx},${my} ${t.x},${t.y}`}
                       fill="none"
-                      stroke="url(#rm-arc)"
+                      stroke={t.color}
+                      strokeWidth={4 + (t.bytes / maxBytes) * 3}
+                      strokeLinecap="round"
+                      opacity={0.18}
+                    />
+                    <path
+                      id={`rm-route-${t.code}`}
+                      d={`M${ox},${oy} Q${mx},${my} ${t.x},${t.y}`}
+                      fill="none"
+                      stroke={t.color}
                       strokeWidth={1 + (t.bytes / maxBytes) * 2.4}
                       strokeLinecap="round"
-                      opacity={0.8}
+                      opacity={0.85}
                     />
-                    <g transform={`translate(${mx}, ${my}) rotate(${angle}) scale(0.7)`}>
+                    <g className="route-plane" style={{ color: t.color }}>
+                      <animateMotion dur={`${flightMs}ms`} repeatCount="indefinite" rotate="auto">
+                        <mpath href={`#rm-route-${t.code}`} />
+                      </animateMotion>
                       <path
                         d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z"
                         transform="translate(-12, -12)"
-                        fill="#FFD60A"
-                        opacity={0.9}
+                        fill="currentColor"
+                        opacity={0.96}
                       />
                     </g>
-                    <circle cx={t.x} cy={t.y} r={3 + (t.bytes / maxBytes) * 3} fill="#64D2FF" />
-                    <text x={t.x + 8} y={t.y + 4}>{t.name}</text>
-                    <text className="sub" x={t.x + 8} y={t.y + 16}>{fmtBytes(t.bytes)}</text>
+                    <circle cx={t.x} cy={t.y} r={3 + (t.bytes / maxBytes) * 3} fill={t.color} />
+                    <text x={t.x + 8} y={t.y + 4}>目的地</text>
                   </g>
                 )
               })}

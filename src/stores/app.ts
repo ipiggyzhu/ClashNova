@@ -56,6 +56,17 @@ let loadAllPromise: Promise<void> | null = null
 /** refreshCoreStatus 调用序号: REST 兜底 await 期间有更新的刷新时丢弃过期结果 */
 let coreRefreshSeq = 0
 
+async function hydrateCoreVersion(coreStatus: CoreStatus): Promise<CoreStatus> {
+  if (coreStatus.running && (!coreStatus.version || coreStatus.version === '—')) {
+    try {
+      coreStatus.version = (await getVersion()).version
+    } catch {
+      // 内核未就绪, 下轮轮询再试
+    }
+  }
+  return coreStatus
+}
+
 export const useAppStore = create<AppStore>((set, get) => ({
   settings: { ...DEFAULT_SETTINGS },
   coreStatus: INITIAL_CORE,
@@ -65,12 +76,13 @@ export const useAppStore = create<AppStore>((set, get) => ({
   loadAll: async () => {
     if (loadAllPromise) return loadAllPromise
     loadAllPromise = (async () => {
-      const [rawSettings, coreStatus] = await Promise.all([
+      const [rawSettings, initialCoreStatus] = await Promise.all([
         call('get_settings'),
         call('core_status'),
       ])
       const settings = normalizeDnsSettings(rawSettings)
       configureApi(settings.externalController, settings.secret)
+      const coreStatus = await hydrateCoreVersion(initialCoreStatus)
       applyTheme(settings.theme)
       set({ settings, coreStatus, loaded: true })
       // 启动后静默检查更新
@@ -83,15 +95,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
   refreshCoreStatus: async () => {
     const seq = ++coreRefreshSeq
-    const coreStatus = await call('core_status')
-    // 后端缓存未就绪时直接问内核 REST /version 兜底
-    if (coreStatus.running && (!coreStatus.version || coreStatus.version === '—')) {
-      try {
-        coreStatus.version = (await getVersion()).version
-      } catch {
-        // 内核未就绪, 下轮轮询再试
-      }
-    }
+    const coreStatus = await hydrateCoreVersion(await call('core_status'))
     // await 期间出现了更新的刷新(如 stop/start 后的立即刷新) → 本次结果作废
     if (seq === coreRefreshSeq) set({ coreStatus })
   },

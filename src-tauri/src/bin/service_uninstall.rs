@@ -1,3 +1,5 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 //! ClashNova 服务卸载程序
 //!
 //! 这是一个独立的可执行文件，用于卸载 ClashNova 内核服务。
