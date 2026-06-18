@@ -106,7 +106,14 @@ pub async fn apply_tun(app: &AppHandle, enable: bool) -> Result<(), String> {
         return Err("TUN 模式需要服务模式支持，请先在设置中安装服务".into());
     }
     if enable {
-        service::diagnose_installation()?;
+        if let Err(err) = service::diagnose_installation() {
+            if service::is_repairable_installation_error(&err) {
+                log::warn!("检测到服务安装信息可自动修复，开始重装服务: {err}");
+                repair_service(app.clone()).await?;
+            } else {
+                return Err(err);
+            }
+        }
     }
 
     let service_was_running = service::is_running();

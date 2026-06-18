@@ -21,6 +21,14 @@ fn expected_service_binary_path() -> Result<PathBuf, String> {
 }
 
 #[cfg(windows)]
+fn normalized_path(path: &Path) -> String {
+    path.to_string_lossy()
+        .replace('/', "\\")
+        .trim_matches('"')
+        .to_ascii_lowercase()
+}
+
+#[cfg(windows)]
 pub fn diagnose_installation() -> Result<(), String> {
     let current_exe = std::env::current_exe()
         .map_err(|e| format!("定位当前程序失败: {e}"))?;
@@ -44,6 +52,10 @@ pub fn diagnose_installation() -> Result<(), String> {
         ));
     }
 
+    if let Some(message) = diagnose_registered_service(&service_exe) {
+        return Err(message);
+    }
+
     Ok(())
 }
 
@@ -52,22 +64,46 @@ pub fn diagnose_installation() -> Result<(), String> {
     Ok(())
 }
 
+pub fn is_repairable_installation_error(err: &str) -> bool {
+    err.contains("服务注册信息过旧")
+}
+
 #[cfg(windows)]
 fn service_matches_expected(service: &windows_service::service::Service) -> bool {
     match service.query_config() {
-        Ok(config) => {
-            let expected_exe = match expected_service_binary_path() {
-                Ok(exe) => exe,
-                Err(_) => return false,
-            }
-            .to_string_lossy()
-            .to_ascii_lowercase();
-            let launch_command = config.executable_path.to_string_lossy().to_ascii_lowercase();
-            launch_command.contains(&expected_exe)
-                && launch_command.contains("--dir")
-        }
+        Ok(config) => service_command_matches_expected(&config.executable_path),
         Err(_) => false,
     }
+}
+
+#[cfg(windows)]
+fn service_command_matches_expected(launch_command: &Path) -> bool {
+    let expected_exe = match expected_service_binary_path() {
+        Ok(exe) => exe,
+        Err(_) => return false,
+    };
+    let command = normalized_path(launch_command);
+    command.contains(&normalized_path(&expected_exe)) && command.contains("--dir")
+}
+
+#[cfg(windows)]
+fn diagnose_registered_service(expected_exe: &Path) -> Option<String> {
+    let manager = ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT).ok()?;
+    let service = manager
+        .open_service(SERVICE_NAME, ServiceAccess::QUERY_CONFIG)
+        .ok()?;
+    let config = service.query_config().ok()?;
+
+    if service_command_matches_expected(&config.executable_path) {
+        return None;
+    }
+
+    let registered = config.executable_path.display().to_string();
+
+    Some(format!(
+        "服务注册信息过旧: 当前 SCM 指向 `{registered}`，期望 `{}` --dir <配置目录>。请在设置中重装服务，或重新安装最新版本安装包",
+        expected_exe.display()
+    ))
 }
 
 #[cfg(windows)]
