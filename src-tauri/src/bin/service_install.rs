@@ -31,9 +31,11 @@ fn service_matches_expected(
     match service.query_config() {
         Ok(config) => {
             let expected_exe = main_exe.to_string_lossy().to_ascii_lowercase();
-            let launch_command = config.executable_path.to_string_lossy().to_ascii_lowercase();
-            launch_command.contains(&expected_exe)
-                && launch_command.contains("--dir")
+            let launch_command = config
+                .executable_path
+                .to_string_lossy()
+                .to_ascii_lowercase();
+            launch_command.contains(&expected_exe) && launch_command.contains("--dir")
         }
         Err(_) => false,
     }
@@ -175,8 +177,7 @@ fn install(config_dir: &std::path::Path) -> Result<(), String> {
     log::info!("开始安装服务: {}", SERVICE_NAME);
 
     // 获取服务宿主路径（与安装程序同目录的 clashnova-service.exe）
-    let exe = std::env::current_exe()
-        .map_err(|e| format!("获取当前可执行文件路径失败: {}", e))?;
+    let exe = std::env::current_exe().map_err(|e| format!("获取当前可执行文件路径失败: {}", e))?;
 
     let service_exe = exe
         .parent()
@@ -184,10 +185,7 @@ fn install(config_dir: &std::path::Path) -> Result<(), String> {
         .join("clashnova-service.exe");
 
     if !service_exe.exists() {
-        return Err(format!(
-            "服务宿主不存在: {}",
-            service_exe.display()
-        ));
+        return Err(format!("服务宿主不存在: {}", service_exe.display()));
     }
 
     log::info!("服务宿主路径: {}", service_exe.display());
@@ -210,7 +208,9 @@ fn install(config_dir: &std::path::Path) -> Result<(), String> {
         if !service_matches_expected(&service, &service_exe) {
             log::warn!("服务已存在但注册信息与当前安装包不匹配，执行重装");
             let _ = service.stop();
-            service.delete().map_err(|e| format!("删除旧服务失败: {}", e))?;
+            service
+                .delete()
+                .map_err(|e| format!("删除旧服务失败: {}", e))?;
             drop(service);
             wait_until_removed(&manager)?;
         } else if let Ok(status) = service.query_status() {
@@ -221,7 +221,10 @@ fn install(config_dir: &std::path::Path) -> Result<(), String> {
                     restart_existing_service(&service)?;
                     return Ok(());
                 }
-                ServiceState::Stopped | ServiceState::StopPending | ServiceState::Paused | ServiceState::PausePending => {
+                ServiceState::Stopped
+                | ServiceState::StopPending
+                | ServiceState::Paused
+                | ServiceState::PausePending => {
                     log::info!("服务已存在但未运行，尝试启动");
 
                     restart_existing_service(&service)?;

@@ -44,7 +44,8 @@ fn main() {
 
     // 提权安装/卸载服务（由 runas/UAC 调用）
     if args.iter().any(|a| a == "--install-service") {
-        let dir = args.iter()
+        let dir = args
+            .iter()
             .position(|a| a == "--dir")
             .and_then(|i| args.get(i + 1))
             .map(std::path::PathBuf::from);
@@ -115,6 +116,7 @@ fn main() {
             commands::restart_core,
             commands::list_profiles,
             commands::import_profile,
+            commands::import_profile_file,
             commands::update_profile,
             commands::select_profile,
             commands::delete_profile,
@@ -156,8 +158,7 @@ fn main() {
             });
 
             // 静默启动(或带 --silent 参数)时仅驻留托盘
-            let silent = settings.silent_start
-                || std::env::args().any(|a| a == "--silent");
+            let silent = settings.silent_start || std::env::args().any(|a| a == "--silent");
             if !silent {
                 tray::show_main_window(&handle);
             }
@@ -169,7 +170,9 @@ fn main() {
                 if service::is_running() && commands::is_service_ipc_failure(&e) {
                     tauri::async_runtime::spawn(async move {
                         log::warn!("启动阶段检测到服务 IPC 故障，尝试自动修复: {}", e);
-                        if let Err(repair_err) = commands::repair_service(startup_handle.clone()).await {
+                        if let Err(repair_err) =
+                            commands::repair_service(startup_handle.clone()).await
+                        {
                             log::error!("启动阶段自动修复服务失败: {}", repair_err);
                         }
                     });

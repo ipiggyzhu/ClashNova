@@ -31,12 +31,181 @@ interface DnsSettingsProps {
   onClose: () => void
 }
 
+interface DnsOverrideForm {
+  nameserver: string
+  fallback: string
+  proxyServerNameserver: string
+  directNameserver: string
+  fakeIpFilter: string
+  nameserverPolicy: string
+}
+
+const EMPTY_DNS_FORM: DnsOverrideForm = {
+  nameserver: '',
+  fallback: '',
+  proxyServerNameserver: '',
+  directNameserver: '',
+  fakeIpFilter: '',
+  nameserverPolicy: '',
+}
+
+function normalizeDnsRoot(raw: string): string {
+  const lines = raw.split(/\r?\n/)
+  const dnsStart = lines.findIndex((line) => /^dns\s*:\s*(?:#.*)?$/.test(line))
+  if (dnsStart === -1) return raw
+  const out: string[] = []
+  for (let i = dnsStart + 1; i < lines.length; i += 1) {
+    const line = lines[i]
+    if (!line.trim()) {
+      if (out.length) out.push('')
+      continue
+    }
+    if (/^\s+/.test(line)) {
+      out.push(line.replace(/^\s{2}/, ''))
+      continue
+    }
+    break
+  }
+  return out.join('\n')
+}
+
+function stripYamlValue(value: string): string {
+  const trimmed = value.trim().replace(/\s+#.*$/, '')
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    return trimmed.slice(1, -1)
+  }
+  return trimmed
+}
+
+function extractYamlList(raw: string, key: string): string {
+  const lines = normalizeDnsRoot(raw).split(/\r?\n/)
+  const start = lines.findIndex((line) => new RegExp(`^${key}\\s*:`).test(line))
+  if (start === -1) return ''
+  const inline = lines[start].replace(new RegExp(`^${key}\\s*:\\s*`), '').trim()
+  if (inline && inline !== '[]') {
+    if (inline.startsWith('[') && inline.endsWith(']')) {
+      return inline.slice(1, -1).split(',').map(stripYamlValue).filter(Boolean).join(', ')
+    }
+    return inline.split(',').map(stripYamlValue).filter(Boolean).join(', ')
+  }
+  const items: string[] = []
+  for (let i = start + 1; i < lines.length; i += 1) {
+    const line = lines[i]
+    if (!/^\s+/.test(line)) break
+    const match = line.match(/^\s*-\s*(.+)$/)
+    if (match) items.push(stripYamlValue(match[1]))
+  }
+  return items.join(', ')
+}
+
+function extractNameserverPolicy(raw: string): string {
+  const lines = normalizeDnsRoot(raw).split(/\r?\n/)
+  const start = lines.findIndex((line) => /^nameserver-policy\s*:/.test(line))
+  if (start === -1) return ''
+  const entries: string[] = []
+  let currentKey = ''
+  let currentServers: string[] = []
+  const flush = (): void => {
+    if (currentKey && currentServers.length) entries.push(`${currentKey}=${currentServers.join(';')}`)
+    currentKey = ''
+    currentServers = []
+  }
+
+  for (let i = start + 1; i < lines.length; i += 1) {
+    const line = lines[i]
+    if (!/^\s+/.test(line)) break
+    const keyMatch = line.match(/^\s{2,}("?[^":]+"?|".+?")\s*:\s*(.*)$/)
+    if (keyMatch && !line.trimStart().startsWith('- ')) {
+      flush()
+      currentKey = stripYamlValue(keyMatch[1])
+      const inline = keyMatch[2].trim()
+      if (inline) currentServers = inline.split(/[;,]/).map(stripYamlValue).filter(Boolean)
+      continue
+    }
+    const itemMatch = line.match(/^\s*-\s*(.+)$/)
+    if (itemMatch) currentServers.push(stripYamlValue(itemMatch[1]))
+  }
+  flush()
+  return entries.join('\n')
+}
+
+function parseDnsForm(raw: string): DnsOverrideForm {
+  return {
+    nameserver: extractYamlList(raw, 'nameserver'),
+    fallback: extractYamlList(raw, 'fallback'),
+    proxyServerNameserver: extractYamlList(raw, 'proxy-server-nameserver'),
+    directNameserver: extractYamlList(raw, 'direct-nameserver'),
+    fakeIpFilter: extractYamlList(raw, 'fake-ip-filter'),
+    nameserverPolicy: extractNameserverPolicy(raw),
+  }
+}
+
+function splitList(value: string): string[] {
+  return value
+    .split(/[\n,]/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
+
+function appendList(lines: string[], key: string, value: string): void {
+  const items = splitList(value)
+  if (!items.length) return
+  lines.push(`${key}:`)
+  for (const item of items) lines.push(`  - ${JSON.stringify(item)}`)
+}
+
+function appendPolicy(lines: string[], value: string): void {
+  const entries = value
+    .split(/\n|,\s*(?=[^=]+=)/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+  if (!entries.length) return
+  lines.push('nameserver-policy:')
+  for (const entry of entries) {
+    const eq = entry.indexOf('=')
+    if (eq <= 0) continue
+    const key = entry.slice(0, eq).trim()
+    const servers = entry.slice(eq + 1).split(';').map((item) => item.trim()).filter(Boolean)
+    if (!key || !servers.length) continue
+    lines.push(`  ${JSON.stringify(key)}:`)
+    for (const server of servers) lines.push(`    - ${JSON.stringify(server)}`)
+  }
+}
+
+function buildDnsOverride(settings: AppSettings, form: DnsOverrideForm): string {
+  const lines = [
+    `enable: ${settings.enableDns ? 'true' : 'false'}`,
+    `listen: ${JSON.stringify(settings.dnsListen)}`,
+    `ipv6: ${settings.ipv6Dns ? 'true' : 'false'}`,
+    `prefer-h3: ${settings.preferH3 ? 'true' : 'false'}`,
+    `respect-rules: ${settings.respectRules ? 'true' : 'false'}`,
+    `use-hosts: ${settings.useHosts ? 'true' : 'false'}`,
+    `use-system-hosts: ${settings.useSystemHosts ? 'true' : 'false'}`,
+  ]
+  if (settings.dnsEnhancedMode) lines.push(`enhanced-mode: ${settings.dnsEnhancedMode}`)
+  if (settings.dnsEnhancedMode === 'fake-ip') {
+    lines.push(`fake-ip-range: ${JSON.stringify(settings.fakeIpRange)}`)
+    lines.push(`fake-ip-filter-mode: ${settings.fakeIpFilterMode}`)
+  }
+  appendList(lines, 'nameserver', form.nameserver)
+  appendList(lines, 'fallback', form.fallback)
+  appendList(lines, 'proxy-server-nameserver', form.proxyServerNameserver)
+  appendList(lines, 'direct-nameserver', form.directNameserver)
+  appendList(lines, 'fake-ip-filter', form.fakeIpFilter)
+  appendPolicy(lines, form.nameserverPolicy)
+  return `${lines.join('\n')}\n`
+}
+
 export default function DnsSettings({ onClose }: DnsSettingsProps) {
   const t = useT()
   const settings = useAppStore((s) => s.settings)
   const patchSettings = useAppStore((s) => s.patchSettings)
 
   const [draft, setDraft] = useState<Partial<Record<keyof AppSettings, string>>>({})
+  const [form, setForm] = useState<DnsOverrideForm>(() => parseDnsForm(settings.dnsOverride ?? ''))
   const [validationError, setValidationError] = useState<string | null>(null)
 
   const patch = (p: Partial<AppSettings>): void => {
@@ -97,6 +266,7 @@ export default function DnsSettings({ onClose }: DnsSettingsProps) {
   }
 
   const resetDefaults = (): void => {
+    setForm(EMPTY_DNS_FORM)
     patch({
       enableDns: true,
       dnsListen: '127.0.0.1:5335',
@@ -110,6 +280,41 @@ export default function DnsSettings({ onClose }: DnsSettingsProps) {
       useSystemHosts: false,
     })
   }
+
+  const saveDnsOverride = (): void => {
+    void patchSettings({ dnsOverride: buildDnsOverride(settings, form) })
+      .then(onClose)
+      .catch(() => setValidationError(t('保存 DNS 覆写失败')))
+  }
+
+  const updateForm = (key: keyof DnsOverrideForm, value: string): void => {
+    setForm((prev) => ({ ...prev, [key]: value }))
+  }
+
+  const TextArea = ({
+    label,
+    desc,
+    field,
+    placeholder,
+    rows = 3,
+  }: {
+    label: string
+    desc: string
+    field: keyof DnsOverrideForm
+    placeholder?: string
+    rows?: number
+  }) => (
+    <div className="dns-field">
+      <label>{label}</label>
+      <p>{desc}</p>
+      <textarea
+        rows={rows}
+        value={form[field]}
+        placeholder={placeholder}
+        onChange={(e) => updateForm(field, e.target.value)}
+      />
+    </div>
+  )
 
   return (
     <div className="dns-mask" onClick={onClose}>
@@ -226,16 +431,52 @@ export default function DnsSettings({ onClose }: DnsSettingsProps) {
             />
           </Row>
 
-          <div className="dns-note">
-            <Icon name="bell" size={14} />
-            <span>
-              {t('高级配置会与 DNS 覆写编辑器互相同步；编辑器中的 nameserver、fallback 等额外字段会保留。')}
-            </span>
-          </div>
+          <div className="dns-section-title">服务器列表</div>
+          <TextArea
+            label="域名服务器"
+            desc="DNS 服务器列表，用逗号或换行分隔"
+            field="nameserver"
+            placeholder={'https://dns.alidns.com/dns-query\nhttps://doh.pub/dns-query\n223.5.5.5'}
+          />
+          <TextArea
+            label="回退服务器"
+            desc="回退 DNS 服务器列表，用逗号或换行分隔"
+            field="fallback"
+            placeholder={'https://1.1.1.1/dns-query\ntls://8.8.4.4:853'}
+          />
+          <TextArea
+            label="代理节点 DNS"
+            desc="仅用于解析代理节点域名，用逗号或换行分隔"
+            field="proxyServerNameserver"
+            placeholder={'https://dns.alidns.com/dns-query\n119.29.29.29'}
+          />
+          <TextArea
+            label="直连域名服务器"
+            desc="直连出口域名解析服务器，支持 system 关键字"
+            field="directNameserver"
+            placeholder={'system\n223.5.5.5\nhttps://doh.pub/dns-query'}
+          />
+          <TextArea
+            label="Fake IP 过滤"
+            desc="跳过 Fake IP 解析的域名，用逗号或换行分隔"
+            field="fakeIpFilter"
+            placeholder={'geosite:private\ngeosite:cn\n+.lan\n+.local'}
+            rows={4}
+          />
+          <TextArea
+            label="域名服务器策略"
+            desc="格式：geosite:cn=server1;server2，每行一条"
+            field="nameserverPolicy"
+            placeholder={'geosite:cn=https://doh.pub/dns-query;https://dns.alidns.com/dns-query\n+.google.com=https://dns.google/dns-query'}
+            rows={4}
+          />
         </div>
 
         <div className="dns-foot">
-          <Button variant="primary" onClick={onClose}>
+          <Button onClick={onClose}>
+            {t('取消')}
+          </Button>
+          <Button variant="primary" onClick={saveDnsOverride}>
             <Icon name="check" size={13} />
             {t('保存')}
           </Button>

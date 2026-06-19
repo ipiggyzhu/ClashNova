@@ -9,6 +9,29 @@ use tauri::{AppHandle, Manager};
 use crate::state::{atomic_write, now_millis, AppState};
 
 const USER_AGENT: &str = "ClashNova/2.0 clash-verge-compatible clash-meta";
+const BUILTIN_PRUNE_ENHANCER_ID: &str = "builtin-prune-invalid-nodes";
+const BUILTIN_PRUNE_ENHANCER_NAME: &str = "内置：去除无效节点";
+const BUILTIN_PRUNE_SCRIPT: &str = r#"// 去除名称里明显不是节点的项目，并同步清理策略组引用。
+function main(config) {
+  const badName = /过期|到期|失效|剩余|流量|官网|套餐|订阅|网址|traffic|expire/i;
+  const removed = {};
+  config.proxies = (config.proxies || []).filter(function(proxy) {
+    const name = String((proxy && proxy.name) || '');
+    const drop = badName.test(name);
+    if (drop) removed[name] = true;
+    return !drop;
+  });
+
+  for (const group of config['proxy-groups'] || []) {
+    if (Array.isArray(group.proxies)) {
+      group.proxies = group.proxies.filter(function(name) {
+        return !removed[name];
+      });
+    }
+  }
+  return config;
+}
+"#;
 
 /// 契约 A 的 `ProfileMeta` 镜像。
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -51,6 +74,15 @@ pub struct ProfileQuota {
     pub total: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expire_at: Option<u64>,
+}
+
+fn builtin_prune_enhancer() -> EnhancerMeta {
+    EnhancerMeta {
+        id: BUILTIN_PRUNE_ENHANCER_ID.into(),
+        kind: "script".into(),
+        name: BUILTIN_PRUNE_ENHANCER_NAME.into(),
+        enabled: false,
+    }
 }
 
 /// 读取 profiles.json 索引(缺失时返回空表)。
@@ -233,21 +265,31 @@ pub async fn import(app: &AppHandle, url: String) -> Result<ProfileMeta, String>
         .get("content-disposition")
         .and_then(|v| v.to_str().ok())
         .and_then(parse_filename)
-        .map(|f| f.trim_end_matches(".yaml").trim_end_matches(".yml").to_string());
+        .map(|f| {
+            f.trim_end_matches(".yaml")
+                .trim_end_matches(".yml")
+                .to_string()
+        });
 
-    let raw = resp.text().await.map_err(|e| format!("读取订阅失败: {e}"))?;
+    let raw = resp
+        .text()
+        .await
+        .map_err(|e| format!("读取订阅失败: {e}"))?;
     let content = normalize_content(&raw)?;
 
     let name = disp_name
         .filter(|s| !s.is_empty())
-        .or_else(|| {
-            url::host(&url).map(|h| h.to_string())
-        })
+        .or_else(|| url::host(&url).map(|h| h.to_string()))
         .unwrap_or_else(|| "新订阅".into());
 
     let id = base36(now_millis());
     let state = app.state::<AppState>();
     atomic_write(&state.dirs.profile_file(&id), content.as_bytes())?;
+    let builtin_prune = builtin_prune_enhancer();
+    atomic_write(
+        &enhancer_file(&state, &id, &builtin_prune),
+        BUILTIN_PRUNE_SCRIPT.as_bytes(),
+    )?;
 
     let mut index = load_index(app);
     let first = index.is_empty();
@@ -261,13 +303,68 @@ pub async fn import(app: &AppHandle, url: String) -> Result<ProfileMeta, String>
         size_bytes: Some(content.len() as u64),
         quota,
         current: first,
-        enhancers: Vec::new(),
+        enhancers: vec![builtin_prune],
     };
     index.push(meta.clone());
     save_index(app, &index)?;
     if first {
         regenerate_runtime(app)?;
         // 首次订阅自动成为当前配置 → 热加载或启动内核
+        if crate::core::is_running(app).await {
+            crate::core::reload_runtime(app).await?;
+        } else {
+            crate::core::start(app)?;
+        }
+    }
+    Ok(meta)
+}
+
+/// 导入本地配置文件内容, 返回新 ProfileMeta。
+pub async fn import_file(
+    app: &AppHandle,
+    name: String,
+    raw: String,
+) -> Result<ProfileMeta, String> {
+    if raw.trim().is_empty() {
+        return Err("配置文件为空".into());
+    }
+
+    let content = normalize_content(&raw)?;
+    let profile_name = std::path::Path::new(&name)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("本地配置")
+        .to_string();
+
+    let id = base36(now_millis());
+    let state = app.state::<AppState>();
+    atomic_write(&state.dirs.profile_file(&id), content.as_bytes())?;
+    let builtin_prune = builtin_prune_enhancer();
+    atomic_write(
+        &enhancer_file(&state, &id, &builtin_prune),
+        BUILTIN_PRUNE_SCRIPT.as_bytes(),
+    )?;
+
+    let mut index = load_index(app);
+    let first = index.is_empty();
+    let meta = ProfileMeta {
+        id,
+        name: profile_name,
+        kind: "local".into(),
+        url: Some(name),
+        updated_at: now_millis(),
+        auto_update_min: None,
+        size_bytes: Some(content.len() as u64),
+        quota: None,
+        current: first,
+        enhancers: vec![builtin_prune],
+    };
+    index.push(meta.clone());
+    save_index(app, &index)?;
+    if first {
+        regenerate_runtime(app)?;
         if crate::core::is_running(app).await {
             crate::core::reload_runtime(app).await?;
         } else {
@@ -307,7 +404,10 @@ pub async fn update(app: &AppHandle, id: String) -> Result<ProfileMeta, String> 
         .get("subscription-userinfo")
         .and_then(|v| v.to_str().ok())
         .and_then(parse_userinfo);
-    let raw = resp.text().await.map_err(|e| format!("读取订阅失败: {e}"))?;
+    let raw = resp
+        .text()
+        .await
+        .map_err(|e| format!("读取订阅失败: {e}"))?;
     let content = normalize_content(&raw)?;
 
     let state = app.state::<AppState>();

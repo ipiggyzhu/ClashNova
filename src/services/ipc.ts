@@ -28,6 +28,7 @@ export interface IpcCommands {
   restart_core: { args: undefined; result: void }
   list_profiles: { args: undefined; result: ProfileMeta[] }
   import_profile: { args: { url: string }; result: ProfileMeta }
+  import_profile_file: { args: { name: string; content: string }; result: ProfileMeta }
   update_profile: { args: { id: string }; result: ProfileMeta }
   select_profile: { args: { id: string }; result: void }
   delete_profile: { args: { id: string }; result: void }

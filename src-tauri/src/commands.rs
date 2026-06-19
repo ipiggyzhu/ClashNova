@@ -1,9 +1,9 @@
 //! 契约 B 的 15 个 Tauri 命令 + 托盘共用的内部应用函数。
 
+use std::time::Duration;
 use tauri::{AppHandle, Manager};
 use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_opener::OpenerExt;
-use std::time::Duration;
 
 use crate::core::{self, CoreStatus};
 use crate::profiles::{self, EnhancerMeta, ProfileMeta};
@@ -79,12 +79,7 @@ async fn rollback_tun_change(
     service_was_running: bool,
 ) {
     restore_settings(app, prev_settings, true);
-    restore_core_after_tun_failure(
-        app,
-        prev_settings,
-        sidecar_was_running,
-        service_was_running,
-    );
+    restore_core_after_tun_failure(app, prev_settings, sidecar_was_running, service_was_running);
     let _ = core::reload_runtime(app).await;
 }
 
@@ -196,7 +191,8 @@ pub async fn apply_tun(app: &AppHandle, enable: bool) -> Result<(), String> {
                 .await;
                 return Err(format!("自动重装服务失败: {repair_err}"));
             }
-            if let Err(tun_err) = core::wait_runtime_tun(app, enable, Duration::from_secs(8)).await {
+            if let Err(tun_err) = core::wait_runtime_tun(app, enable, Duration::from_secs(8)).await
+            {
                 rollback_tun_change(
                     app,
                     &prev_settings,
@@ -207,7 +203,9 @@ pub async fn apply_tun(app: &AppHandle, enable: bool) -> Result<(), String> {
                 return Err(tun_err);
             }
             if service::is_running() {
-                let _ = crate::service_manager::get_service_manager().refresh().await;
+                let _ = crate::service_manager::get_service_manager()
+                    .refresh()
+                    .await;
             }
             return Ok(());
         }
@@ -233,7 +231,9 @@ pub async fn apply_tun(app: &AppHandle, enable: bool) -> Result<(), String> {
     }
 
     if service::is_running() {
-        let _ = crate::service_manager::get_service_manager().refresh().await;
+        let _ = crate::service_manager::get_service_manager()
+            .refresh()
+            .await;
     }
 
     Ok(())
@@ -337,7 +337,9 @@ pub async fn save_settings(app: AppHandle, settings: AppSettings) -> Result<(), 
 
     // 影响 mihomo 运行时配置的项 → 重生成 + 热加载
     if runtime_changed {
-        let reload_result = if settings.external_controller != prev.external_controller || settings.secret != prev.secret {
+        let reload_result = if settings.external_controller != prev.external_controller
+            || settings.secret != prev.secret
+        {
             core::reload_runtime_with_auth(
                 &app,
                 prev.external_controller.clone(),
@@ -411,6 +413,15 @@ pub async fn import_profile(app: AppHandle, url: String) -> Result<ProfileMeta, 
 }
 
 #[tauri::command]
+pub async fn import_profile_file(
+    app: AppHandle,
+    name: String,
+    content: String,
+) -> Result<ProfileMeta, String> {
+    profiles::import_file(&app, name, content).await
+}
+
+#[tauri::command]
 pub async fn update_profile(app: AppHandle, id: String) -> Result<ProfileMeta, String> {
     profiles::update(&app, id).await
 }
@@ -442,7 +453,11 @@ pub async fn save_profile_content(
 /* ---------------- 配置增强链(M2) ---------------- */
 
 #[tauri::command]
-pub fn read_enhancer(app: AppHandle, profile_id: String, enhancer_id: String) -> Result<String, String> {
+pub fn read_enhancer(
+    app: AppHandle,
+    profile_id: String,
+    enhancer_id: String,
+) -> Result<String, String> {
     profiles::read_enhancer(&app, &profile_id, &enhancer_id)
 }
 
@@ -534,9 +549,15 @@ pub async fn service_status() -> String {
         crate::service_manager::ServiceStatus::Ready => "ready".to_string(),
         crate::service_manager::ServiceStatus::NeedsReinstall => "needs-reinstall".to_string(),
         crate::service_manager::ServiceStatus::InstallRequired => "not-installed".to_string(),
-        crate::service_manager::ServiceStatus::UninstallRequired => "uninstall-required".to_string(),
-        crate::service_manager::ServiceStatus::ReinstallRequired => "reinstall-required".to_string(),
-        crate::service_manager::ServiceStatus::ForceReinstallRequired => "force-reinstall-required".to_string(),
+        crate::service_manager::ServiceStatus::UninstallRequired => {
+            "uninstall-required".to_string()
+        }
+        crate::service_manager::ServiceStatus::ReinstallRequired => {
+            "reinstall-required".to_string()
+        }
+        crate::service_manager::ServiceStatus::ForceReinstallRequired => {
+            "force-reinstall-required".to_string()
+        }
         crate::service_manager::ServiceStatus::Unavailable(reason) => {
             format!("unavailable:{}", reason)
         }
@@ -737,7 +758,10 @@ pub async fn check_update() -> Result<Option<String>, String> {
 
 /// 流量统计: 总量时间序列(range: day|7d|30d)。
 #[tauri::command]
-pub fn query_traffic_series(app: AppHandle, range: String) -> Result<Vec<crate::stats::SeriesPoint>, String> {
+pub fn query_traffic_series(
+    app: AppHandle,
+    range: String,
+) -> Result<Vec<crate::stats::SeriesPoint>, String> {
     crate::stats::query_series(&app, &range)
 }
 

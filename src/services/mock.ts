@@ -133,6 +133,38 @@ rules:
   - MATCH,DIRECT
 `
 
+const BUILTIN_PRUNE_ENHANCER_ID = 'builtin-prune-invalid-nodes'
+const BUILTIN_PRUNE_SCRIPT = `// 去除名称里明显不是节点的项目，并同步清理策略组引用。
+function main(config) {
+  const badName = /过期|到期|失效|剩余|流量|官网|套餐|订阅|网址|traffic|expire/i;
+  const removed = {};
+  config.proxies = (config.proxies || []).filter(function(proxy) {
+    const name = String((proxy && proxy.name) || '');
+    const drop = badName.test(name);
+    if (drop) removed[name] = true;
+    return !drop;
+  });
+
+  for (const group of config['proxy-groups'] || []) {
+    if (Array.isArray(group.proxies)) {
+      group.proxies = group.proxies.filter(function(name) {
+        return !removed[name];
+      });
+    }
+  }
+  return config;
+}
+`
+
+function builtinPruneEnhancer(): EnhancerMeta {
+  return {
+    id: BUILTIN_PRUNE_ENHANCER_ID,
+    kind: 'script',
+    name: '内置：去除无效节点',
+    enabled: false,
+  }
+}
+
 interface MockProfile { meta: ProfileMeta; content: string }
 
 let profileSeq = 2
@@ -156,7 +188,7 @@ let profiles: MockProfile[] = [
       enhancers: [
         { id: 'e-dns', kind: 'merge', name: 'Merge: 覆写 DNS 与端口', enabled: true },
         { id: 'e-rename', kind: 'script', name: 'Script: 节点改名+地区分组', enabled: true },
-        { id: 'e-prune', kind: 'script', name: 'Script: 去除无效节点', enabled: false },
+        builtinPruneEnhancer(),
       ],
     },
     content: BIGAIRPORT_YAML,
@@ -170,6 +202,7 @@ let profiles: MockProfile[] = [
       updatedAt: new Date('2026-05-28T10:00:00+08:00').getTime(),
       sizeBytes: Math.round(12.6 * KB),
       current: false,
+      enhancers: [builtinPruneEnhancer()],
     },
     content: FULL_EN_YAML,
   },
@@ -523,8 +556,29 @@ export const mockHandlers: Record<string, MockHandler> = {
       sizeBytes: Math.round(rand(20, 200)) * KB,
       quota: { used: 0, total: 100 * GB, expireAt: Date.now() + 30 * DAY },
       current: false,
+      enhancers: [builtinPruneEnhancer()],
     }
+    enhancerContents[`${meta.id}/${BUILTIN_PRUNE_ENHANCER_ID}`] = BUILTIN_PRUNE_SCRIPT
     profiles.push({ meta, content: BIGAIRPORT_YAML })
+    return { ...meta }
+  },
+  import_profile_file: (args) => {
+    const name = argString(args, 'name')
+    const content = argString(args, 'content')
+    profileSeq += 1
+    const profileName = name.replace(/\.(ya?ml|txt|conf|config)$/i, '') || `本地配置 ${profileSeq}`
+    const meta: ProfileMeta = {
+      id: `p-${profileSeq}`,
+      name: profileName,
+      kind: 'local',
+      url: name,
+      updatedAt: Date.now(),
+      sizeBytes: new Blob([content]).size,
+      current: profiles.length === 0,
+      enhancers: [builtinPruneEnhancer()],
+    }
+    enhancerContents[`${meta.id}/${BUILTIN_PRUNE_ENHANCER_ID}`] = BUILTIN_PRUNE_SCRIPT
+    profiles.push({ meta, content })
     return { ...meta }
   },
   update_profile: (args) => {
@@ -670,7 +724,8 @@ rules: []
 const enhancerContents: Record<string, string> = {
   'p-bigairport/e-dns': `# 覆写 DNS 与端口\nmixed-port: 7897\ndns:\n  enable: true\n  enhanced-mode: fake-ip\n  nameserver:\n    - https://dns.alidns.com/dns-query\n    - https://doh.pub/dns-query\nprepend-rules:\n  - DOMAIN-SUFFIX,internal.corp,DIRECT\n`,
   'p-bigairport/e-rename': `// 节点改名 + 地区分组\nfunction main(config) {\n  const flags = { HK: '🇭🇰', TW: '🇹🇼', JP: '🇯🇵', SG: '🇸🇬', US: '🇺🇸' };\n  for (const p of config.proxies ?? []) {\n    const m = p.name.match(/^(HK|TW|JP|SG|US)/);\n    if (m && flags[m[1]]) p.name = flags[m[1]] + ' ' + p.name;\n  }\n  return config;\n}\n`,
-  'p-bigairport/e-prune': `// 去除名称带「过期/剩余」的无效节点\nfunction main(config) {\n  const bad = /过期|剩余|官网|流量/;\n  config.proxies = (config.proxies ?? []).filter((p) => !bad.test(p.name));\n  return config;\n}\n`,
+  [`p-bigairport/${BUILTIN_PRUNE_ENHANCER_ID}`]: BUILTIN_PRUNE_SCRIPT,
+  [`p-full-en/${BUILTIN_PRUNE_ENHANCER_ID}`]: BUILTIN_PRUNE_SCRIPT,
 }
 
 /** 当前 mock 设置(api.ts 取 secret/controller 用) */

@@ -9,10 +9,7 @@ pub async fn install_with_installer(config_dir: &std::path::Path) -> Result<(), 
     let installer_path = get_installer_path()?;
 
     if !installer_path.exists() {
-        return Err(format!(
-            "服务安装程序不存在: {}",
-            installer_path.display()
-        ));
+        return Err(format!("服务安装程序不存在: {}", installer_path.display()));
     }
 
     // 检查是否需要提权
@@ -71,12 +68,10 @@ pub async fn uninstall_with_installer() -> Result<(), String> {
     }
 
     // 已有管理员权限，直接执行
-    let output = tokio::task::spawn_blocking(move || {
-        Command::new(&uninstaller_path).output()
-    })
-    .await
-    .map_err(|e| format!("卸载任务失败: {}", e))?
-    .map_err(|e| format!("执行卸载程序失败: {}", e))?;
+    let output = tokio::task::spawn_blocking(move || Command::new(&uninstaller_path).output())
+        .await
+        .map_err(|e| format!("卸载任务失败: {}", e))?
+        .map_err(|e| format!("执行卸载程序失败: {}", e))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -89,8 +84,7 @@ pub async fn uninstall_with_installer() -> Result<(), String> {
 
 /// 获取服务安装程序路径
 fn get_installer_path() -> Result<PathBuf, String> {
-    let exe = std::env::current_exe()
-        .map_err(|e| format!("获取当前可执行文件路径失败: {}", e))?;
+    let exe = std::env::current_exe().map_err(|e| format!("获取当前可执行文件路径失败: {}", e))?;
 
     let installer = exe
         .parent()
@@ -102,8 +96,7 @@ fn get_installer_path() -> Result<PathBuf, String> {
 
 /// 获取服务卸载程序路径
 fn get_uninstaller_path() -> Result<PathBuf, String> {
-    let exe = std::env::current_exe()
-        .map_err(|e| format!("获取当前可执行文件路径失败: {}", e))?;
+    let exe = std::env::current_exe().map_err(|e| format!("获取当前可执行文件路径失败: {}", e))?;
 
     let uninstaller = exe
         .parent()
@@ -116,27 +109,31 @@ fn get_uninstaller_path() -> Result<PathBuf, String> {
 /// 检查当前进程是否有管理员权限
 #[cfg(windows)]
 fn is_elevated() -> bool {
-    use windows::Win32::Security::{GetTokenInformation, TokenElevation, TOKEN_ELEVATION, TOKEN_QUERY};
+    use windows::Win32::Security::{
+        GetTokenInformation, TokenElevation, TOKEN_ELEVATION, TOKEN_QUERY,
+    };
     use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
-    
+
     unsafe {
         let mut token = windows::Win32::Foundation::HANDLE::default();
         if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token).is_err() {
             return false;
         }
-        
+
         let mut elevation = TOKEN_ELEVATION { TokenIsElevated: 0 };
         let mut size = 0u32;
         if GetTokenInformation(
-            token, 
-            TokenElevation, 
-            Some(&mut elevation as *mut _ as *mut _), 
-            std::mem::size_of::<TOKEN_ELEVATION>() as u32, 
-            &mut size
-        ).is_err() {
+            token,
+            TokenElevation,
+            Some(&mut elevation as *mut _ as *mut _),
+            std::mem::size_of::<TOKEN_ELEVATION>() as u32,
+            &mut size,
+        )
+        .is_err()
+        {
             return false;
         }
-        
+
         elevation.TokenIsElevated != 0
     }
 }
@@ -179,9 +176,7 @@ async fn elevate_and_uninstall(uninstaller_path: &std::path::Path) -> Result<(),
     let uninstaller_str = uninstaller_path.to_string_lossy().to_string();
 
     let status = tokio::task::spawn_blocking(move || {
-        runas::Command::new(&uninstaller_str)
-            .show(false)
-            .status()
+        runas::Command::new(&uninstaller_str).show(false).status()
     })
     .await
     .map_err(|e| format!("提权任务失败: {}", e))?

@@ -23,21 +23,48 @@ pub fn create(app: &AppHandle) -> Result<(), String> {
     let show = MenuItem::with_id(app, "tray-show", "显示主窗口", true, None::<&str>)
         .map_err(|e| e.to_string())?;
     let sys_proxy = CheckMenuItem::with_id(
-        app, "tray-sysproxy", "系统代理", true, settings.sys_proxy, None::<&str>,
+        app,
+        "tray-sysproxy",
+        "系统代理",
+        true,
+        settings.sys_proxy,
+        None::<&str>,
     )
     .map_err(|e| e.to_string())?;
-    let tun = CheckMenuItem::with_id(app, "tray-tun", "TUN 模式", true, settings.tun, None::<&str>)
-        .map_err(|e| e.to_string())?;
+    let tun = CheckMenuItem::with_id(
+        app,
+        "tray-tun",
+        "TUN 模式",
+        true,
+        settings.tun,
+        None::<&str>,
+    )
+    .map_err(|e| e.to_string())?;
     let mode_direct = CheckMenuItem::with_id(
-        app, "tray-mode-direct", "直连", true, settings.mode == "direct", None::<&str>,
+        app,
+        "tray-mode-direct",
+        "直连",
+        true,
+        settings.mode == "direct",
+        None::<&str>,
     )
     .map_err(|e| e.to_string())?;
     let mode_rule = CheckMenuItem::with_id(
-        app, "tray-mode-rule", "规则", true, settings.mode == "rule", None::<&str>,
+        app,
+        "tray-mode-rule",
+        "规则",
+        true,
+        settings.mode == "rule",
+        None::<&str>,
     )
     .map_err(|e| e.to_string())?;
     let mode_global = CheckMenuItem::with_id(
-        app, "tray-mode-global", "全局", true, settings.mode == "global", None::<&str>,
+        app,
+        "tray-mode-global",
+        "全局",
+        true,
+        settings.mode == "global",
+        None::<&str>,
     )
     .map_err(|e| e.to_string())?;
     let mode_menu = SubmenuBuilder::new(app, "出站模式")

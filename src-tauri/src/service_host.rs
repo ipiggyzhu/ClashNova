@@ -103,9 +103,8 @@ mod service_impl {
 
     fn init_service_logger(config_dir: Option<&std::path::Path>) {
         append_bootstrap_log(config_dir, "initializing service logger");
-        let mut builder = env_logger::Builder::from_env(
-            env_logger::Env::default().default_filter_or("info"),
-        );
+        let mut builder =
+            env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"));
 
         for log_dir in service_log_dirs(config_dir) {
             if std::fs::create_dir_all(&log_dir).is_err() {

@@ -11,7 +11,10 @@ pub use crate::service_host::SERVICE_NAME;
 
 #[cfg(windows)]
 use windows_service::{
-    service::{ServiceAccess, ServiceErrorControl, ServiceInfo, ServiceStartType, ServiceState, ServiceType},
+    service::{
+        ServiceAccess, ServiceErrorControl, ServiceInfo, ServiceStartType, ServiceState,
+        ServiceType,
+    },
     service_manager::{ServiceManager, ServiceManagerAccess},
 };
 
@@ -30,11 +33,8 @@ fn normalized_path(path: &Path) -> String {
 
 #[cfg(windows)]
 pub fn diagnose_installation() -> Result<(), String> {
-    let current_exe = std::env::current_exe()
-        .map_err(|e| format!("定位当前程序失败: {e}"))?;
-    let install_dir = current_exe
-        .parent()
-        .ok_or("无法获取当前程序所在目录")?;
+    let current_exe = std::env::current_exe().map_err(|e| format!("定位当前程序失败: {e}"))?;
+    let install_dir = current_exe.parent().ok_or("无法获取当前程序所在目录")?;
     let pending_exe = install_dir.join("clashnova.new.exe");
     if pending_exe.exists() {
         let pending_is_stale = std::fs::metadata(&pending_exe)
@@ -105,7 +105,8 @@ fn service_command_matches_expected(launch_command: &Path) -> bool {
 
 #[cfg(windows)]
 fn diagnose_registered_service(expected_exe: &Path) -> Option<String> {
-    let manager = ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT).ok()?;
+    let manager =
+        ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT).ok()?;
     let service = manager
         .open_service(SERVICE_NAME, ServiceAccess::QUERY_CONFIG)
         .ok()?;
@@ -218,7 +219,9 @@ pub fn status() -> &'static str {
 
     #[cfg(windows)]
     {
-        let Ok(manager) = ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT) else {
+        let Ok(manager) =
+            ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT)
+        else {
             return "not-installed";
         };
         let Ok(service) = manager.open_service(SERVICE_NAME, ServiceAccess::QUERY_STATUS) else {
@@ -239,7 +242,9 @@ pub fn is_running() -> bool {
 
     #[cfg(windows)]
     {
-        let Ok(manager) = ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT) else {
+        let Ok(manager) =
+            ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT)
+        else {
             return false;
         };
         let Ok(service) = manager.open_service(SERVICE_NAME, ServiceAccess::QUERY_STATUS) else {
@@ -258,7 +263,8 @@ pub fn stop() -> Result<(), String> {
     let manager = ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT)
         .map_err(|e| format!("连接服务管理器失败: {e}"))?;
     let service_access = ServiceAccess::QUERY_STATUS | ServiceAccess::STOP;
-    let service = manager.open_service(SERVICE_NAME, service_access)
+    let service = manager
+        .open_service(SERVICE_NAME, service_access)
         .map_err(|e| format!("打开服务失败: {e}"))?;
 
     if matches!(
@@ -268,9 +274,7 @@ pub fn stop() -> Result<(), String> {
         return Ok(());
     }
 
-    service
-        .stop()
-        .map_err(|e| format!("停止服务失败: {e}"))?;
+    service.stop().map_err(|e| format!("停止服务失败: {e}"))?;
 
     for _ in 0..20 {
         std::thread::sleep(std::time::Duration::from_millis(250));
@@ -295,7 +299,8 @@ pub fn start() -> Result<(), String> {
     let manager = ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT)
         .map_err(|e| format!("连接服务管理器失败: {e}"))?;
     let service_access = ServiceAccess::QUERY_STATUS | ServiceAccess::START;
-    let service = manager.open_service(SERVICE_NAME, service_access)
+    let service = manager
+        .open_service(SERVICE_NAME, service_access)
         .map_err(|e| format!("打开服务失败: {e}"))?;
 
     if matches!(
@@ -397,12 +402,19 @@ pub fn install(config_dir: &Path) -> Result<(), String> {
         .map_err(|e| format!("连接服务管理器失败(需要管理员权限): {e}"))?;
 
     // 如果服务已存在,先尝试启动
-    let service_access = ServiceAccess::QUERY_STATUS | ServiceAccess::QUERY_CONFIG | ServiceAccess::START | ServiceAccess::STOP | ServiceAccess::DELETE | ServiceAccess::CHANGE_CONFIG;
+    let service_access = ServiceAccess::QUERY_STATUS
+        | ServiceAccess::QUERY_CONFIG
+        | ServiceAccess::START
+        | ServiceAccess::STOP
+        | ServiceAccess::DELETE
+        | ServiceAccess::CHANGE_CONFIG;
     if let Ok(service) = manager.open_service(SERVICE_NAME, service_access) {
         if !service_matches_expected(&service) {
             log::warn!("服务已存在但注册信息与当前构建不匹配，执行重装");
             let _ = service.stop();
-            service.delete().map_err(|e| format!("删除旧服务失败: {e}"))?;
+            service
+                .delete()
+                .map_err(|e| format!("删除旧服务失败: {e}"))?;
             drop(service);
             wait_until_removed(&manager)?;
         } else if let Ok(status) = service.query_status() {
@@ -412,7 +424,10 @@ pub fn install(config_dir: &Path) -> Result<(), String> {
                     restart_existing_service(&service)?;
                     return Ok(());
                 }
-                ServiceState::Stopped | ServiceState::StopPending | ServiceState::Paused | ServiceState::PausePending => {
+                ServiceState::Stopped
+                | ServiceState::StopPending
+                | ServiceState::Paused
+                | ServiceState::PausePending => {
                     log::info!("服务已存在但未运行,尝试启动");
                     restart_existing_service(&service)?;
                     return Ok(());
@@ -436,14 +451,18 @@ pub fn install(config_dir: &Path) -> Result<(), String> {
         account_password: None,
     };
 
-    let create_access = ServiceAccess::CHANGE_CONFIG | ServiceAccess::START | ServiceAccess::QUERY_STATUS;
-    let service = manager.create_service(&service_info, create_access)
+    let create_access =
+        ServiceAccess::CHANGE_CONFIG | ServiceAccess::START | ServiceAccess::QUERY_STATUS;
+    let service = manager
+        .create_service(&service_info, create_access)
         .map_err(|e| format!("创建服务失败: {e}"))?;
 
-    service.set_description("ClashNova 内核服务 - 用于 TUN 模式免管理员运行")
+    service
+        .set_description("ClashNova 内核服务 - 用于 TUN 模式免管理员运行")
         .map_err(|e| format!("设置服务描述失败: {e}"))?;
 
-    service.start(&Vec::<&OsStr>::new())
+    service
+        .start(&Vec::<&OsStr>::new())
         .map_err(|e| format!("启动服务失败: {e}"))?;
     wait_until_running(&service)?;
     log::info!("服务安装并启动成功");
@@ -465,7 +484,8 @@ pub fn uninstall() -> Result<(), String> {
         .map_err(|e| format!("连接服务管理器失败(需要管理员权限): {e}"))?;
 
     let service_access = ServiceAccess::QUERY_STATUS | ServiceAccess::STOP | ServiceAccess::DELETE;
-    let service = manager.open_service(SERVICE_NAME, service_access)
+    let service = manager
+        .open_service(SERVICE_NAME, service_access)
         .map_err(|e| format!("打开服务失败: {e}"))?;
 
     // 先停止服务
@@ -478,8 +498,7 @@ pub fn uninstall() -> Result<(), String> {
         }
     }
 
-    service.delete()
-        .map_err(|e| format!("删除服务失败: {e}"))?;
+    service.delete().map_err(|e| format!("删除服务失败: {e}"))?;
 
     drop(service);
     wait_until_removed(&manager)?;

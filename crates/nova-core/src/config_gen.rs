@@ -76,6 +76,7 @@ pub fn build_runtime_config(profile_yaml: &str, ov: &RuntimeOverrides) -> Result
     set("allow-lan", Value::Bool(ov.allow_lan));
     set("ipv6", Value::Bool(ov.ipv6));
     set("log-level", Value::String(ov.log_level.clone()));
+    set("find-process-mode", Value::String("always".into()));
 
     if ov.tun_enable {
         let patch: Value = serde_yaml::from_str(
@@ -222,6 +223,7 @@ mod tests {
 port: 7890
 mode: global
 log-level: debug
+find-process-mode: strict
 allow-lan: true
 ipv6: true
 tun:
@@ -241,6 +243,10 @@ proxies: []
         assert_eq!(doc.get("allow-lan"), Some(&Value::Bool(false)));
         assert_eq!(doc.get("ipv6"), Some(&Value::Bool(false)));
         assert_eq!(doc.get("log-level"), Some(&Value::String("info".into())));
+        assert_eq!(
+            doc.get("find-process-mode"),
+            Some(&Value::String("always".into()))
+        );
         // tun_enable=false 时,profile 私带的 tun.enable 必须被压成 false
         assert_eq!(
             doc.get("tun").and_then(|t| t.get("enable")),

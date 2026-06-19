@@ -34,7 +34,7 @@ export default function CodeEditor({ value, onChange, lang, readOnly }: CodeEdit
       extensions={extensions}
       theme={dark ? oneDark : 'light'}
       height="100%"
-      style={{ flex: 1, overflow: 'auto', fontSize: 12.5 }}
+      style={{ flex: 1, minHeight: 0, overflow: 'hidden', fontSize: 12.5 }}
       editable={!readOnly}
       readOnly={readOnly}
       basicSetup={{

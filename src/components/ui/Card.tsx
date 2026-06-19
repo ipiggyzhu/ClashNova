@@ -1,6 +1,6 @@
-import type { CSSProperties, ReactNode } from 'react'
+import type { CSSProperties, HTMLAttributes, ReactNode } from 'react'
 
-export interface CardProps {
+export interface CardProps extends Omit<HTMLAttributes<HTMLDivElement>, 'title'> {
   /** 卡片头图标(置于 .card-ic 容器内, 一般传 <Icon name=.../>) */
   icon?: ReactNode
   /** .card-ic 的着色(currentColor 同时驱动底色), 如 "var(--green)" */
@@ -28,10 +28,11 @@ export default function Card({
   bodyClassName,
   bodyStyle,
   children,
+  ...rest
 }: CardProps) {
   const hasHead = icon != null || title != null || actions != null
   return (
-    <div className={className ? `card ${className}` : 'card'} style={style}>
+    <div className={className ? `card ${className}` : 'card'} style={style} {...rest}>
       {hasHead && (
         <div className="card-head">
           {icon != null && (

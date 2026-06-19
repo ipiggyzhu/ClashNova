@@ -15,11 +15,20 @@
 [data-theme="light"] .pg-routemap .flat-svg .land{fill:rgba(36,104,196,.16);stroke:rgba(36,104,196,.30)}
 [data-theme="light"] .pg-routemap .map-body{background:
   radial-gradient(ellipse at 50% 42%, rgba(143,192,255,.30), transparent 62%)}
-.pg-routemap .globe-plane{pointer-events:none;font-size:16px;
-  transform:translateY(-10px);filter:drop-shadow(0 1px 3px rgba(4,18,46,.5));
+.pg-routemap .globe-plane{pointer-events:none;width:18px;height:18px;
+  transform:translate(-9px,-9px);filter:drop-shadow(0 0 5px currentColor) drop-shadow(0 1px 3px rgba(4,18,46,.65));
   transition:opacity .25s}
+.pg-routemap .globe-plane svg{display:block;width:18px;height:18px;fill:currentColor}
 .pg-routemap .flat-svg text{font-size:11px;font-weight:600;fill:var(--text)}
 .pg-routemap .flat-svg text.sub{font-size:9.5px;font-weight:400;fill:var(--text-3)}
+.pg-routemap .flat-svg .route-glow{opacity:.20;filter:drop-shadow(0 0 8px currentColor)}
+.pg-routemap .flat-svg .route-line{opacity:.9;filter:drop-shadow(0 0 3px currentColor)}
+.pg-routemap .flat-svg .route-trace{opacity:.55;stroke-dasharray:5 8;animation:routemap-trace 1.8s linear infinite}
+.pg-routemap .flat-svg .route-plane{filter:drop-shadow(0 0 5px currentColor) drop-shadow(0 1px 3px rgba(4,18,46,.65))}
+.pg-routemap .flat-svg .endpoint-halo{opacity:.18}
+.pg-routemap .flat-svg .endpoint-dot{filter:drop-shadow(0 0 5px currentColor)}
+.pg-routemap .flat-svg .origin-halo{fill:#FF9F0A;opacity:.18}
+@keyframes routemap-trace{to{stroke-dashoffset:-26}}
 .pg-routemap .map-legend{flex:none;display:flex;align-items:center;gap:18px;flex-wrap:wrap;
   padding:11px 18px;border-top:1px solid var(--line);font-size:11px;color:var(--text-2)}
 .pg-routemap .map-legend .lg{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}

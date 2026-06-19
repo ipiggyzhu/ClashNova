@@ -71,9 +71,7 @@ fn uninstall() -> Result<(), String> {
         if status.current_state != ServiceState::Stopped {
             log::info!("停止服务");
 
-            service
-                .stop()
-                .map_err(|e| format!("停止服务失败: {}", e))?;
+            service.stop().map_err(|e| format!("停止服务失败: {}", e))?;
 
             // 等待服务停止
             for i in 0..20 {

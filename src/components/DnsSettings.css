@@ -118,24 +118,48 @@
   flex-shrink: 0;
 }
 
-.dns-note {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  margin-top: 16px;
-  padding: 12px;
-  background: var(--bg-deep);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
-  font-size: 12px;
-  color: var(--text-2);
-  line-height: 1.5;
+.dns-section-title {
+  margin: 18px 0 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
 }
 
-.dns-note svg {
-  flex-shrink: 0;
-  margin-top: 2px;
-  color: var(--accent);
+.dns-field {
+  display: grid;
+  gap: 5px;
+  padding: 10px 0;
+}
+
+.dns-field label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.dns-field p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--text-3);
+}
+
+.dns-field textarea {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--card-2);
+  color: var(--text);
+  font: 12px/1.55 var(--mono);
+  padding: 9px 10px;
+  resize: vertical;
+  outline: none;
+}
+
+.dns-field textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-dim);
 }
 
 .dns-foot {

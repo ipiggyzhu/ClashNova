@@ -195,7 +195,11 @@ impl Dirs {
         for dir in [&config, &profiles, &logs] {
             fs::create_dir_all(dir).map_err(|e| format!("创建目录 {} 失败: {e}", dir.display()))?;
         }
-        Ok(Self { config, profiles, logs })
+        Ok(Self {
+            config,
+            profiles,
+            logs,
+        })
     }
 
     pub fn settings_file(&self) -> PathBuf {
@@ -254,16 +258,13 @@ impl AppState {
 
     /// 读取设置快照(克隆, 避免持锁跨 await)。
     pub fn settings_snapshot(&self) -> AppSettings {
-        self.settings
-            .read()
-            .map(|g| g.clone())
-            .unwrap_or_default()
+        self.settings.read().map(|g| g.clone()).unwrap_or_default()
     }
 
     /// 持久化设置到 settings.json。
     pub fn persist_settings(&self, settings: &AppSettings) -> Result<(), String> {
-        let json = serde_json::to_string_pretty(settings)
-            .map_err(|e| format!("序列化设置失败: {e}"))?;
+        let json =
+            serde_json::to_string_pretty(settings).map_err(|e| format!("序列化设置失败: {e}"))?;
         atomic_write(&self.dirs.settings_file(), json.as_bytes())
     }
 }
@@ -279,8 +280,8 @@ fn load_or_init_settings(dirs: &Dirs) -> Result<AppSettings, String> {
         }
     }
     let settings = AppSettings::default();
-    let json = serde_json::to_string_pretty(&settings)
-        .map_err(|e| format!("序列化默认设置失败: {e}"))?;
+    let json =
+        serde_json::to_string_pretty(&settings).map_err(|e| format!("序列化默认设置失败: {e}"))?;
     atomic_write(&path, json.as_bytes())?;
     Ok(settings)
 }

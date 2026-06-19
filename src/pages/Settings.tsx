@@ -108,12 +108,13 @@ function HotkeyInput({
   )
 }
 
-/** 文本编辑抽屉(自定义 CSS / DNS 覆写 / hosts) */
+/** 文本编辑抽屉(自定义 CSS / DNS 覆写 / 代理绕过) */
 interface DrawerState {
   title: string
-  key: 'customCss' | 'dnsOverride' | 'hosts'
+  key: 'customCss' | 'dnsOverride' | 'bypass'
   content: string
   mono: boolean
+  help?: string
 }
 
 export default function Settings() {
@@ -235,7 +236,15 @@ export default function Settings() {
 
   const saveDrawer = (): void => {
     if (!drawer) return
-    patch({ [drawer.key]: drawer.content } as Partial<AppSettings>)
+    const content =
+      drawer.key === 'bypass'
+        ? drawer.content
+            .split(/[\n,;]+/)
+            .map((item) => item.trim())
+            .filter(Boolean)
+            .join(';')
+        : drawer.content
+    patch({ [drawer.key]: content } as Partial<AppSettings>)
     setDrawer(null)
   }
 
@@ -263,12 +272,20 @@ export default function Settings() {
             <Toggle on={settings.guard} onChange={(on) => patch({ guard: on })} />
           </Row>
           <Row title={t('代理绕过')} desc={settings.bypass}>
-            <Input
-              style={{ width: 180 }}
-              value={draftValue('bypass', settings.bypass)}
-              onChange={(e) => setDraft((d) => ({ ...d, bypass: e.target.value }))}
-              onBlur={() => commitText('bypass')}
-            />
+            <Button
+              size="sm"
+              onClick={() =>
+                setDrawer({
+                  title: '代理绕过编辑',
+                  key: 'bypass',
+                  content: settings.bypass,
+                  mono: true,
+                  help: '这些地址会跳过系统代理，直接连接。常用写法: localhost、127.*、192.168.*、10.*、172.16.*、<local>。多个项目可用分号或换行分隔。',
+                })
+              }
+            >
+              {t('编辑')}
+            </Button>
           </Row>
           <Row title={t('TUN 模式')} desc={t('虚拟网卡接管全部流量, 需服务模式')}>
             <Toggle on={settings.tun} onChange={toggleTun} disabled={busy === 'tun'} />
@@ -443,7 +460,7 @@ export default function Settings() {
               <option value="silent">silent</option>
             </select>
           </Row>
-          <Row title={t('DNS 覆写')}>
+          <Row title={t('DNS 覆写')} desc="完整 DNS YAML 配置；需要 nameserver、fallback、fake-ip 等高级项时使用">
             {enabledBadge(settings.enableDns)}
             <Button size="sm" onClick={() => setShowDnsSettings(true)}>
               <Icon name="zap" size={13} />
@@ -456,22 +473,6 @@ export default function Settings() {
                   title: t('DNS 覆写编辑(YAML, 留空关闭)'),
                   key: 'dnsOverride',
                   content: settings.dnsOverride ?? '',
-                  mono: true,
-                })
-              }
-            >
-              {t('编辑')}
-            </Button>
-          </Row>
-          <Row title={t('hosts 覆写')}>
-            {enabledBadge(settings.hosts ?? '')}
-            <Button
-              size="sm"
-              onClick={() =>
-                setDrawer({
-                  title: t('hosts 覆写编辑(每行: 域名 IP)'),
-                  key: 'hosts',
-                  content: settings.hosts ?? '',
                   mono: true,
                 })
               }
@@ -547,11 +548,12 @@ export default function Settings() {
                 <Icon name="x" />
               </button>
             </div>
+            {drawer.help && <div className="drawer-help">{drawer.help}</div>}
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
               <CodeEditor
                 value={drawer.content}
                 onChange={(content) => setDrawer({ ...drawer, content })}
-                lang={drawer.key === 'customCss' ? 'css' : drawer.key === 'dnsOverride' ? 'yaml' : 'css'}
+                lang={drawer.key === 'dnsOverride' ? 'yaml' : 'css'}
               />
             </div>
             <div className="dfoot">

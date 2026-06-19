@@ -274,29 +274,34 @@ export default function Dashboard() {
             </button>
           }
         >
-          <div className="trend">
-            <div className="avg-line" />
-            <div className="avg-label">
-              <div className="stat-label">日均</div>
-              <div className="stat-num">{fmtBytes(trendAvg)}</div>
+          <div className="trend-v2">
+            <div className="trend-summary">
+              <div>
+                <div className="stat-label">日均</div>
+                <strong>{fmtBytes(trendAvg)}</strong>
+              </div>
+              <span>最近 7 天总量 {fmtBytes(trend.reduce((acc, p) => acc + p.up + p.down, 0))}</span>
             </div>
-            {[...trend].reverse().map((p, i) => {
-              const bytes = p.up + p.down
-              const day = new Date(p.ts)
-              return (
-                <div className="tcol" key={p.ts}>
-                  <div
-                    className="bar-col"
-                    style={{
-                      height: `${Math.max(6, (bytes / trendMax) * 110)}px`,
-                      background: bytes >= trendMax * 0.8 ? '#5e5e66' : undefined,
-                    }}
-                  />
-                  {i === 0 && <div className="tick" />}
-                  <span>{DAY_NAMES[day.getDay()]}</span>
-                </div>
-              )
-            })}
+            <div className="trend-bars">
+              {[...trend].reverse().map((p, i) => {
+                const bytes = p.up + p.down
+                const day = new Date(p.ts)
+                const isPeak = bytes >= trendMax * 0.8
+                return (
+                  <div className="tcol" key={p.ts} title={fmtBytes(bytes)}>
+                    <span className={isPeak ? 'bar-val hot' : 'bar-val'}>{fmtBytes(bytes, 0)}</span>
+                    <div className="bar-slot">
+                      <div
+                        className={isPeak ? 'bar-col hot' : 'bar-col'}
+                        style={{ height: `${Math.max(7, (bytes / trendMax) * 96)}px` }}
+                      />
+                    </div>
+                    {i === 0 && <div className="tick" />}
+                    <span className="day">{DAY_NAMES[day.getDay()]}</span>
+                  </div>
+                )
+              })}
+            </div>
           </div>
         </Card>
       </div>

@@ -112,14 +112,18 @@ pub fn spawn_collector(app: AppHandle) {
                 .send()
                 .await;
             let Ok(resp) = resp else { continue };
-            let Ok(payload) = resp.json::<ConnsPayload>().await else { continue };
+            let Ok(payload) = resp.json::<ConnsPayload>().await else {
+                continue;
+            };
             let conns = payload.connections.unwrap_or_default();
 
             let mut seen: HashMap<String, (u64, u64)> = HashMap::with_capacity(conns.len());
             for c in &conns {
                 seen.insert(c.id.clone(), (c.upload, c.download));
                 // 首见连接只记基线不计量, 避免把启动前流量整段计入
-                let Some(&(pu, pd)) = prev.get(&c.id) else { continue };
+                let Some(&(pu, pd)) = prev.get(&c.id) else {
+                    continue;
+                };
                 let du = c.upload.saturating_sub(pu);
                 let dd = c.download.saturating_sub(pd);
                 if du == 0 && dd == 0 {

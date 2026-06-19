@@ -102,10 +102,7 @@ pub async fn status(app: &AppHandle) -> CoreStatus {
         (
             guard.child.is_some(),
             guard.version.clone().unwrap_or_else(|| "—".into()),
-            guard
-                .started_at
-                .map(|t| t.elapsed().as_secs())
-                .unwrap_or(0),
+            guard.started_at.map(|t| t.elapsed().as_secs()).unwrap_or(0),
         )
     };
     let service_status = if sidecar_running {
@@ -189,7 +186,10 @@ pub fn start(app: &AppHandle) -> Result<(), String> {
     }
     // 服务模式托管内核 → 不再拉起 sidecar, 仅经外部控制器对接
     if crate::service::is_running() {
-        log::info!("内核由服务 {} 托管, 通过 IPC 启动", crate::service::SERVICE_NAME);
+        log::info!(
+            "内核由服务 {} 托管, 通过 IPC 启动",
+            crate::service::SERVICE_NAME
+        );
 
         wait_for_service_ipc_ready(Duration::from_secs(30), Duration::from_millis(250))?;
         if nova_service_ipc::is_reinstall_needed() {
@@ -232,7 +232,10 @@ pub fn start(app: &AppHandle) -> Result<(), String> {
                             crate::service::SERVICE_NAME
                         );
 
-                        wait_for_service_ipc_ready(Duration::from_secs(30), Duration::from_millis(250))?;
+                        wait_for_service_ipc_ready(
+                            Duration::from_secs(30),
+                            Duration::from_millis(250),
+                        )?;
                         if nova_service_ipc::is_reinstall_needed() {
                             return Err("服务版本不匹配，需要重装".into());
                         }
@@ -285,11 +288,7 @@ pub(crate) fn stop_orphan_sidecars(app: &AppHandle) {
     use std::os::windows::process::CommandExt;
 
     let state = app.state::<AppState>();
-    let config_dir = state
-        .dirs
-        .config
-        .to_string_lossy()
-        .replace('\'', "''");
+    let config_dir = state.dirs.config.to_string_lossy().replace('\'', "''");
     let runtime_config = state
         .dirs
         .runtime_config()
@@ -303,7 +302,13 @@ pub(crate) fn stop_orphan_sidecars(app: &AppHandle) {
          ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force -ErrorAction Stop; Write-Output $_.ProcessId }}"
     );
     let mut cmd = std::process::Command::new("powershell.exe");
-    cmd.args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", &script]);
+    cmd.args([
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        &script,
+    ]);
     cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
     match cmd.output() {
         Ok(output) if output.status.success() => {
@@ -364,10 +369,7 @@ fn spawn_core(app: &AppHandle) -> Result<(), String> {
     // 事件循环:stdout/stderr 落日志文件; Terminated 时按退避策略自动重启
     let app_handle = app.clone();
     tauri::async_runtime::spawn(async move {
-        let log_path = app_handle
-            .state::<AppState>()
-            .dirs
-            .core_log_file();
+        let log_path = app_handle.state::<AppState>().dirs.core_log_file();
         let mut log_file = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
@@ -457,7 +459,11 @@ fn refresh_version_async(app: AppHandle) {
             // 内核已被手动停止则不再轮询(sc.exe 查询是阻塞调用, 移到阻塞线程池)
             let mut running = {
                 let state = app.state::<AppState>();
-                state.core.lock().map(|g| g.child.is_some()).unwrap_or(false)
+                state
+                    .core
+                    .lock()
+                    .map(|g| g.child.is_some())
+                    .unwrap_or(false)
             };
             if !running {
                 running = tauri::async_runtime::spawn_blocking(is_service_core_running)
@@ -481,15 +487,21 @@ fn refresh_version_async(app: AppHandle) {
                 .await;
             let Ok(resp) = resp else {
                 if attempt >= 3 {
-                    log::debug!("第 {} 次获取内核版本失败: 请求 /version 超时或连接失败", attempt + 1);
+                    log::debug!(
+                        "第 {} 次获取内核版本失败: 请求 /version 超时或连接失败",
+                        attempt + 1
+                    );
                 }
-                continue
+                continue;
             };
             let Ok(v) = resp.json::<VersionPayload>().await else {
                 if attempt >= 3 {
-                    log::debug!("第 {} 次获取内核版本失败: /version 响应无法解析", attempt + 1);
+                    log::debug!(
+                        "第 {} 次获取内核版本失败: /version 响应无法解析",
+                        attempt + 1
+                    );
                 }
-                continue
+                continue;
             };
             let state = app.state::<AppState>();
             if let Ok(mut guard) = state.core.lock() {
