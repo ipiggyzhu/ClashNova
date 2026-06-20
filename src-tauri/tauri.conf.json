@@ -34,10 +34,7 @@
       "msi"
     ],
     "externalBin": [
-      "binaries/mihomo",
-      "binaries/clashnova-service",
-      "binaries/clashnova-service-install",
-      "binaries/clashnova-service-uninstall"
+      "binaries/mihomo"
     ],
     "icon": [
       "icons/32x32.png",

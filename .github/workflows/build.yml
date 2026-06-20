@@ -72,11 +72,6 @@ jobs:
       - name: Build service helpers
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path src-tauri/binaries
-          New-Item -ItemType File -Force -Path src-tauri/binaries/clashnova-service-x86_64-pc-windows-msvc.exe
-          New-Item -ItemType File -Force -Path src-tauri/binaries/clashnova-service-install-x86_64-pc-windows-msvc.exe
-          New-Item -ItemType File -Force -Path src-tauri/binaries/clashnova-service-uninstall-x86_64-pc-windows-msvc.exe
-
           cargo build --release --bin clashnova-service
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
@@ -86,13 +81,7 @@ jobs:
           cargo build --release --bin clashnova-service-uninstall
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-          Get-ChildItem target/release/clashnova-service-*.exe | Select-Object Name, Length
-
-          Copy-Item -Force target/release/clashnova-service.exe src-tauri/binaries/clashnova-service-x86_64-pc-windows-msvc.exe
-          Copy-Item -Force target/release/clashnova-service-install.exe src-tauri/binaries/clashnova-service-install-x86_64-pc-windows-msvc.exe
-          Copy-Item -Force target/release/clashnova-service-uninstall.exe src-tauri/binaries/clashnova-service-uninstall-x86_64-pc-windows-msvc.exe
-
-          Get-ChildItem src-tauri/binaries/*.exe | Select-Object Name, Length
+          Get-ChildItem target/release/clashnova-service*.exe | Select-Object Name, Length
 
       - name: Build Tauri NSIS installer
         shell: pwsh
@@ -101,14 +90,56 @@ jobs:
           exit $LASTEXITCODE
 
       - name: Build Tauri MSI installer
+        id: build_msi
         shell: pwsh
-        continue-on-error: true
         run: |
-          npm run tauri build -- --bundles msi 2>&1 | Tee-Object -FilePath build-msi.log
-          if ($LASTEXITCODE -ne 0) {
-            Write-Warning "MSI build failed; NSIS release will still be published."
-            exit $LASTEXITCODE
+          $env:RUST_BACKTRACE = "1"
+          $env:RUST_LOG = "tauri_bundler=trace,tauri_cli=debug"
+          npm run tauri build -- --bundles msi --verbose 2>&1 | Tee-Object -FilePath build-msi.log
+          $exitCode = $LASTEXITCODE
+          if ($exitCode -ne 0) {
+            "msi_failed=true" >> $env:GITHUB_OUTPUT
+            "msi_exit_code=$exitCode" >> $env:GITHUB_OUTPUT
+            Write-Warning "MSI build failed with exit code $exitCode; NSIS release will still be published."
+          } else {
+            "msi_failed=false" >> $env:GITHUB_OUTPUT
+            "msi_exit_code=0" >> $env:GITHUB_OUTPUT
           }
+
+      - name: Upload MSI diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ClashNova-msi-diagnostics
+          path: |
+            build-msi.log
+            target/release/wix/**/*.wxs
+            target/release/wix/**/*.wxl
+          if-no-files-found: warn
+
+      - name: Publish MSI diagnostic log
+        if: steps.build_msi.outputs.msi_failed == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          {
+            echo "MSI build failed for ${GITHUB_SHA}."
+            echo
+            cat build-msi.log
+            if [[ -d target/release/wix ]]; then
+              echo
+              echo "Generated WiX sources:"
+              find target/release/wix -type f \( -name '*.wxs' -o -name '*.wxl' \) -print -exec sh -c 'echo "----- $1 -----"; sed -n "1,260p" "$1"' sh {} \;
+            fi
+          } > msi-diagnostics.log
+
+          grep -E "LGHT|ICE|error|failed" -A 8 msi-diagnostics.log | head -160 | \
+            sed ':a;N;$!ba;s/\n/%0A/g' | cut -c1-3800 | \
+            xargs -0 -I{} echo "::warning::{}" || true
+          gh release delete buildlog -y --cleanup-tag 2>/dev/null || true
+          gh release create buildlog msi-diagnostics.log --title "CI MSI diagnostic log" \
+            --notes "Automatic upload of the MSI diagnostic log." --prerelease
 
       - name: Publish build log on failure
         if: failure()
@@ -147,7 +178,7 @@ jobs:
 
           gh release create "$release_tag" \
             --title "ClashNova $release_tag" \
-            --notes "Windows installers: NSIS setup (.exe) and MSI package (.msi)." \
+            --notes "Windows installers produced by the latest release workflow." \
             --latest \
             2>/dev/null || true
 

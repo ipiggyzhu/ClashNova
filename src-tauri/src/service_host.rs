@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 
 pub const SERVICE_NAME: &str = "clashnova-core";
 
+#[allow(dead_code)]
 pub fn expected_launch_args(config_dir: &Path) -> Vec<OsString> {
     vec![OsString::from("--dir"), OsString::from(config_dir)]
 }

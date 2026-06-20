@@ -594,7 +594,7 @@ pub async fn wait_runtime_tun(
 ) -> Result<(), String> {
     let client = reqwest::Client::new();
     let started = Instant::now();
-    let mut last = String::from("控制器未返回配置");
+    let mut last: String;
 
     loop {
         let (controller, secret) = {

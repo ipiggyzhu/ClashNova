@@ -22,6 +22,37 @@ export default defineConfig({
   },
   build: {
     target: 'es2021',
-    chunkSizeWarningLimit: 1200,
+    chunkSizeWarningLimit: 1500,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          const normalized = id.replaceAll('\\', '/')
+          if (!normalized.includes('node_modules')) return undefined
+          if (
+            normalized.includes('/node_modules/react/') ||
+            normalized.includes('/node_modules/react-dom/') ||
+            normalized.includes('/node_modules/react-router-dom/')
+          ) {
+            return 'vendor-react'
+          }
+          if (
+            normalized.includes('/node_modules/@codemirror/') ||
+            normalized.includes('/node_modules/@uiw/react-codemirror/')
+          ) {
+            return 'vendor-editor'
+          }
+          if (normalized.includes('/node_modules/three/')) return 'vendor-three'
+          if (
+            normalized.includes('/node_modules/globe.gl/') ||
+            normalized.includes('/node_modules/d3-') ||
+            normalized.includes('/node_modules/topojson') ||
+            normalized.includes('/node_modules/world-atlas/')
+          ) {
+            return 'vendor-map'
+          }
+          return undefined
+        },
+      },
+    },
   },
 })
