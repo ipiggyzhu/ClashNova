@@ -51,6 +51,8 @@ pub struct ProfileMeta {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub quota: Option<ProfileQuota>,
     pub current: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub builtin_enhancers_seeded: bool,
     /// Merge/Script 配置增强链(M2),按序应用。
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub enhancers: Vec<EnhancerMeta>,
@@ -85,6 +87,45 @@ fn builtin_prune_enhancer() -> EnhancerMeta {
     }
 }
 
+fn is_false(value: &bool) -> bool {
+    !*value
+}
+
+fn ensure_builtin_prune_enhancers(app: &AppHandle, index: &mut [ProfileMeta]) -> bool {
+    let state = app.state::<AppState>();
+    let builtin = builtin_prune_enhancer();
+    let mut changed = false;
+
+    for profile in index.iter_mut() {
+        if !profile.builtin_enhancers_seeded {
+            if !profile
+                .enhancers
+                .iter()
+                .any(|e| e.id == BUILTIN_PRUNE_ENHANCER_ID)
+            {
+                profile.enhancers.insert(0, builtin.clone());
+            }
+            profile.builtin_enhancers_seeded = true;
+            changed = true;
+        }
+
+        if profile
+            .enhancers
+            .iter()
+            .any(|e| e.id == BUILTIN_PRUNE_ENHANCER_ID)
+        {
+            let path = enhancer_file(&state, &profile.id, &builtin);
+            if !path.exists() {
+                if let Err(err) = atomic_write(&path, BUILTIN_PRUNE_SCRIPT.as_bytes()) {
+                    log::warn!("写入内置增强脚本失败 {}: {err}", path.display());
+                }
+            }
+        }
+    }
+
+    changed
+}
+
 /// 读取 profiles.json 索引(缺失时返回空表)。
 pub fn load_index(app: &AppHandle) -> Vec<ProfileMeta> {
     let state = app.state::<AppState>();
@@ -92,7 +133,13 @@ pub fn load_index(app: &AppHandle) -> Vec<ProfileMeta> {
     let Ok(raw) = fs::read_to_string(&path) else {
         return Vec::new();
     };
-    serde_json::from_str(&raw).unwrap_or_default()
+    let mut index: Vec<ProfileMeta> = serde_json::from_str(&raw).unwrap_or_default();
+    if ensure_builtin_prune_enhancers(app, &mut index) {
+        if let Err(err) = save_index(app, &index) {
+            log::warn!("迁移内置增强脚本索引失败: {err}");
+        }
+    }
+    index
 }
 
 fn save_index(app: &AppHandle, index: &[ProfileMeta]) -> Result<(), String> {
@@ -303,6 +350,7 @@ pub async fn import(app: &AppHandle, url: String) -> Result<ProfileMeta, String>
         size_bytes: Some(content.len() as u64),
         quota,
         current: first,
+        builtin_enhancers_seeded: true,
         enhancers: vec![builtin_prune],
     };
     index.push(meta.clone());
@@ -359,6 +407,7 @@ pub async fn import_file(
         size_bytes: Some(content.len() as u64),
         quota: None,
         current: first,
+        builtin_enhancers_seeded: true,
         enhancers: vec![builtin_prune],
     };
     index.push(meta.clone());

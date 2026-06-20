@@ -30,11 +30,20 @@ function typeChipStyle(type: string): React.CSSProperties | undefined {
 
 export default function Rules() {
   const [rules, setRules] = useState<RuleItem[]>([])
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [keyword, setKeyword] = useState('')
   const [type, setType] = useState('all')
 
   useEffect(() => {
-    void getRules().then(setRules).catch(() => {})
+    void getRules()
+      .then((items) => {
+        setRules(items)
+        setLoadError(null)
+      })
+      .catch(() => {
+        setRules([])
+        setLoadError('Mihomo 未运行，启动内核后会显示规则。')
+      })
   }, [])
 
   const filtered = useMemo(() => {
@@ -60,7 +69,7 @@ export default function Rules() {
           />
         </div>
         <div className="spacer" />
-        <span className="chip">共 {rules.length.toLocaleString()} 条</span>
+        <span className="chip">{loadError ? '内核未运行' : `共 ${rules.length.toLocaleString()} 条`}</span>
       </div>
 
       <div className="fchips">
@@ -79,7 +88,9 @@ export default function Rules() {
         actions={<span style={{ fontSize: 11, color: 'var(--text-3)' }}>自上而下优先匹配</span>}
         flush
       >
-        {shown.length === 0 ? (
+        {loadError ? (
+          <div className="empty">{loadError}</div>
+        ) : shown.length === 0 ? (
           <div className="empty">没有匹配的规则</div>
         ) : (
           <>

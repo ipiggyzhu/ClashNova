@@ -47,9 +47,11 @@ export interface IpcCommands {
   open_app_dir: { args: { kind: 'config' | 'core' | 'logs' }; result: void }
   /* ---- M2 ---- */
   open_url: { args: { url: string }; result: void }
-  service_status: { args: undefined; result: 'running' | 'installed' | 'not-installed' }
+  service_status: { args: undefined; result: string }
   install_service: { args: undefined; result: void }
   uninstall_service: { args: undefined; result: void }
+  reinstall_service: { args: undefined; result: void }
+  repair_service: { args: undefined; result: void }
   exempt_uwp_loopback: { args: undefined; result: void }
   check_update: { args: undefined; result: string | null }
   reset_settings: { args: undefined; result: AppSettings }

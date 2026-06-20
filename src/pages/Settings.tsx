@@ -117,6 +117,8 @@ interface DrawerState {
   help?: string
 }
 
+type ServiceUiStatus = 'running' | 'stopped' | 'repair' | 'not-installed' | 'unknown'
+
 export default function Settings() {
   const t = useT()
   const settings = useAppStore((s) => s.settings)
@@ -133,28 +135,37 @@ export default function Settings() {
   const [draft, setDraft] = useState<Partial<Record<keyof AppSettings, string>>>({})
   const [coreChannel, setCoreChannel] = useState('stable')
   const [drawer, setDrawer] = useState<DrawerState | null>(null)
-  const [service, setService] = useState<'running' | 'installed' | 'not-installed' | null>(null)
+  const [service, setService] = useState<ServiceUiStatus>('unknown')
   const [busy, setBusy] = useState<string | null>(null)
   const [confirmReset, setConfirmReset] = useState(false)
   const [showDnsSettings, setShowDnsSettings] = useState(false)
 
   // 映射后端状态到前端显示状态
-  const mapServiceStatus = (status: string): 'running' | 'installed' | 'not-installed' | null => {
+  const mapServiceStatus = (status: string): ServiceUiStatus => {
     if (status === 'ready') {
       return 'running'
     } else if (status === 'not-installed') {
       return 'not-installed'
-    } else if (status.startsWith('unavailable:') || status === 'needs-reinstall' || status === 'reinstall-required' || status === 'force-reinstall-required' || status === 'uninstall-required') {
-      return 'installed'
+    } else if (
+      status === 'needs-reinstall' ||
+      status === 'reinstall-required' ||
+      status === 'force-reinstall-required'
+    ) {
+      return 'repair'
+    } else if (status.startsWith('unavailable:') || status === 'uninstall-required') {
+      return 'stopped'
     } else {
-      return null
+      return 'unknown'
     }
   }
 
+  const refreshServiceStatus = async (): Promise<void> => {
+    const status = (await call('service_status')) as string
+    setService(mapServiceStatus(status))
+  }
+
   useEffect(() => {
-    void call('service_status')
-      .then((status: string) => setService(mapServiceStatus(status)))
-      .catch(() => setService(null))
+    void refreshServiceStatus().catch(() => setService('unknown'))
   }, [])
 
   const patch = (p: Partial<AppSettings>): void => {
@@ -190,12 +201,23 @@ export default function Settings() {
     }
   }
 
+  const serviceCommand = (): 'install_service' | 'uninstall_service' | 'repair_service' => {
+    if (service === 'running') return 'uninstall_service'
+    if (service === 'repair') return 'repair_service'
+    return 'install_service'
+  }
+
+  const serviceButtonLabel = (): string => {
+    if (service === 'running') return t('卸载')
+    if (service === 'repair') return t('修复')
+    if (service === 'stopped') return t('启动')
+    return t('安装')
+  }
+
   const toggleService = (): void => {
-    const installing = service === 'not-installed'
     void withBusy('service', async () => {
-      await call(installing ? 'install_service' : 'uninstall_service')
-      const status = (await call('service_status')) as string
-      setService(mapServiceStatus(status))
+      await call(serviceCommand())
+      await refreshServiceStatus()
       await loadAll()
     }).catch((err) => {
       notify('error', t('服务模式操作失败'), errorMessage(err))
@@ -205,10 +227,19 @@ export default function Settings() {
   const toggleTun = (on: boolean): void => {
     void withBusy('tun', async () => {
       await setTun(on)
-      const status = (await call('service_status')) as string
-      setService(mapServiceStatus(status))
+      await refreshServiceStatus()
     }).catch((err) => {
       notify('error', t('TUN 切换失败'), errorMessage(err))
+    })
+  }
+
+  const handleRestartCore = (): void => {
+    void withBusy('core', async () => {
+      await restartCore()
+      await refreshServiceStatus()
+    }).catch((err) => {
+      notify('error', t('重启内核失败'), errorMessage(err))
+      void refreshServiceStatus().catch(() => setService('unknown'))
     })
   }
 
@@ -293,13 +324,17 @@ export default function Settings() {
           <Row title={t('服务模式')} desc={t('以 Windows 服务运行内核, TUN 免管理员')}>
             {service === 'running' ? (
               <Badge tone="green">{t('运行中')}</Badge>
-            ) : service === 'installed' ? (
-              <Badge tone="green">{t('已安装')}</Badge>
-            ) : (
+            ) : service === 'stopped' ? (
+              <Badge tone="yellow">{t('已停止')}</Badge>
+            ) : service === 'repair' ? (
+              <Badge tone="orange">{t('需修复')}</Badge>
+            ) : service === 'not-installed' ? (
               <Badge tone="gray">{t('未安装')}</Badge>
+            ) : (
+              <Badge tone="gray">—</Badge>
             )}
-            <Button size="sm" onClick={toggleService} disabled={busy === 'service' || service === null}>
-              {service === 'not-installed' ? t('安装') : t('卸载')}
+            <Button size="sm" onClick={toggleService} disabled={busy === 'service' || service === 'unknown'}>
+              {busy === 'service' ? t('处理中…') : serviceButtonLabel()}
             </Button>
           </Row>
           <Row title={t('开机自启')} desc={t('登录 Windows 时自动启动')}>
@@ -489,7 +524,9 @@ export default function Settings() {
               value={coreChannel}
               onChange={setCoreChannel}
             />
-            <Button size="sm" onClick={() => void restartCore()}>{t('重启内核')}</Button>
+            <Button size="sm" onClick={handleRestartCore} disabled={busy === 'core'}>
+              {busy === 'core' ? t('重启中…') : t('重启内核')}
+            </Button>
           </Row>
           <Row title="GeoData" desc="geoip / geosite">
             <Button

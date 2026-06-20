@@ -634,8 +634,20 @@ export const mockHandlers: Record<string, MockHandler> = {
     window.open(argString(args, 'url'), '_blank')
     return undefined
   },
-  service_status: () => (serviceRunning ? 'running' : serviceInstalled ? 'installed' : 'not-installed'),
+  service_status: () => (serviceRunning ? 'ready' : serviceInstalled ? 'unavailable:服务未运行' : 'not-installed'),
   install_service: () => {
+    serviceInstalled = true
+    serviceRunning = true
+    core.running = true
+    return undefined
+  },
+  reinstall_service: () => {
+    serviceInstalled = true
+    serviceRunning = true
+    core.running = true
+    return undefined
+  },
+  repair_service: () => {
     serviceInstalled = true
     serviceRunning = true
     core.running = true

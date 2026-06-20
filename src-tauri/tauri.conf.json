@@ -30,7 +30,8 @@
   "bundle": {
     "active": true,
     "targets": [
-      "nsis"
+      "nsis",
+      "msi"
     ],
     "externalBin": [
       "binaries/mihomo",

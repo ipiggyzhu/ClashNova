@@ -545,6 +545,16 @@ pub async fn service_status() -> String {
     let manager = crate::service_manager::get_service_manager();
     let status = manager.current_status().await;
 
+    if crate::service::diagnose_installation().is_err() {
+        return "needs-reinstall".to_string();
+    }
+    if crate::service::status() != "installed" {
+        return "not-installed".to_string();
+    }
+    if !crate::service::is_running() {
+        return "unavailable:服务未运行".to_string();
+    }
+
     match status {
         crate::service_manager::ServiceStatus::Ready => "ready".to_string(),
         crate::service_manager::ServiceStatus::NeedsReinstall => "needs-reinstall".to_string(),

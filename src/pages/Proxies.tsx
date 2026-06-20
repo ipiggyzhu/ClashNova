@@ -57,6 +57,7 @@ function saveCollapsed(state: Record<string, boolean>): void {
 
 export default function Proxies() {
   const [payload, setPayload] = useState<ProxiesPayload | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [keyword, setKeyword] = useState('')
   const [typeFilter, setTypeFilter] = useState('all')
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>(loadCollapsed)
@@ -66,7 +67,13 @@ export default function Proxies() {
   const [testingAll, setTestingAll] = useState(false)
 
   const refresh = useCallback(async () => {
-    setPayload(await getProxies())
+    try {
+      setPayload(await getProxies())
+      setLoadError(null)
+    } catch {
+      setPayload(null)
+      setLoadError('Mihomo 未运行，启动内核后会显示节点。')
+    }
   }, [])
 
   useEffect(() => {
@@ -196,14 +203,18 @@ export default function Proxies() {
           onChange={setTypeFilter}
         />
         <div className="spacer" />
-        <span className="chip">共{totalNodes}个节点</span>
-        <Button variant="primary" onClick={() => void testAll()} disabled={testingAll}>
+        <span className="chip">{loadError ? '内核未运行' : `共${totalNodes}个节点`}</span>
+        <Button variant="primary" onClick={() => void testAll()} disabled={testingAll || !!loadError || totalNodes === 0}>
           <Icon name="zap" size={13} />
           {testingAll ? '测速中…' : '全部测速'}
         </Button>
       </div>
 
-      {visibleGroups.map((g, i) => {
+      {loadError ? (
+        <Card icon={<Icon name="proxies" />} iconColor="var(--accent)" title="节点列表" flush>
+          <div className="empty">{loadError}</div>
+        </Card>
+      ) : visibleGroups.map((g, i) => {
         const isOpen = !collapsed[g.name]
         const isTestingGroup = testingGroups.has(g.name)
         const isVirtualGroup = g.name === '全部节点'
