@@ -94,11 +94,21 @@ jobs:
 
           Get-ChildItem src-tauri/binaries/*.exe | Select-Object Name, Length
 
-      - name: Build Tauri installers
+      - name: Build Tauri NSIS installer
         shell: pwsh
         run: |
-          npm run tauri build 2>&1 | Tee-Object -FilePath build.log
+          npm run tauri build -- --bundles nsis 2>&1 | Tee-Object -FilePath build-nsis.log
           exit $LASTEXITCODE
+
+      - name: Build Tauri MSI installer
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          npm run tauri build -- --bundles msi 2>&1 | Tee-Object -FilePath build-msi.log
+          if ($LASTEXITCODE -ne 0) {
+            Write-Warning "MSI build failed; NSIS release will still be published."
+            exit $LASTEXITCODE
+          }
 
       - name: Publish build log on failure
         if: failure()
@@ -106,6 +116,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          cat build-*.log > build.log 2>/dev/null || true
           grep -E "^error(\[E[0-9]+\])?(:|\b)" -A 8 build.log | head -120 | \
             sed ':a;N;$!ba;s/\n/%0A/g' | cut -c1-3800 | \
             xargs -0 -I{} echo "::error::{}" || true
@@ -140,7 +151,16 @@ jobs:
             --latest \
             2>/dev/null || true
 
-          gh release upload "$release_tag" \
-            target/release/bundle/nsis/*.exe \
-            target/release/bundle/msi/*.msi \
-            --clobber
+          installers=()
+          for file in target/release/bundle/nsis/*.exe target/release/bundle/msi/*.msi; do
+            if [[ -f "$file" ]]; then
+              installers+=("$file")
+            fi
+          done
+
+          if [[ ${#installers[@]} -eq 0 ]]; then
+            echo "No installer files were produced." >&2
+            exit 1
+          fi
+
+          gh release upload "$release_tag" "${installers[@]}" --clobber
