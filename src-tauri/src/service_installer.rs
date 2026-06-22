@@ -130,18 +130,37 @@ fn find_helper(name: &str) -> Result<PathBuf, String> {
     let exe_dir = exe.parent().ok_or("无法获取可执行文件所在目录")?;
     let mut candidates = vec![
         exe_dir.join(name),
+        exe_dir.join("helpers").join(name),
         exe_dir.join("resources").join(name),
+        exe_dir.join("resources").join("helpers").join(name),
         exe_dir.join("resources").join("resources").join(name),
+        exe_dir
+            .join("resources")
+            .join("resources")
+            .join("helpers")
+            .join(name),
     ];
 
     if let Some(parent) = exe_dir.parent() {
         candidates.push(parent.join(name));
+        candidates.push(parent.join("helpers").join(name));
         candidates.push(parent.join("Resources").join(name));
+        candidates.push(parent.join("Resources").join("helpers").join(name));
         candidates.push(parent.join("resources").join(name));
+        candidates.push(parent.join("resources").join("helpers").join(name));
         candidates.push(parent.join("resources").join("resources").join(name));
+        candidates.push(
+            parent
+                .join("resources")
+                .join("resources")
+                .join("helpers")
+                .join(name),
+        );
         if let Some(grandparent) = parent.parent() {
             candidates.push(grandparent.join(name));
+            candidates.push(grandparent.join("helpers").join(name));
             candidates.push(grandparent.join("resources").join(name));
+            candidates.push(grandparent.join("resources").join("helpers").join(name));
         }
     }
 

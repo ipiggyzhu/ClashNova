@@ -218,6 +218,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           cat build-*.log > build.log 2>/dev/null || true
+          if [[ ! -s build.log ]]; then
+            {
+              echo "Build failed before bundle logs were produced."
+              echo "commit: ${GITHUB_SHA}"
+              echo "workflow: ${GITHUB_RUN_ID}"
+            } > build.log
+          fi
           grep -E "^error(\[E[0-9]+\])?(:|\b)" -A 8 build.log | head -120 | \
             sed ':a;N;$!ba;s/\n/%0A/g' | cut -c1-3800 | \
             xargs -0 -I{} echo "::error::{}" || true

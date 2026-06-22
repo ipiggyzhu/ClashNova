@@ -101,8 +101,19 @@ fn service_binary_candidates(installer_dir: &Path) -> Vec<PathBuf> {
     push_candidate(&mut candidates, installer_dir.join("clashnova-service.exe"));
     push_candidate(
         &mut candidates,
+        installer_dir.join("helpers").join("clashnova-service.exe"),
+    );
+    push_candidate(
+        &mut candidates,
         installer_dir
             .join("resources")
+            .join("clashnova-service.exe"),
+    );
+    push_candidate(
+        &mut candidates,
+        installer_dir
+            .join("resources")
+            .join("helpers")
             .join("clashnova-service.exe"),
     );
     push_candidate(
@@ -112,12 +123,31 @@ fn service_binary_candidates(installer_dir: &Path) -> Vec<PathBuf> {
             .join("resources")
             .join("clashnova-service.exe"),
     );
+    push_candidate(
+        &mut candidates,
+        installer_dir
+            .join("resources")
+            .join("resources")
+            .join("helpers")
+            .join("clashnova-service.exe"),
+    );
 
     if let Some(parent) = installer_dir.parent() {
         push_candidate(&mut candidates, parent.join("clashnova-service.exe"));
         push_candidate(
             &mut candidates,
+            parent.join("helpers").join("clashnova-service.exe"),
+        );
+        push_candidate(
+            &mut candidates,
             parent.join("Resources").join("clashnova-service.exe"),
+        );
+        push_candidate(
+            &mut candidates,
+            parent
+                .join("Resources")
+                .join("helpers")
+                .join("clashnova-service.exe"),
         );
         push_candidate(
             &mut candidates,
@@ -127,14 +157,40 @@ fn service_binary_candidates(installer_dir: &Path) -> Vec<PathBuf> {
             &mut candidates,
             parent
                 .join("resources")
+                .join("helpers")
+                .join("clashnova-service.exe"),
+        );
+        push_candidate(
+            &mut candidates,
+            parent
                 .join("resources")
+                .join("resources")
+                .join("clashnova-service.exe"),
+        );
+        push_candidate(
+            &mut candidates,
+            parent
+                .join("resources")
+                .join("resources")
+                .join("helpers")
                 .join("clashnova-service.exe"),
         );
         if let Some(grandparent) = parent.parent() {
             push_candidate(&mut candidates, grandparent.join("clashnova-service.exe"));
             push_candidate(
                 &mut candidates,
+                grandparent.join("helpers").join("clashnova-service.exe"),
+            );
+            push_candidate(
+                &mut candidates,
                 grandparent.join("resources").join("clashnova-service.exe"),
+            );
+            push_candidate(
+                &mut candidates,
+                grandparent
+                    .join("resources")
+                    .join("helpers")
+                    .join("clashnova-service.exe"),
             );
         }
     }

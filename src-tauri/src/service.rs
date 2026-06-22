@@ -24,26 +24,63 @@ fn expected_service_binary_path() -> Result<PathBuf, String> {
     let exe_dir = exe.parent().ok_or("无法获取当前程序所在目录")?;
     let mut candidates = vec![
         exe_dir.join("clashnova-service.exe"),
+        exe_dir.join("helpers").join("clashnova-service.exe"),
         exe_dir.join("resources").join("clashnova-service.exe"),
         exe_dir
             .join("resources")
+            .join("helpers")
+            .join("clashnova-service.exe"),
+        exe_dir
             .join("resources")
+            .join("resources")
+            .join("clashnova-service.exe"),
+        exe_dir
+            .join("resources")
+            .join("resources")
+            .join("helpers")
             .join("clashnova-service.exe"),
     ];
 
     if let Some(parent) = exe_dir.parent() {
         candidates.push(parent.join("clashnova-service.exe"));
+        candidates.push(parent.join("helpers").join("clashnova-service.exe"));
         candidates.push(parent.join("Resources").join("clashnova-service.exe"));
+        candidates.push(
+            parent
+                .join("Resources")
+                .join("helpers")
+                .join("clashnova-service.exe"),
+        );
         candidates.push(parent.join("resources").join("clashnova-service.exe"));
+        candidates.push(
+            parent
+                .join("resources")
+                .join("helpers")
+                .join("clashnova-service.exe"),
+        );
         candidates.push(
             parent
                 .join("resources")
                 .join("resources")
                 .join("clashnova-service.exe"),
         );
+        candidates.push(
+            parent
+                .join("resources")
+                .join("resources")
+                .join("helpers")
+                .join("clashnova-service.exe"),
+        );
         if let Some(grandparent) = parent.parent() {
             candidates.push(grandparent.join("clashnova-service.exe"));
+            candidates.push(grandparent.join("helpers").join("clashnova-service.exe"));
             candidates.push(grandparent.join("resources").join("clashnova-service.exe"));
+            candidates.push(
+                grandparent
+                    .join("resources")
+                    .join("helpers")
+                    .join("clashnova-service.exe"),
+            );
         }
     }
 
