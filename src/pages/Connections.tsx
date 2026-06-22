@@ -31,23 +31,27 @@ export default function Connections() {
   const [proxyFilter, setProxyFilter] = useState('all')
   /* 上一帧快照, 用于差分出实时速率 */
   const prevRef = useRef<Map<string, { up: number; down: number }>>(new Map())
+  const prevTimeRef = useRef<number>(performance.now())
   const [rates, setRates] = useState<Map<string, { up: number; down: number }>>(new Map())
 
   useEffect(() => startLiveStreams(), [])
 
   useEffect(() => {
     const prev = prevRef.current
+    const now = performance.now()
+    const elapsedSec = Math.max(0.25, (now - prevTimeRef.current) / 1000)
     const next = new Map<string, { up: number; down: number }>()
     const nextRates = new Map<string, { up: number; down: number }>()
     for (const c of payload.connections) {
       next.set(c.id, { up: c.upload, down: c.download })
       const p = prev.get(c.id)
       nextRates.set(c.id, {
-        up: c.curUp ?? (p ? Math.max(0, c.upload - p.up) : 0),
-        down: c.curDown ?? (p ? Math.max(0, c.download - p.down) : 0),
+        up: c.curUp ?? (p ? Math.max(0, (c.upload - p.up) / elapsedSec) : 0),
+        down: c.curDown ?? (p ? Math.max(0, (c.download - p.down) / elapsedSec) : 0),
       })
     }
     prevRef.current = next
+    prevTimeRef.current = now
     setRates(nextRates)
   }, [payload])
 
@@ -123,7 +127,7 @@ export default function Connections() {
         </Button>
       </div>
 
-      <Card flush>
+      <Card className="conn-card" flush>
         {list.length === 0 ? (
           <div className="empty">没有匹配的连接</div>
         ) : (

@@ -534,32 +534,35 @@ export default function Profiles() {
               </div>
 
               <div className="pacts">
-                <Button size="sm" onClick={() => void openEditor(p)}>
-                  <Icon name="edit" size={12} />编辑
-                </Button>
-                {p.kind === 'remote' && (
-                  <Button size="sm" onClick={() => void doUpdate(p)} disabled={busyId === p.id}>
-                    <Icon name="refresh" size={12} />
-                    {busyId === p.id ? '更新中…' : '更新'}
+                <div className="pact-main">
+                  <Button size="sm" onClick={() => void openEditor(p)}>
+                    <Icon name="edit" size={12} />编辑
                   </Button>
-                )}
-                {!p.current && (
-                  <Button size="sm" variant="primary" onClick={() => void doSelect(p)}>
-                    <Icon name="check" size={12} />启用
-                  </Button>
-                )}
-                <span className="gap" />
-                {confirmDel?.id === p.id ? (
-                  <span className="confirm">
-                    确认删除?
-                    <Button size="sm" variant="danger" onClick={() => void doDelete(p)}>删除</Button>
-                    <Button size="sm" onClick={() => setConfirmDel(null)}>取消</Button>
-                  </span>
-                ) : (
-                  <Button size="sm" variant="danger" onClick={() => setConfirmDel(p)}>
-                    <Icon name="trash" size={12} />删除
-                  </Button>
-                )}
+                  {p.kind === 'remote' && (
+                    <Button size="sm" onClick={() => void doUpdate(p)} disabled={busyId === p.id}>
+                      <Icon name="refresh" size={12} />
+                      {busyId === p.id ? '更新中…' : '更新'}
+                    </Button>
+                  )}
+                  {!p.current && (
+                    <Button size="sm" variant="primary" onClick={() => void doSelect(p)}>
+                      <Icon name="check" size={12} />启用
+                    </Button>
+                  )}
+                </div>
+                <div className="pact-danger">
+                  {confirmDel?.id === p.id ? (
+                    <span className="confirm">
+                      确认删除?
+                      <Button size="sm" variant="danger" onClick={() => void doDelete(p)}>删除</Button>
+                      <Button size="sm" onClick={() => setConfirmDel(null)}>取消</Button>
+                    </span>
+                  ) : (
+                    <Button size="sm" variant="danger" onClick={() => setConfirmDel(p)}>
+                      <Icon name="trash" size={12} />删除
+                    </Button>
+                  )}
+                </div>
               </div>
             </Card>
           )
