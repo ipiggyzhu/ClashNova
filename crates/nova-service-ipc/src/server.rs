@@ -32,6 +32,8 @@ struct CoreManager {
     start_time: Option<i64>,
     /// 内核配置
     config: Option<CoreConfig>,
+    /// mihomo 版本
+    core_version: Option<String>,
     /// 日志缓冲区（最多保留 1000 行）
     logs: Arc<Mutex<VecDeque<String>>>,
     /// 是否启用自动重启
@@ -48,6 +50,7 @@ impl CoreManager {
             process: None,
             start_time: None,
             config: None,
+            core_version: None,
             logs: Arc::new(Mutex::new(VecDeque::with_capacity(1000))),
             auto_restart: true,
             crash_count: 0,
@@ -110,6 +113,25 @@ impl CoreManager {
         }
     }
 
+    fn read_core_version(core_path: &str) -> Option<String> {
+        let output = Command::new(core_path).arg("-v").output().ok()?;
+        if !output.status.success() {
+            return None;
+        }
+
+        let text = String::from_utf8_lossy(&output.stdout);
+        let first_line = text.lines().next()?.trim();
+        if first_line.is_empty() {
+            return None;
+        }
+
+        first_line
+            .split_whitespace()
+            .find(|part| part.starts_with('v') && part[1..].chars().next().is_some_and(|ch| ch.is_ascii_digit()))
+            .map(|part| part.to_string())
+            .or_else(|| Some(first_line.to_string()))
+    }
+
     /// 启动内核
     fn start(&mut self, config: CoreConfig) -> Result<()> {
         // 如果已经在运行，先停止
@@ -120,6 +142,10 @@ impl CoreManager {
         log::info!("启动内核: {}", config.core_path);
         log::info!("配置文件: {}", config.config_path);
         log::info!("外部控制器: {}", config.external_controller);
+        let core_version = Self::read_core_version(&config.core_path);
+        if let Some(version) = &core_version {
+            log::info!("mihomo 版本: {}", version);
+        }
 
         // 启动 mihomo 进程
         let mut child = Command::new(&config.core_path)
@@ -141,6 +167,7 @@ impl CoreManager {
         self.process = Some(child);
         self.start_time = Some(start_time);
         self.config = Some(config);
+        self.core_version = core_version;
         self.crash_count = 0;
         self.last_crash_time = None;
         self.push_log("内核进程已启动".into());
@@ -169,6 +196,7 @@ impl CoreManager {
         }
 
         self.start_time = None;
+        self.core_version = None;
         Ok(())
     }
 
@@ -183,6 +211,7 @@ impl CoreManager {
                     self.push_log(message);
                     self.process = None;
                     self.start_time = None;
+                    self.core_version = None;
                     false
                 }
                 Ok(None) => true,
@@ -209,6 +238,11 @@ impl CoreManager {
             running,
             pid,
             start_time: if running { self.start_time } else { None },
+            version: if running {
+                self.core_version.clone()
+            } else {
+                None
+            },
         }
     }
 
@@ -243,6 +277,7 @@ impl CoreManager {
                     self.push_log(message);
                     self.process = None;
                     self.start_time = None;
+                    self.core_version = None;
 
                     // 记录崩溃
                     self.record_crash(now);

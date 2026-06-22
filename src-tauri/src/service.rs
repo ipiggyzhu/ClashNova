@@ -20,7 +20,43 @@ use windows_service::{
 
 #[cfg(windows)]
 fn expected_service_binary_path() -> Result<PathBuf, String> {
-    crate::service_host::sibling_service_binary_path()
+    let exe = std::env::current_exe().map_err(|e| format!("定位当前程序失败: {e}"))?;
+    let exe_dir = exe.parent().ok_or("无法获取当前程序所在目录")?;
+    let mut candidates = vec![
+        exe_dir.join("clashnova-service.exe"),
+        exe_dir.join("resources").join("clashnova-service.exe"),
+        exe_dir
+            .join("resources")
+            .join("resources")
+            .join("clashnova-service.exe"),
+    ];
+
+    if let Some(parent) = exe_dir.parent() {
+        candidates.push(parent.join("clashnova-service.exe"));
+        candidates.push(parent.join("Resources").join("clashnova-service.exe"));
+        candidates.push(parent.join("resources").join("clashnova-service.exe"));
+        candidates.push(
+            parent
+                .join("resources")
+                .join("resources")
+                .join("clashnova-service.exe"),
+        );
+        if let Some(grandparent) = parent.parent() {
+            candidates.push(grandparent.join("clashnova-service.exe"));
+            candidates.push(grandparent.join("resources").join("clashnova-service.exe"));
+        }
+    }
+
+    if let Some(path) = candidates.iter().find(|path| path.exists()) {
+        return Ok(path.clone());
+    }
+
+    let checked = candidates
+        .iter()
+        .map(|path| path.display().to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    Err(format!("服务宿主缺失，已检查: {checked}"))
 }
 
 #[cfg(windows)]
@@ -29,6 +65,34 @@ fn normalized_path(path: &Path) -> String {
         .replace('/', "\\")
         .trim_matches('"')
         .to_ascii_lowercase()
+}
+
+#[cfg(windows)]
+fn split_launch_command(command: &Path) -> (String, String) {
+    let raw = command.to_string_lossy().trim().to_string();
+    let mut chars = raw.chars().peekable();
+    let mut exe = String::new();
+
+    if chars.peek() == Some(&'"') {
+        chars.next();
+        for ch in chars.by_ref() {
+            if ch == '"' {
+                break;
+            }
+            exe.push(ch);
+        }
+    } else {
+        while let Some(ch) = chars.peek().copied() {
+            if ch.is_whitespace() {
+                break;
+            }
+            exe.push(ch);
+            chars.next();
+        }
+    }
+
+    let args = chars.collect::<String>();
+    (normalized_path(Path::new(&exe)), args.to_ascii_lowercase())
 }
 
 #[cfg(windows)]
@@ -61,13 +125,11 @@ pub fn diagnose_installation() -> Result<(), String> {
         }
     }
 
-    let service_exe = expected_service_binary_path()?;
-    if !service_exe.exists() {
-        return Err(format!(
-            "服务宿主缺失: {}。请重新安装最新版本安装包，确保安装目录包含 clashnova-service.exe",
-            service_exe.display()
-        ));
+    if status() != "installed" {
+        return Ok(());
     }
+
+    let service_exe = expected_service_binary_path()?;
 
     if let Some(message) = diagnose_registered_service(&service_exe) {
         return Err(message);
@@ -99,8 +161,8 @@ fn service_command_matches_expected(launch_command: &Path) -> bool {
         Ok(exe) => exe,
         Err(_) => return false,
     };
-    let command = normalized_path(launch_command);
-    command.contains(&normalized_path(&expected_exe)) && command.contains("--dir")
+    let (registered_exe, registered_args) = split_launch_command(launch_command);
+    registered_exe == normalized_path(&expected_exe) && registered_args.contains("--dir")
 }
 
 #[cfg(windows)]
@@ -136,6 +198,17 @@ fn wait_until_removed(manager: &ServiceManager) -> Result<(), String> {
         std::thread::sleep(std::time::Duration::from_millis(250));
     }
     Err("旧服务删除超时".into())
+}
+
+#[cfg(windows)]
+fn is_service_not_found(err: &str) -> bool {
+    err.contains("does not exist")
+        || err.contains("not exist")
+        || err.contains("1060")
+        || err.contains("ERROR_SERVICE_DOES_NOT_EXIST")
+        || err.contains("服务不存在")
+        || err.contains("服务未安装")
+        || err.contains("指定的服务")
 }
 
 #[cfg(windows)]
@@ -298,17 +371,24 @@ pub fn stop() -> Result<(), String> {
 pub fn start() -> Result<(), String> {
     let manager = ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT)
         .map_err(|e| format!("连接服务管理器失败: {e}"))?;
-    let service_access = ServiceAccess::QUERY_STATUS | ServiceAccess::START;
-    let service = manager
-        .open_service(SERVICE_NAME, service_access)
+
+    let query_service = manager
+        .open_service(SERVICE_NAME, ServiceAccess::QUERY_STATUS)
         .map_err(|e| format!("打开服务失败: {e}"))?;
 
     if matches!(
-        service.query_status().map(|s| s.current_state),
+        query_service.query_status().map(|s| s.current_state),
         Ok(ServiceState::Running)
     ) {
         return Ok(());
     }
+
+    let service = manager
+        .open_service(
+            SERVICE_NAME,
+            ServiceAccess::QUERY_STATUS | ServiceAccess::START,
+        )
+        .map_err(|e| format!("打开服务启动权限失败: {e}"))?;
 
     service
         .start(&Vec::<&OsStr>::new())
@@ -318,7 +398,7 @@ pub fn start() -> Result<(), String> {
 }
 
 #[cfg(windows)]
-fn is_access_denied(err: &str) -> bool {
+pub(crate) fn is_access_denied(err: &str) -> bool {
     err.contains("Access is denied")
         || err.contains("拒绝访问")
         || err.contains("os error 5")
@@ -339,35 +419,16 @@ fn wait_running(timeout_ms: u64) -> Result<(), String> {
 }
 
 #[cfg(windows)]
-fn start_elevated() -> Result<(), String> {
-    let exe = std::env::current_exe().map_err(|e| format!("定位自身失败: {e}"))?;
-    let exe_str = exe.to_string_lossy().to_string();
-    let status = runas::Command::new(&exe_str)
-        .arg("--start-service")
-        .show(false)
-        .status()
-        .map_err(|e| format!("提权启动服务失败: {e}"))?;
-
-    if !status.success() {
-        if is_running() {
-            return Ok(());
-        }
-        return Err(format!(
-            "提权启动服务失败或用户取消了 UAC 授权，退出码: {:?}",
-            status.code()
-        ));
-    }
-
-    wait_running(15_000)
-}
-
-#[cfg(windows)]
 pub fn start_or_elevate() -> Result<(), String> {
     match start() {
         Ok(()) => Ok(()),
         Err(err) if is_access_denied(&err) => {
-            log::warn!("启动服务被系统拒绝, 尝试通过 UAC 提权启动: {err}");
-            start_elevated()
+            log::warn!("启动服务被系统拒绝, 尝试通过独立 helper 提权启动: {err}");
+            let config_dir = crate::state::Dirs::resolve()
+                .map_err(|e| format!("获取配置目录失败: {e}"))?
+                .config;
+            crate::service_installer::start_with_installer_sync(&config_dir)?;
+            wait_running(15_000)
         }
         Err(err) => Err(err),
     }
@@ -484,9 +545,18 @@ pub fn uninstall() -> Result<(), String> {
         .map_err(|e| format!("连接服务管理器失败(需要管理员权限): {e}"))?;
 
     let service_access = ServiceAccess::QUERY_STATUS | ServiceAccess::STOP | ServiceAccess::DELETE;
-    let service = manager
-        .open_service(SERVICE_NAME, service_access)
-        .map_err(|e| format!("打开服务失败: {e}"))?;
+    let service = match manager.open_service(SERVICE_NAME, service_access) {
+        Ok(service) => service,
+        Err(e) => {
+            let message = e.to_string();
+            if is_service_not_found(&message) {
+                log::info!("服务未安装，无需卸载");
+                return Ok(());
+            } else {
+                return Err(format!("打开服务失败: {message}"));
+            }
+        }
+    };
 
     // 先停止服务
     if let Ok(status) = service.query_status() {

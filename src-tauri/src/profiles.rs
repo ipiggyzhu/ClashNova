@@ -504,6 +504,45 @@ pub async fn update(app: &AppHandle, id: String) -> Result<ProfileMeta, String> 
     Ok(updated)
 }
 
+/// 更新订阅元信息(名称、订阅地址、自动更新间隔)。
+pub fn update_meta(
+    app: &AppHandle,
+    id: String,
+    name: String,
+    url: Option<String>,
+    auto_update_min: Option<u32>,
+) -> Result<ProfileMeta, String> {
+    let name = name.trim().to_string();
+    if name.is_empty() {
+        return Err("订阅名称不能为空".into());
+    }
+
+    let mut index = load_index(app);
+    let slot = index
+        .iter_mut()
+        .find(|p| p.id == id)
+        .ok_or_else(|| format!("订阅不存在: {id}"))?;
+
+    let next_url = url
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    if slot.kind == "remote" {
+        let Some(remote_url) = next_url.as_deref() else {
+            return Err("远程订阅 URL 不能为空".into());
+        };
+        if remote_url.chars().any(char::is_whitespace) {
+            return Err("订阅 URL 不能包含空白字符".into());
+        }
+    }
+
+    slot.name = name;
+    slot.url = next_url;
+    slot.auto_update_min = auto_update_min.filter(|value| *value > 0);
+    let updated = slot.clone();
+    save_index(app, &index)?;
+    Ok(updated)
+}
+
 /// 切换当前订阅并热加载。
 pub async fn select(app: &AppHandle, id: String) -> Result<(), String> {
     let mut index = load_index(app);

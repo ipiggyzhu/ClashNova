@@ -13,6 +13,20 @@ use windows_service::{
 
 const SERVICE_NAME: &str = "clashnova-core";
 
+fn arg_value(args: &[String], name: &str) -> Option<String> {
+    args.iter()
+        .position(|arg| arg == name)
+        .and_then(|index| args.get(index + 1))
+        .cloned()
+}
+
+fn write_result(path: Option<&str>, ok: bool, message: &str) {
+    if let Some(path) = path {
+        let prefix = if ok { "ok" } else { "error" };
+        let _ = std::fs::write(path, format!("{prefix}\n{message}\n"));
+    }
+}
+
 #[cfg(windows)]
 fn wait_until_removed(manager: &ServiceManager) -> Result<(), String> {
     for _ in 0..40 {
@@ -27,22 +41,37 @@ fn wait_until_removed(manager: &ServiceManager) -> Result<(), String> {
     Err("旧服务删除超时".into())
 }
 
+#[cfg(windows)]
+fn is_service_not_found(err: &str) -> bool {
+    err.contains("does not exist")
+        || err.contains("not exist")
+        || err.contains("1060")
+        || err.contains("ERROR_SERVICE_DOES_NOT_EXIST")
+        || err.contains("服务不存在")
+        || err.contains("服务未安装")
+        || err.contains("指定的服务")
+}
+
 fn main() {
     // 初始化日志
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
     log::info!("ClashNova 服务卸载程序启动");
+    let args: Vec<String> = std::env::args().collect();
+    let result_path = arg_value(&args, "--result");
 
     // 执行卸载
     match uninstall() {
         Ok(_) => {
             log::info!("服务卸载成功");
             println!("服务卸载成功");
+            write_result(result_path.as_deref(), true, "服务卸载成功");
             std::process::exit(0);
         }
         Err(e) => {
             log::error!("服务卸载失败: {}", e);
             eprintln!("服务卸载失败: {}", e);
+            write_result(result_path.as_deref(), false, &e);
             std::process::exit(1);
         }
     }
@@ -59,9 +88,17 @@ fn uninstall() -> Result<(), String> {
 
     // 打开服务
     let service_access = ServiceAccess::QUERY_STATUS | ServiceAccess::STOP | ServiceAccess::DELETE;
-    let service = manager
-        .open_service(SERVICE_NAME, service_access)
-        .map_err(|e| format!("打开服务失败: {}", e))?;
+    let service = match manager.open_service(SERVICE_NAME, service_access) {
+        Ok(service) => service,
+        Err(e) => {
+            let message = e.to_string();
+            if is_service_not_found(&message) {
+                log::info!("服务未安装，无需卸载");
+                return Ok(());
+            }
+            return Err(format!("打开服务失败: {}", message));
+        }
+    };
 
     // 查询服务状态
     if let Ok(status) = service.query_status() {

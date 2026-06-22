@@ -427,6 +427,17 @@ pub async fn update_profile(app: AppHandle, id: String) -> Result<ProfileMeta, S
 }
 
 #[tauri::command]
+pub fn update_profile_meta(
+    app: AppHandle,
+    id: String,
+    name: String,
+    url: Option<String>,
+    auto_update_min: Option<u32>,
+) -> Result<ProfileMeta, String> {
+    profiles::update_meta(&app, id, name, url, auto_update_min)
+}
+
+#[tauri::command]
 pub async fn select_profile(app: AppHandle, id: String) -> Result<(), String> {
     profiles::select(&app, id).await
 }
@@ -557,7 +568,6 @@ pub fn open_url(app: AppHandle, url: String) -> Result<(), String> {
 #[tauri::command]
 pub async fn service_status() -> String {
     let manager = crate::service_manager::get_service_manager();
-    let status = manager.current_status().await;
 
     if crate::service::diagnose_installation().is_err() {
         return "needs-reinstall".to_string();
@@ -567,6 +577,36 @@ pub async fn service_status() -> String {
     }
     if !crate::service::is_running() {
         return "unavailable:服务未运行".to_string();
+    }
+
+    let ipc_ready = match tauri::async_runtime::spawn_blocking(nova_service_ipc::connect).await {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(err)) => Err(err.to_string()),
+        Err(err) => Err(format!("IPC 检测任务失败: {err}")),
+    };
+    if let Err(err) = ipc_ready {
+        log::warn!("服务 SCM 已运行，但 IPC 不可用: {err}");
+        return "needs-reinstall".to_string();
+    }
+
+    let reinstall_needed =
+        tauri::async_runtime::spawn_blocking(nova_service_ipc::is_reinstall_needed)
+            .await
+            .unwrap_or(true);
+    if reinstall_needed {
+        return "needs-reinstall".to_string();
+    }
+
+    let mut status = manager.current_status().await;
+    if !matches!(
+        status,
+        crate::service_manager::ServiceStatus::Ready
+            | crate::service_manager::ServiceStatus::NeedsReinstall
+            | crate::service_manager::ServiceStatus::ReinstallRequired
+            | crate::service_manager::ServiceStatus::ForceReinstallRequired
+    ) {
+        let _ = manager.refresh().await;
+        status = manager.current_status().await;
     }
 
     match status {
@@ -608,6 +648,39 @@ pub async fn install_service(app: AppHandle) -> Result<(), String> {
     }
 
     // 安装成功，启动内核
+    core::start(&app)?;
+    tray::sync_tray(&app);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn start_service(app: AppHandle) -> Result<(), String> {
+    if crate::service::status() != "installed" {
+        return Err("服务未安装，请先安装服务模式".into());
+    }
+
+    let sidecar_was_running = core::is_sidecar_running(&app);
+    if sidecar_was_running {
+        core::stop_sidecar(&app)?;
+    }
+
+    if let Err(err) = crate::service::start_or_elevate() {
+        if sidecar_was_running {
+            let _ = core::start(&app);
+        }
+        return Err(err);
+    }
+
+    if let Err(err) = crate::service_manager::get_service_manager()
+        .refresh()
+        .await
+    {
+        if sidecar_was_running {
+            let _ = core::start(&app);
+        }
+        return Err(err);
+    }
+
     core::start(&app)?;
     tray::sync_tray(&app);
     Ok(())
@@ -682,47 +755,6 @@ pub async fn repair_service(app: AppHandle) -> Result<(), String> {
 
     core::start(&app)?;
     tray::sync_tray(&app);
-    Ok(())
-}
-
-/// 使用 runas 库提权执行服务安装（通过重启自身并传递 --install-service 参数）
-#[cfg(windows)]
-async fn elevate_install_service(config_dir: &std::path::Path) -> Result<(), String> {
-    let exe = std::env::current_exe().map_err(|e| format!("定位自身失败: {e}"))?;
-    let exe_str = exe.to_string_lossy().to_string();
-    let config_dir_str = config_dir.to_string_lossy().to_string();
-
-    let status = runas::Command::new(&exe_str)
-        .arg("--install-service")
-        .arg("--dir")
-        .arg(&config_dir_str)
-        .show(false)
-        .status()
-        .map_err(|e| format!("执行 runas 失败: {e}"))?;
-
-    if !status.success() {
-        return Err(format!("提权失败，退出码: {:?}", status.code()));
-    }
-
-    Ok(())
-}
-
-/// 使用 runas 库提权执行服务卸载
-#[cfg(windows)]
-async fn elevate_uninstall_service() -> Result<(), String> {
-    let exe = std::env::current_exe().map_err(|e| format!("定位自身失败: {e}"))?;
-    let exe_str = exe.to_string_lossy().to_string();
-
-    let status = runas::Command::new(&exe_str)
-        .arg("--uninstall-service")
-        .show(false)
-        .status()
-        .map_err(|e| format!("执行 runas 失败: {e}"))?;
-
-    if !status.success() {
-        return Err(format!("提权失败，退出码: {:?}", status.code()));
-    }
-
     Ok(())
 }
 

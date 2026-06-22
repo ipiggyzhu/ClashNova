@@ -247,8 +247,11 @@ impl ServiceManager {
                 return Err("服务未运行".into());
             }
 
-            // 检查 IPC 连接
-            if let Err(e) = nova_service_ipc::connect() {
+            // 检查 IPC 连接。服务刚进入 Running 后命名管道可能仍在初始化。
+            if let Err(e) = self_ref
+                .wait_for_ipc(120, std::time::Duration::from_millis(250))
+                .await
+            {
                 self_ref.set_status(ServiceStatus::NeedsReinstall).await;
                 return Err(format!("IPC 连接失败: {}", e));
             }
@@ -356,7 +359,11 @@ impl ServiceManager {
             ServiceStatus::UninstallRequired => {
                 log::info!("开始卸载服务");
 
-                crate::service_installer::uninstall_with_installer().await?;
+                if crate::service::status() == "installed" {
+                    crate::service_installer::uninstall_with_installer().await?;
+                } else {
+                    log::info!("服务未安装，卸载操作视为完成");
+                }
 
                 self.set_status(ServiceStatus::Unavailable("服务已卸载".into()))
                     .await;

@@ -30,6 +30,10 @@ export interface IpcCommands {
   import_profile: { args: { url: string }; result: ProfileMeta }
   import_profile_file: { args: { name: string; content: string }; result: ProfileMeta }
   update_profile: { args: { id: string }; result: ProfileMeta }
+  update_profile_meta: {
+    args: { id: string; name: string; url: string | null; autoUpdateMin: number | null }
+    result: ProfileMeta
+  }
   select_profile: { args: { id: string }; result: void }
   delete_profile: { args: { id: string }; result: void }
   read_profile: { args: { id: string }; result: string }
@@ -51,6 +55,7 @@ export interface IpcCommands {
   open_url: { args: { url: string }; result: void }
   service_status: { args: undefined; result: string }
   install_service: { args: undefined; result: void }
+  start_service: { args: undefined; result: void }
   uninstall_service: { args: undefined; result: void }
   reinstall_service: { args: undefined; result: void }
   repair_service: { args: undefined; result: void }

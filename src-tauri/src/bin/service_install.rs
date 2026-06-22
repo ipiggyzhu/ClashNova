@@ -6,7 +6,7 @@
 //! 它会被主程序在需要时调用，并通过 UAC 提权。
 
 use std::ffi::OsString;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[path = "../service_host.rs"]
 mod service_host;
@@ -23,6 +23,56 @@ use windows_service::{
 const SERVICE_NAME: &str = "clashnova-core";
 const SERVICE_START_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
 
+fn arg_value(args: &[String], name: &str) -> Option<String> {
+    args.iter()
+        .position(|arg| arg == name)
+        .and_then(|index| args.get(index + 1))
+        .cloned()
+}
+
+fn write_result(path: Option<&str>, ok: bool, message: &str) {
+    if let Some(path) = path {
+        let prefix = if ok { "ok" } else { "error" };
+        let _ = std::fs::write(path, format!("{prefix}\n{message}\n"));
+    }
+}
+
+#[cfg(windows)]
+fn normalized_path(path: &Path) -> String {
+    path.to_string_lossy()
+        .replace('/', "\\")
+        .trim_matches('"')
+        .to_ascii_lowercase()
+}
+
+#[cfg(windows)]
+fn split_launch_command(command: &Path) -> (String, String) {
+    let raw = command.to_string_lossy().trim().to_string();
+    let mut chars = raw.chars().peekable();
+    let mut exe = String::new();
+
+    if chars.peek() == Some(&'"') {
+        chars.next();
+        for ch in chars.by_ref() {
+            if ch == '"' {
+                break;
+            }
+            exe.push(ch);
+        }
+    } else {
+        while let Some(ch) = chars.peek().copied() {
+            if ch.is_whitespace() {
+                break;
+            }
+            exe.push(ch);
+            chars.next();
+        }
+    }
+
+    let args = chars.collect::<String>();
+    (normalized_path(Path::new(&exe)), args.to_ascii_lowercase())
+}
+
 #[cfg(windows)]
 fn service_matches_expected(
     service: &windows_service::service::Service,
@@ -30,15 +80,81 @@ fn service_matches_expected(
 ) -> bool {
     match service.query_config() {
         Ok(config) => {
-            let expected_exe = main_exe.to_string_lossy().to_ascii_lowercase();
-            let launch_command = config
-                .executable_path
-                .to_string_lossy()
-                .to_ascii_lowercase();
-            launch_command.contains(&expected_exe) && launch_command.contains("--dir")
+            let expected_exe = normalized_path(main_exe);
+            let (registered_exe, registered_args) = split_launch_command(&config.executable_path);
+            registered_exe == expected_exe && registered_args.contains("--dir")
         }
         Err(_) => false,
     }
+}
+
+#[cfg(windows)]
+fn push_candidate(candidates: &mut Vec<PathBuf>, path: PathBuf) {
+    if !candidates.iter().any(|candidate| candidate == &path) {
+        candidates.push(path);
+    }
+}
+
+#[cfg(windows)]
+fn service_binary_candidates(installer_dir: &Path) -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+    push_candidate(&mut candidates, installer_dir.join("clashnova-service.exe"));
+    push_candidate(
+        &mut candidates,
+        installer_dir
+            .join("resources")
+            .join("clashnova-service.exe"),
+    );
+    push_candidate(
+        &mut candidates,
+        installer_dir
+            .join("resources")
+            .join("resources")
+            .join("clashnova-service.exe"),
+    );
+
+    if let Some(parent) = installer_dir.parent() {
+        push_candidate(&mut candidates, parent.join("clashnova-service.exe"));
+        push_candidate(
+            &mut candidates,
+            parent.join("Resources").join("clashnova-service.exe"),
+        );
+        push_candidate(
+            &mut candidates,
+            parent.join("resources").join("clashnova-service.exe"),
+        );
+        push_candidate(
+            &mut candidates,
+            parent
+                .join("resources")
+                .join("resources")
+                .join("clashnova-service.exe"),
+        );
+        if let Some(grandparent) = parent.parent() {
+            push_candidate(&mut candidates, grandparent.join("clashnova-service.exe"));
+            push_candidate(
+                &mut candidates,
+                grandparent.join("resources").join("clashnova-service.exe"),
+            );
+        }
+    }
+
+    candidates
+}
+
+#[cfg(windows)]
+fn find_service_binary(installer_dir: &Path) -> Result<PathBuf, String> {
+    let candidates = service_binary_candidates(installer_dir);
+    if let Some(path) = candidates.iter().find(|path| path.exists()) {
+        return Ok(path.clone());
+    }
+
+    let checked = candidates
+        .iter()
+        .map(|path| path.display().to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    Err(format!("服务宿主不存在，已检查: {checked}"))
 }
 
 #[cfg(windows)]
@@ -140,19 +256,18 @@ fn main() {
 
     // 解析命令行参数
     let args: Vec<String> = std::env::args().collect();
+    let result_path = arg_value(&args, "--result");
 
     // 查找 --dir 参数
-    let config_dir = if let Some(pos) = args.iter().position(|a| a == "--dir") {
-        if let Some(dir) = args.get(pos + 1) {
-            PathBuf::from(dir)
-        } else {
-            eprintln!("错误: --dir 参数缺少值");
+    let config_dir = match arg_value(&args, "--dir") {
+        Some(dir) => PathBuf::from(dir),
+        None => {
+            let message = "错误: 缺少 --dir 参数";
+            write_result(result_path.as_deref(), false, message);
+            eprintln!("{message}");
+            eprintln!("用法: {} --dir <配置目录>", args[0]);
             std::process::exit(1);
         }
-    } else {
-        eprintln!("错误: 缺少 --dir 参数");
-        eprintln!("用法: {} --dir <配置目录>", args[0]);
-        std::process::exit(1);
     };
 
     log::info!("配置目录: {}", config_dir.display());
@@ -162,11 +277,13 @@ fn main() {
         Ok(_) => {
             log::info!("服务安装成功");
             println!("服务安装成功");
+            write_result(result_path.as_deref(), true, "服务安装成功");
             std::process::exit(0);
         }
         Err(e) => {
             log::error!("服务安装失败: {}", e);
             eprintln!("服务安装失败: {}", e);
+            write_result(result_path.as_deref(), false, &e);
             std::process::exit(1);
         }
     }
@@ -176,17 +293,10 @@ fn main() {
 fn install(config_dir: &std::path::Path) -> Result<(), String> {
     log::info!("开始安装服务: {}", SERVICE_NAME);
 
-    // 获取服务宿主路径（与安装程序同目录的 clashnova-service.exe）
+    // 获取服务宿主路径（同目录、资源目录和双 resources 目录都兼容）。
     let exe = std::env::current_exe().map_err(|e| format!("获取当前可执行文件路径失败: {}", e))?;
-
-    let service_exe = exe
-        .parent()
-        .ok_or("无法获取安装程序所在目录")?
-        .join("clashnova-service.exe");
-
-    if !service_exe.exists() {
-        return Err(format!("服务宿主不存在: {}", service_exe.display()));
-    }
+    let installer_dir = exe.parent().ok_or("无法获取安装程序所在目录")?;
+    let service_exe = find_service_binary(installer_dir)?;
 
     log::info!("服务宿主路径: {}", service_exe.display());
 

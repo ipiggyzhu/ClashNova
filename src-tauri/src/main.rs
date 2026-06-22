@@ -21,6 +21,20 @@ use tauri_plugin_log::{Target, TargetKind};
 
 use crate::state::AppState;
 
+fn arg_value(args: &[String], name: &str) -> Option<String> {
+    args.iter()
+        .position(|arg| arg == name)
+        .and_then(|index| args.get(index + 1))
+        .cloned()
+}
+
+fn write_service_result(args: &[String], ok: bool, message: &str) {
+    if let Some(path) = arg_value(args, "--result") {
+        let prefix = if ok { "ok" } else { "error" };
+        let _ = std::fs::write(path, format!("{prefix}\n{message}\n"));
+    }
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
 
@@ -34,8 +48,12 @@ fn main() {
     // 提权启动已安装服务（由 runas/UAC 调用）
     if args.iter().any(|a| a == "--start-service") {
         match service::start() {
-            Ok(_) => std::process::exit(0),
+            Ok(_) => {
+                write_service_result(&args, true, "服务启动成功");
+                std::process::exit(0);
+            }
             Err(e) => {
+                write_service_result(&args, false, &e);
                 eprintln!("服务启动失败: {e}");
                 std::process::exit(1);
             }
@@ -44,28 +62,33 @@ fn main() {
 
     // 提权安装/卸载服务（由 runas/UAC 调用）
     if args.iter().any(|a| a == "--install-service") {
-        let dir = args
-            .iter()
-            .position(|a| a == "--dir")
-            .and_then(|i| args.get(i + 1))
-            .map(std::path::PathBuf::from);
+        let dir = arg_value(&args, "--dir").map(std::path::PathBuf::from);
         if let Some(dir) = dir {
             match service::install(&dir) {
-                Ok(_) => std::process::exit(0),
+                Ok(_) => {
+                    write_service_result(&args, true, "服务安装成功");
+                    std::process::exit(0);
+                }
                 Err(e) => {
+                    write_service_result(&args, false, &e);
                     eprintln!("服务安装失败: {e}");
                     std::process::exit(1);
                 }
             }
         } else {
+            write_service_result(&args, false, "缺少 --dir 参数");
             eprintln!("缺少 --dir 参数");
             std::process::exit(1);
         }
     }
     if args.iter().any(|a| a == "--uninstall-service") {
         match service::uninstall() {
-            Ok(_) => std::process::exit(0),
+            Ok(_) => {
+                write_service_result(&args, true, "服务卸载成功");
+                std::process::exit(0);
+            }
             Err(e) => {
+                write_service_result(&args, false, &e);
                 eprintln!("服务卸载失败: {e}");
                 std::process::exit(1);
             }
@@ -118,6 +141,7 @@ fn main() {
             commands::import_profile,
             commands::import_profile_file,
             commands::update_profile,
+            commands::update_profile_meta,
             commands::select_profile,
             commands::delete_profile,
             commands::read_profile,
@@ -135,6 +159,7 @@ fn main() {
             commands::open_url,
             commands::service_status,
             commands::install_service,
+            commands::start_service,
             commands::uninstall_service,
             commands::reinstall_service,
             commands::repair_service,

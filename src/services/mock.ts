@@ -185,7 +185,7 @@ function builtinPruneEnhancer(): EnhancerMeta {
 
 interface MockProfile { meta: ProfileMeta; content: string }
 
-let profileSeq = 2
+let profileSeq = 4
 
 let profiles: MockProfile[] = [
   {
@@ -208,6 +208,44 @@ let profiles: MockProfile[] = [
         { id: 'e-rename', kind: 'script', name: 'Script: 节点改名+地区分组', enabled: true },
         builtinPruneEnhancer(),
       ],
+    },
+    content: BIGAIRPORT_YAML,
+  },
+  {
+    meta: {
+      id: 'p-lantern',
+      name: 'Lantern Plus',
+      kind: 'remote',
+      url: 'https://sub.lantern.example/api/v1/client/subscribe?token=mock-lantern',
+      updatedAt: Date.now() - 9 * HOUR,
+      autoUpdateMin: 720,
+      sizeBytes: Math.round(96 * KB),
+      quota: {
+        used: 88.7 * GB,
+        total: 200 * GB,
+        expireAt: Date.now() + 21 * DAY,
+      },
+      current: false,
+      enhancers: [builtinPruneEnhancer()],
+    },
+    content: BIGAIRPORT_YAML,
+  },
+  {
+    meta: {
+      id: 'p-lab-rules',
+      name: 'Lab Ruleset',
+      kind: 'remote',
+      url: 'https://profiles.example.net/sub/clashnova-lab.yaml',
+      updatedAt: Date.now() - 30 * MIN,
+      autoUpdateMin: 360,
+      sizeBytes: Math.round(71 * KB),
+      quota: {
+        used: 12.1 * GB,
+        total: 120 * GB,
+        expireAt: Date.now() + 83 * DAY,
+      },
+      current: false,
+      enhancers: [builtinPruneEnhancer()],
     },
     content: BIGAIRPORT_YAML,
   },
@@ -605,6 +643,22 @@ export const mockHandlers: Record<string, MockHandler> = {
     if (p.meta.quota) p.meta.quota.used = Math.min(p.meta.quota.total, p.meta.quota.used + rand(0.1, 1.2) * GB)
     return { ...p.meta }
   },
+  update_profile_meta: (args) => {
+    const p = findProfile(argString(args, 'id'))
+    const name = argString(args, 'name').trim()
+    if (!name) throw new Error('订阅名称不能为空')
+    const rawUrl = typeof args['url'] === 'string' ? args['url'].trim() : ''
+    if (p.meta.kind === 'remote' && !rawUrl) throw new Error('远程订阅 URL 不能为空')
+    const rawInterval = args['autoUpdateMin']
+    const autoUpdateMin =
+      typeof rawInterval === 'number' && Number.isFinite(rawInterval) && rawInterval > 0
+        ? Math.round(rawInterval)
+        : undefined
+    p.meta.name = name
+    p.meta.url = rawUrl || undefined
+    p.meta.autoUpdateMin = autoUpdateMin
+    return { ...p.meta }
+  },
   select_profile: (args) => {
     const id = argString(args, 'id')
     findProfile(id)
@@ -656,6 +710,12 @@ export const mockHandlers: Record<string, MockHandler> = {
   service_status: () => (serviceRunning ? 'ready' : serviceInstalled ? 'unavailable:服务未运行' : 'not-installed'),
   install_service: () => {
     serviceInstalled = true
+    serviceRunning = true
+    core.running = true
+    return undefined
+  },
+  start_service: () => {
+    if (!serviceInstalled) throw new Error('服务未安装，请先安装服务模式')
     serviceRunning = true
     core.running = true
     return undefined

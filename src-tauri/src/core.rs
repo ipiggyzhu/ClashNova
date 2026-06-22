@@ -2,6 +2,7 @@
 
 use std::collections::VecDeque;
 use std::io::Write;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -15,7 +16,109 @@ use crate::state::AppState;
 /// 崩溃重启退避窗口与上限:30 秒窗口内最多 3 次。
 const RESTART_WINDOW: Duration = Duration::from_secs(30);
 const RESTART_MAX: usize = 3;
+#[cfg(windows)]
+const MIHOMO_SIDECAR_EXE: &str = "mihomo.exe";
+#[cfg(windows)]
+const MIHOMO_TARGET_EXE: &str = "mihomo-x86_64-pc-windows-msvc.exe";
 static VERSION_REFRESH_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
+
+fn push_candidate(candidates: &mut Vec<PathBuf>, path: PathBuf) {
+    if !candidates.iter().any(|candidate| candidate == &path) {
+        candidates.push(path);
+    }
+}
+
+#[cfg(windows)]
+fn add_mihomo_candidates_from_dir(candidates: &mut Vec<PathBuf>, dir: &Path) {
+    push_candidate(candidates, dir.join(MIHOMO_SIDECAR_EXE));
+    push_candidate(candidates, dir.join(MIHOMO_TARGET_EXE));
+    push_candidate(candidates, dir.join("resources").join(MIHOMO_SIDECAR_EXE));
+    push_candidate(candidates, dir.join("resources").join(MIHOMO_TARGET_EXE));
+    push_candidate(
+        candidates,
+        dir.join("resources")
+            .join("binaries")
+            .join(MIHOMO_TARGET_EXE),
+    );
+    push_candidate(candidates, dir.join("binaries").join(MIHOMO_TARGET_EXE));
+}
+
+#[cfg(windows)]
+fn add_dev_target_mihomo_candidate(candidates: &mut Vec<PathBuf>, exe_dir: &Path) {
+    let Some(profile) = exe_dir.file_name() else {
+        return;
+    };
+    if profile != "debug" && profile != "release" {
+        return;
+    }
+
+    let Some(target_dir) = exe_dir.parent() else {
+        return;
+    };
+    push_candidate(
+        candidates,
+        target_dir
+            .join("x86_64-pc-windows-msvc")
+            .join(profile)
+            .join(MIHOMO_SIDECAR_EXE),
+    );
+}
+
+#[cfg(windows)]
+fn find_mihomo_binary(app: &AppHandle) -> Result<PathBuf, String> {
+    let exe = std::env::current_exe().map_err(|e| format!("获取当前可执行文件路径失败: {e}"))?;
+    let exe_dir = exe.parent().ok_or("无法获取当前可执行文件所在目录")?;
+    let mut candidates = Vec::new();
+
+    add_mihomo_candidates_from_dir(&mut candidates, exe_dir);
+    add_dev_target_mihomo_candidate(&mut candidates, exe_dir);
+
+    if let Ok(resource_dir) = app.path().resource_dir() {
+        add_mihomo_candidates_from_dir(&mut candidates, &resource_dir);
+    }
+
+    if let Ok(cwd) = std::env::current_dir() {
+        add_mihomo_candidates_from_dir(&mut candidates, &cwd);
+        push_candidate(
+            &mut candidates,
+            cwd.join("src-tauri")
+                .join("binaries")
+                .join(MIHOMO_TARGET_EXE),
+        );
+        push_candidate(
+            &mut candidates,
+            cwd.join("target")
+                .join("x86_64-pc-windows-msvc")
+                .join("debug")
+                .join(MIHOMO_SIDECAR_EXE),
+        );
+        push_candidate(
+            &mut candidates,
+            cwd.join("target")
+                .join("x86_64-pc-windows-msvc")
+                .join("release")
+                .join(MIHOMO_SIDECAR_EXE),
+        );
+    }
+
+    candidates
+        .iter()
+        .find(|path| path.exists())
+        .cloned()
+        .ok_or_else(|| {
+            let checked = candidates
+                .iter()
+                .map(|path| path.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("mihomo 可执行文件不存在，已检查: {checked}")
+        })
+}
+
+#[cfg(not(windows))]
+fn find_mihomo_binary(_app: &AppHandle) -> Result<PathBuf, String> {
+    Err("服务模式当前仅支持 Windows".into())
+}
 
 /// 内核句柄(挂在 `AppState.core` 的 Mutex 内, 只做短临界区读写)。
 #[derive(Default)]
@@ -116,12 +219,18 @@ pub async fn status(app: &AppHandle) -> CoreStatus {
         .as_ref()
         .map(|status| status.running)
         .unwrap_or(false);
+    let service_version = service_status
+        .as_ref()
+        .and_then(|status| status.version.clone())
+        .filter(|version| !version.trim().is_empty());
     if !sidecar_running && service_running && version == "—" {
         refresh_version_async(app.clone());
     }
     let version = if sidecar_running {
         version
     } else if version != "—" {
+        version
+    } else if let Some(version) = service_version {
         version
     } else {
         "—".into()
@@ -297,7 +406,9 @@ pub(crate) fn stop_orphan_sidecars(app: &AppHandle) {
     let script = format!(
         "$dir = '{config_dir}'; \
          $runtime = '{runtime_config}'; \
-         Get-CimInstance Win32_Process -Filter \"Name = 'mihomo.exe'\" | \
+         $names = @('{MIHOMO_SIDECAR_EXE}', '{MIHOMO_TARGET_EXE}'); \
+         Get-CimInstance Win32_Process | \
+         Where-Object {{ $_.Name -in $names }} | \
          Where-Object {{ $cmd = $_.CommandLine; $cmd -and ($cmd.Contains($dir) -or $cmd.Contains($runtime)) }} | \
          ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force -ErrorAction Stop; Write-Output $_.ProcessId }}"
     );
@@ -658,16 +769,7 @@ fn start_core_via_service(app: &AppHandle) -> Result<(), String> {
     let runtime_config = state.dirs.runtime_config();
     let settings = state.settings_snapshot();
 
-    // 获取 mihomo 可执行文件路径
-    let mihomo_path = std::env::current_exe()
-        .map_err(|e| format!("获取当前可执行文件路径失败: {}", e))?
-        .parent()
-        .ok_or("无法获取可执行文件所在目录")?
-        .join("mihomo.exe");
-
-    if !mihomo_path.exists() {
-        return Err(format!("mihomo.exe 不存在: {}", mihomo_path.display()));
-    }
+    let mihomo_path = find_mihomo_binary(app)?;
 
     // 构建内核配置
     let core_config = nova_service_ipc::CoreConfig {

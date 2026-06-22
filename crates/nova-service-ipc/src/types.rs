@@ -97,6 +97,9 @@ pub struct CoreStatus {
     pub pid: Option<u32>,
     /// 启动时间 (Unix 时间戳)
     pub start_time: Option<i64>,
+    /// mihomo 内核版本
+    #[serde(default)]
+    pub version: Option<String>,
 }
 
 /// 服务版本信息

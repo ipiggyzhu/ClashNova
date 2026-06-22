@@ -139,6 +139,11 @@ export default function Settings() {
   const [busy, setBusy] = useState<string | null>(null)
   const [confirmReset, setConfirmReset] = useState(false)
   const [showDnsSettings, setShowDnsSettings] = useState(false)
+  const coreVersionLabel = core.running
+    ? core.version === '—'
+      ? t('获取中…')
+      : core.version
+    : t('未运行')
 
   // 映射后端状态到前端显示状态
   const mapServiceStatus = (status: string): ServiceUiStatus => {
@@ -201,9 +206,10 @@ export default function Settings() {
     }
   }
 
-  const serviceCommand = (): 'install_service' | 'uninstall_service' | 'repair_service' => {
+  const serviceCommand = (): 'install_service' | 'start_service' | 'uninstall_service' | 'repair_service' => {
     if (service === 'running') return 'uninstall_service'
     if (service === 'repair') return 'repair_service'
+    if (service === 'stopped') return 'start_service'
     return 'install_service'
   }
 
@@ -456,7 +462,7 @@ export default function Settings() {
           icon={<Icon name="cpu" />}
           iconColor="var(--cyan)"
           title={t('Clash 内核')}
-          actions={<span className="chip">mihomo {core.version}</span>}
+          actions={<span className="chip">mihomo {coreVersionLabel}</span>}
           flush
         >
           <Row title={t('混合端口')} desc={t('HTTP + SOCKS5 共用端口')}>

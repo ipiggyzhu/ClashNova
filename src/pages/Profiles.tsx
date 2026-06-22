@@ -60,6 +60,13 @@ interface RuleEditorState {
   position: 'prepend' | 'append'
 }
 
+interface ProfileMetaEditorState {
+  profile: ProfileMeta
+  name: string
+  url: string
+  autoUpdateMin: string
+}
+
 interface ProfileMenuState {
   x: number
   y: number
@@ -93,6 +100,8 @@ export default function Profiles() {
   const [confirmDel, setConfirmDel] = useState<ProfileMeta | null>(null)
   const [enhEditor, setEnhEditor] = useState<EnhEditorState | null>(null)
   const [ruleEditor, setRuleEditor] = useState<RuleEditorState | null>(null)
+  const [metaEditor, setMetaEditor] = useState<ProfileMetaEditorState | null>(null)
+  const [metaSaving, setMetaSaving] = useState(false)
   const [ruleSaving, setRuleSaving] = useState(false)
   const [ruleTargets, setRuleTargets] = useState<string[]>(BASE_TARGETS)
   const [profileMenu, setProfileMenu] = useState<ProfileMenuState | null>(null)
@@ -217,6 +226,52 @@ export default function Profiles() {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       notify('error', '保存配置失败', message)
+    }
+  }
+
+  const openMetaEditor = (p: ProfileMeta): void => {
+    setMetaEditor({
+      profile: p,
+      name: p.name,
+      url: p.url ?? '',
+      autoUpdateMin: p.autoUpdateMin ? String(p.autoUpdateMin) : '',
+    })
+  }
+
+  const saveMetaEditor = async (): Promise<void> => {
+    if (!metaEditor || metaSaving) return
+    const name = metaEditor.name.trim()
+    const url = metaEditor.url.trim()
+    const intervalText = metaEditor.autoUpdateMin.trim()
+    const interval = intervalText ? Number(intervalText) : null
+    if (!name) {
+      notify('warning', '订阅信息未保存', '订阅名称不能为空')
+      return
+    }
+    if (metaEditor.profile.kind === 'remote' && !url) {
+      notify('warning', '订阅信息未保存', '远程订阅 URL 不能为空')
+      return
+    }
+    if (interval !== null && (!Number.isFinite(interval) || interval < 0)) {
+      notify('warning', '订阅信息未保存', '自动更新间隔需要是 0 或正数')
+      return
+    }
+    setMetaSaving(true)
+    try {
+      await call('update_profile_meta', {
+        id: metaEditor.profile.id,
+        name,
+        url: url || null,
+        autoUpdateMin: interval && interval > 0 ? Math.round(interval) : null,
+      })
+      await refresh()
+      setMetaEditor(null)
+      notify('success', '订阅信息已保存', name)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      notify('error', '保存订阅信息失败', message)
+    } finally {
+      setMetaSaving(false)
     }
   }
 
@@ -663,6 +718,15 @@ export default function Profiles() {
             onClick={() => {
               const p = profileMenu.profile
               setProfileMenu(null)
+              openMetaEditor(p)
+            }}
+          >
+            <Icon name="settings" size={13} />编辑订阅信息
+          </button>
+          <button
+            onClick={() => {
+              const p = profileMenu.profile
+              setProfileMenu(null)
               void openEditor(p)
             }}
           >
@@ -706,6 +770,65 @@ export default function Profiles() {
           >
             <Icon name="trash" size={13} />删除
           </button>
+        </div>
+      )}
+      {metaEditor && (
+        <div className="editor-mask" onClick={() => setMetaEditor(null)}>
+          <div className="meta-dialog" onClick={(e) => e.stopPropagation()}>
+            <div className="ehead">
+              <Icon name="settings" size={14} />
+              编辑订阅信息
+              <span className="chip">{metaEditor.profile.kind === 'remote' ? '远程' : '本地'}</span>
+              <span className="spacer" />
+              <button className="icon-btn" onClick={() => setMetaEditor(null)}>
+                <Icon name="x" />
+              </button>
+            </div>
+            <div className="meta-form">
+              <label>
+                <span>订阅名称</span>
+                <Input
+                  value={metaEditor.name}
+                  placeholder="订阅名称"
+                  onChange={(e) => setMetaEditor({ ...metaEditor, name: e.target.value })}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') void saveMetaEditor()
+                  }}
+                />
+              </label>
+              <label>
+                <span>{metaEditor.profile.kind === 'remote' ? '订阅 URL' : '来源 / 路径'}</span>
+                <Input
+                  value={metaEditor.url}
+                  placeholder={metaEditor.profile.kind === 'remote' ? 'https://… 或 clash://…' : '配置来源'}
+                  onChange={(e) => setMetaEditor({ ...metaEditor, url: e.target.value })}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') void saveMetaEditor()
+                  }}
+                />
+              </label>
+              <label>
+                <span>自动更新间隔(分钟)</span>
+                <Input
+                  type="number"
+                  min={0}
+                  step={1}
+                  value={metaEditor.autoUpdateMin}
+                  placeholder="0 表示关闭"
+                  onChange={(e) => setMetaEditor({ ...metaEditor, autoUpdateMin: e.target.value })}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') void saveMetaEditor()
+                  }}
+                />
+              </label>
+            </div>
+            <div className="efoot">
+              <Button onClick={() => setMetaEditor(null)}>取消</Button>
+              <Button variant="primary" onClick={() => void saveMetaEditor()} disabled={metaSaving}>
+                <Icon name="check" size={13} />{metaSaving ? '保存中…' : '保存'}
+              </Button>
+            </div>
+          </div>
         </div>
       )}
       {/* ---- 规则快捷添加 ---- */}
