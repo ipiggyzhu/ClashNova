@@ -71,6 +71,8 @@ jobs:
 
       - name: Build service helpers
         shell: pwsh
+        env:
+          CLASHNOVA_ALLOW_PLACEHOLDER_SERVICE_RESOURCES: 1
         run: |
           cargo build --release --bin clashnova-service
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -103,6 +105,27 @@ jobs:
               Write-Host "Skipping missing signing target: $target"
             }
           }
+
+      - name: Prepare bundled service resources
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force src-tauri/resources | Out-Null
+          Copy-Item target/release/clashnova-service.exe src-tauri/resources/clashnova-service.exe -Force
+          Copy-Item target/release/clashnova-service-install.exe src-tauri/resources/clashnova-service-install.exe -Force
+          Copy-Item target/release/clashnova-service-uninstall.exe src-tauri/resources/clashnova-service-uninstall.exe -Force
+
+          $resources = @(
+            'src-tauri/resources/clashnova-service.exe',
+            'src-tauri/resources/clashnova-service-install.exe',
+            'src-tauri/resources/clashnova-service-uninstall.exe'
+          )
+          foreach ($resource in $resources) {
+            $item = Get-Item -LiteralPath $resource -ErrorAction Stop
+            if ($item.Length -le 4096) {
+              throw "Bundled service resource looks invalid: $resource ($($item.Length) bytes)"
+            }
+          }
+          Get-ChildItem src-tauri/resources/clashnova-service*.exe | Select-Object Name, Length
 
       - name: Build Tauri NSIS installer
         shell: pwsh

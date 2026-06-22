@@ -37,9 +37,9 @@
       "binaries/mihomo"
     ],
     "resources": {
-      "../target/release/clashnova-service.exe": "resources/clashnova-service.exe",
-      "../target/release/clashnova-service-install.exe": "resources/clashnova-service-install.exe",
-      "../target/release/clashnova-service-uninstall.exe": "resources/clashnova-service-uninstall.exe"
+      "resources/clashnova-service.exe": "clashnova-service.exe",
+      "resources/clashnova-service-install.exe": "clashnova-service-install.exe",
+      "resources/clashnova-service-uninstall.exe": "clashnova-service-uninstall.exe"
     },
     "icon": [
       "icons/32x32.png",
