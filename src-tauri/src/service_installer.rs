@@ -2,40 +2,39 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-/// 调用独立的服务安装程序
-pub async fn install_with_installer(config_dir: &std::path::Path) -> Result<(), String> {
+pub async fn install_with_installer(config_dir: &Path) -> Result<(), String> {
     let config_dir = config_dir.to_path_buf();
     tokio::task::spawn_blocking(move || install_with_installer_sync(&config_dir))
         .await
-        .map_err(|e| format!("安装任务失败: {}", e))?
+        .map_err(|e| format!("service install task failed: {e}"))?
 }
 
-/// 同步调用独立服务安装程序。服务已存在时，安装程序会启动/重启已有服务。
-pub fn install_with_installer_sync(config_dir: &std::path::Path) -> Result<(), String> {
-    run_install_helper(config_dir, "安装服务", "install")
+pub fn install_with_installer_sync(config_dir: &Path) -> Result<(), String> {
+    run_install_helper(config_dir, "install service", "install")
 }
 
-/// 同步通过安装程序启动服务，用于普通权限下的 SCM START 权限兜底。
-pub fn start_with_installer_sync(config_dir: &std::path::Path) -> Result<(), String> {
-    run_install_helper(config_dir, "启动服务", "start")
+pub fn start_with_installer_sync(config_dir: &Path) -> Result<(), String> {
+    run_install_helper(config_dir, "start service", "start")
 }
 
 fn run_install_helper(
-    config_dir: &std::path::Path,
+    config_dir: &Path,
     action_label: &'static str,
     result_action: &'static str,
 ) -> Result<(), String> {
-    log::info!("使用独立安装程序{action_label}");
+    log::info!("running elevated service helper to {action_label}");
 
     let installer_path = get_installer_path()?;
     if !installer_path.exists() {
-        return Err(format!("服务安装程序不存在: {}", installer_path.display()));
+        return Err(format!(
+            "service install helper does not exist: {}",
+            installer_path.display()
+        ));
     }
 
     #[cfg(windows)]
     {
         if !is_elevated() {
-            log::info!("需要提权，使用 runas 库执行 UAC");
             return elevate_and_install_blocking(
                 &installer_path,
                 config_dir,
@@ -49,10 +48,12 @@ fn run_install_helper(
     let output = Command::new(&installer_path)
         .arg("--dir")
         .arg(config_dir)
+        .arg("--action")
+        .arg(result_action)
         .arg("--result")
         .arg(&result_path)
         .output()
-        .map_err(|e| format!("执行安装程序失败: {}", e))?;
+        .map_err(|e| format!("run service install helper failed: {e}"))?;
 
     if !output.status.success() {
         return Err(command_failure_message(
@@ -62,35 +63,28 @@ fn run_install_helper(
         ));
     }
 
-    log::info!("{action_label}成功");
+    log::info!("{action_label} succeeded");
     Ok(())
 }
 
-/// 调用独立的服务卸载程序
 pub async fn uninstall_with_installer() -> Result<(), String> {
-    log::info!("使用独立卸载程序卸载服务");
+    log::info!("running elevated service uninstall helper");
 
-    // 获取卸载程序路径
     let uninstaller_path = get_uninstaller_path()?;
-
     if !uninstaller_path.exists() {
         return Err(format!(
-            "服务卸载程序不存在: {}",
+            "service uninstall helper does not exist: {}",
             uninstaller_path.display()
         ));
     }
 
-    // 检查是否需要提权
     #[cfg(windows)]
     {
         if !is_elevated() {
-            // 需要提权，使用 runas 库
-            log::info!("需要提权，使用 runas 库执行 UAC");
             return elevate_and_uninstall(&uninstaller_path).await;
         }
     }
 
-    // 已有管理员权限，直接执行
     let result_path = service_result_path("uninstall");
     let result_arg = result_path.clone();
     let output = tokio::task::spawn_blocking(move || {
@@ -100,74 +94,75 @@ pub async fn uninstall_with_installer() -> Result<(), String> {
             .output()
     })
     .await
-    .map_err(|e| format!("卸载任务失败: {}", e))?
-    .map_err(|e| format!("执行卸载程序失败: {}", e))?;
+    .map_err(|e| format!("service uninstall task failed: {e}"))?
+    .map_err(|e| format!("run service uninstall helper failed: {e}"))?;
 
     if !output.status.success() {
         return Err(command_failure_message(
-            "卸载服务",
+            "uninstall service",
             &output,
             Some(&result_path),
         ));
     }
 
-    log::info!("服务卸载成功");
+    log::info!("uninstall service succeeded");
     Ok(())
 }
 
-/// 获取服务安装程序路径
 fn get_installer_path() -> Result<PathBuf, String> {
     find_helper("clashnova-service-install.exe")
 }
 
-/// 获取服务卸载程序路径
 fn get_uninstaller_path() -> Result<PathBuf, String> {
     find_helper("clashnova-service-uninstall.exe")
 }
 
 fn find_helper(name: &str) -> Result<PathBuf, String> {
-    let exe = std::env::current_exe().map_err(|e| format!("获取当前可执行文件路径失败: {}", e))?;
-    let exe_dir = exe.parent().ok_or("无法获取可执行文件所在目录")?;
-    let mut candidates = vec![
-        exe_dir.join(name),
-        exe_dir.join("helpers").join(name),
-        exe_dir.join("resources").join(name),
-        exe_dir.join("resources").join("helpers").join(name),
-        exe_dir.join("resources").join("resources").join(name),
-        exe_dir
-            .join("resources")
-            .join("resources")
-            .join("helpers")
-            .join(name),
-    ];
+    let exe =
+        std::env::current_exe().map_err(|e| format!("locate current executable failed: {e}"))?;
+    let exe_dir = exe
+        .parent()
+        .ok_or_else(|| "current executable has no parent directory".to_string())?;
+    let mut candidates = Vec::new();
+    add_helper_candidates(&mut candidates, exe_dir, name);
 
     if let Some(parent) = exe_dir.parent() {
-        candidates.push(parent.join(name));
-        candidates.push(parent.join("helpers").join(name));
-        candidates.push(parent.join("Resources").join(name));
-        candidates.push(parent.join("Resources").join("helpers").join(name));
-        candidates.push(parent.join("resources").join(name));
-        candidates.push(parent.join("resources").join("helpers").join(name));
-        candidates.push(parent.join("resources").join("resources").join(name));
-        candidates.push(
-            parent
-                .join("resources")
-                .join("resources")
-                .join("helpers")
-                .join(name),
-        );
+        add_helper_candidates(&mut candidates, parent, name);
         if let Some(grandparent) = parent.parent() {
-            candidates.push(grandparent.join(name));
-            candidates.push(grandparent.join("helpers").join(name));
-            candidates.push(grandparent.join("resources").join(name));
-            candidates.push(grandparent.join("resources").join("helpers").join(name));
+            add_helper_candidates(&mut candidates, grandparent, name);
         }
     }
 
     candidates
         .into_iter()
         .find(|path| path.exists())
-        .ok_or_else(|| format!("服务辅助程序不存在: {name}，已检查程序目录和 resources 目录"))
+        .ok_or_else(|| format!("service helper not found: {name}"))
+}
+
+fn add_helper_candidates(candidates: &mut Vec<PathBuf>, dir: &Path, name: &str) {
+    push_candidate(candidates, dir.join("helpers").join(name));
+    push_candidate(candidates, dir.join("Resources").join("helpers").join(name));
+    push_candidate(candidates, dir.join("resources").join("helpers").join(name));
+    push_candidate(
+        candidates,
+        dir.join("resources")
+            .join("resources")
+            .join("helpers")
+            .join(name),
+    );
+    push_candidate(candidates, dir.join(name));
+    push_candidate(candidates, dir.join("Resources").join(name));
+    push_candidate(candidates, dir.join("resources").join(name));
+    push_candidate(
+        candidates,
+        dir.join("resources").join("resources").join(name),
+    );
+}
+
+fn push_candidate(candidates: &mut Vec<PathBuf>, path: PathBuf) {
+    if !candidates.iter().any(|candidate| candidate == &path) {
+        candidates.push(path);
+    }
 }
 
 fn service_result_path(action: &str) -> PathBuf {
@@ -197,8 +192,8 @@ fn read_result_file(path: &Path) -> Option<String> {
 
 fn command_failure_message(action: &str, output: &Output, result_path: Option<&Path>) -> String {
     let mut parts = Vec::new();
-    if let Some(path) = result_path.and_then(read_result_file) {
-        parts.push(path);
+    if let Some(detail) = result_path.and_then(read_result_file) {
+        parts.push(detail);
     }
 
     let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
@@ -212,55 +207,55 @@ fn command_failure_message(action: &str, output: &Output, result_path: Option<&P
     }
 
     let detail = if parts.is_empty() {
-        "未返回详细错误".to_string()
+        "no detail returned".to_string()
     } else {
         parts.join("\n")
     };
 
-    format!("{action}失败，退出码: {:?}\n{detail}", output.status.code())
+    format!(
+        "{action} failed, exit code: {:?}\n{detail}",
+        output.status.code()
+    )
 }
 
-/// 检查当前进程是否有管理员权限
 #[cfg(windows)]
 fn is_elevated() -> bool {
+    use windows::Win32::Foundation::{CloseHandle, HANDLE};
     use windows::Win32::Security::{
         GetTokenInformation, TokenElevation, TOKEN_ELEVATION, TOKEN_QUERY,
     };
     use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 
     unsafe {
-        let mut token = windows::Win32::Foundation::HANDLE::default();
+        let mut token = HANDLE::default();
         if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token).is_err() {
             return false;
         }
 
         let mut elevation = TOKEN_ELEVATION { TokenIsElevated: 0 };
         let mut size = 0u32;
-        if GetTokenInformation(
+        let ok = GetTokenInformation(
             token,
             TokenElevation,
             Some(&mut elevation as *mut _ as *mut _),
             std::mem::size_of::<TOKEN_ELEVATION>() as u32,
             &mut size,
         )
-        .is_err()
-        {
-            return false;
-        }
+        .is_ok();
+        let _ = CloseHandle(token);
 
-        elevation.TokenIsElevated != 0
+        ok && elevation.TokenIsElevated != 0
     }
 }
 
-/// 提权并运行服务安装程序（使用 runas 库）
 #[cfg(windows)]
 fn elevate_and_install_blocking(
-    installer_path: &std::path::Path,
-    config_dir: &std::path::Path,
+    installer_path: &Path,
+    config_dir: &Path,
     action_label: &'static str,
     result_action: &'static str,
 ) -> Result<(), String> {
-    log::info!("使用 runas 库执行 UAC 提权");
+    log::info!("requesting UAC to {action_label}");
 
     let installer_str = installer_path.to_string_lossy().to_string();
     let config_dir_str = config_dir.to_string_lossy().to_string();
@@ -270,29 +265,29 @@ fn elevate_and_install_blocking(
     let status = runas::Command::new(&installer_str)
         .arg("--dir")
         .arg(&config_dir_str)
+        .arg("--action")
+        .arg(result_action)
         .arg("--result")
         .arg(&result_path_str)
         .show(false)
         .status()
-        .map_err(|e| format!("执行 runas 失败: {}", e))?;
+        .map_err(|e| format!("run elevated service install helper failed: {e}"))?;
 
     if !status.success() {
-        let detail = read_result_file(&result_path).unwrap_or_else(|| "未返回详细错误".into());
+        let detail = read_result_file(&result_path).unwrap_or_else(|| "no detail returned".into());
         return Err(format!(
-            "提权{action_label}失败，退出码: {:?}\n{}",
+            "elevated {action_label} failed, exit code: {:?}\n{}",
             status.code(),
             detail
         ));
     }
 
-    log::info!("提权{action_label}成功");
     Ok(())
 }
 
-/// 提权并卸载服务（使用 runas 库）
 #[cfg(windows)]
-async fn elevate_and_uninstall(uninstaller_path: &std::path::Path) -> Result<(), String> {
-    log::info!("使用 runas 库执行 UAC 提权");
+async fn elevate_and_uninstall(uninstaller_path: &Path) -> Result<(), String> {
+    log::info!("requesting UAC to uninstall service");
 
     let uninstaller_str = uninstaller_path.to_string_lossy().to_string();
     let result_path = service_result_path("uninstall-elevated");
@@ -306,18 +301,17 @@ async fn elevate_and_uninstall(uninstaller_path: &std::path::Path) -> Result<(),
             .status()
     })
     .await
-    .map_err(|e| format!("提权任务失败: {}", e))?
-    .map_err(|e| format!("执行 runas 失败: {}", e))?;
+    .map_err(|e| format!("service uninstall elevation task failed: {e}"))?
+    .map_err(|e| format!("run elevated service uninstall helper failed: {e}"))?;
 
     if !status.success() {
-        let detail = read_result_file(&result_path).unwrap_or_else(|| "未返回详细错误".into());
+        let detail = read_result_file(&result_path).unwrap_or_else(|| "no detail returned".into());
         return Err(format!(
-            "提权卸载失败，退出码: {:?}\n{}",
+            "elevated uninstall service failed, exit code: {:?}\n{}",
             status.code(),
             detail
         ));
     }
 
-    log::info!("提权卸载成功");
     Ok(())
 }

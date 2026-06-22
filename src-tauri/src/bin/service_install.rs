@@ -1,15 +1,14 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-//! ClashNova 服务安装程序
-//!
-//! 这是一个独立的可执行文件，用于安装 ClashNova 内核服务。
-//! 它会被主程序在需要时调用，并通过 UAC 提权。
+//! Elevated helper for installing, repairing, or starting the ClashNova service.
 
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 
 #[path = "../service_host.rs"]
 mod service_host;
+#[path = "../service_paths.rs"]
+mod service_paths;
 
 #[cfg(windows)]
 use windows_service::{
@@ -38,14 +37,6 @@ fn write_result(path: Option<&str>, ok: bool, message: &str) {
 }
 
 #[cfg(windows)]
-fn normalized_path(path: &Path) -> String {
-    path.to_string_lossy()
-        .replace('/', "\\")
-        .trim_matches('"')
-        .to_ascii_lowercase()
-}
-
-#[cfg(windows)]
 fn split_launch_command(command: &Path) -> (String, String) {
     let raw = command.to_string_lossy().trim().to_string();
     let mut chars = raw.chars().peekable();
@@ -70,147 +61,23 @@ fn split_launch_command(command: &Path) -> (String, String) {
     }
 
     let args = chars.collect::<String>();
-    (normalized_path(Path::new(&exe)), args.to_ascii_lowercase())
+    (
+        service_paths::normalized_path(Path::new(&exe)),
+        args.to_ascii_lowercase(),
+    )
 }
 
 #[cfg(windows)]
-fn service_matches_expected(
-    service: &windows_service::service::Service,
-    main_exe: &std::path::Path,
-) -> bool {
+fn service_matches_expected(service: &windows_service::service::Service) -> bool {
     match service.query_config() {
         Ok(config) => {
-            let expected_exe = normalized_path(main_exe);
+            let expected =
+                service_paths::normalized_path(&service_paths::managed_service_binary_path());
             let (registered_exe, registered_args) = split_launch_command(&config.executable_path);
-            registered_exe == expected_exe && registered_args.contains("--dir")
+            registered_exe == expected && registered_args.contains("--dir")
         }
         Err(_) => false,
     }
-}
-
-#[cfg(windows)]
-fn push_candidate(candidates: &mut Vec<PathBuf>, path: PathBuf) {
-    if !candidates.iter().any(|candidate| candidate == &path) {
-        candidates.push(path);
-    }
-}
-
-#[cfg(windows)]
-fn service_binary_candidates(installer_dir: &Path) -> Vec<PathBuf> {
-    let mut candidates = Vec::new();
-    push_candidate(&mut candidates, installer_dir.join("clashnova-service.exe"));
-    push_candidate(
-        &mut candidates,
-        installer_dir.join("helpers").join("clashnova-service.exe"),
-    );
-    push_candidate(
-        &mut candidates,
-        installer_dir
-            .join("resources")
-            .join("clashnova-service.exe"),
-    );
-    push_candidate(
-        &mut candidates,
-        installer_dir
-            .join("resources")
-            .join("helpers")
-            .join("clashnova-service.exe"),
-    );
-    push_candidate(
-        &mut candidates,
-        installer_dir
-            .join("resources")
-            .join("resources")
-            .join("clashnova-service.exe"),
-    );
-    push_candidate(
-        &mut candidates,
-        installer_dir
-            .join("resources")
-            .join("resources")
-            .join("helpers")
-            .join("clashnova-service.exe"),
-    );
-
-    if let Some(parent) = installer_dir.parent() {
-        push_candidate(&mut candidates, parent.join("clashnova-service.exe"));
-        push_candidate(
-            &mut candidates,
-            parent.join("helpers").join("clashnova-service.exe"),
-        );
-        push_candidate(
-            &mut candidates,
-            parent.join("Resources").join("clashnova-service.exe"),
-        );
-        push_candidate(
-            &mut candidates,
-            parent
-                .join("Resources")
-                .join("helpers")
-                .join("clashnova-service.exe"),
-        );
-        push_candidate(
-            &mut candidates,
-            parent.join("resources").join("clashnova-service.exe"),
-        );
-        push_candidate(
-            &mut candidates,
-            parent
-                .join("resources")
-                .join("helpers")
-                .join("clashnova-service.exe"),
-        );
-        push_candidate(
-            &mut candidates,
-            parent
-                .join("resources")
-                .join("resources")
-                .join("clashnova-service.exe"),
-        );
-        push_candidate(
-            &mut candidates,
-            parent
-                .join("resources")
-                .join("resources")
-                .join("helpers")
-                .join("clashnova-service.exe"),
-        );
-        if let Some(grandparent) = parent.parent() {
-            push_candidate(&mut candidates, grandparent.join("clashnova-service.exe"));
-            push_candidate(
-                &mut candidates,
-                grandparent.join("helpers").join("clashnova-service.exe"),
-            );
-            push_candidate(
-                &mut candidates,
-                grandparent.join("resources").join("clashnova-service.exe"),
-            );
-            push_candidate(
-                &mut candidates,
-                grandparent
-                    .join("resources")
-                    .join("helpers")
-                    .join("clashnova-service.exe"),
-            );
-        }
-    }
-
-    candidates
-}
-
-#[cfg(windows)]
-fn find_service_binary(installer_dir: &Path) -> Result<PathBuf, String> {
-    let candidates = service_binary_candidates(installer_dir);
-    if let Some(path) = candidates.iter().find(|path| path.exists()) {
-        return Ok(path.clone());
-    }
-
-    let checked = candidates
-        .iter()
-        .map(|path| path.display().to_string())
-        .collect::<Vec<_>>()
-        .join(", ");
-    Err(format!("服务宿主不存在，已检查: {checked}"))
 }
 
 #[cfg(windows)]
@@ -224,7 +91,7 @@ fn wait_until_removed(manager: &ServiceManager) -> Result<(), String> {
         }
         std::thread::sleep(std::time::Duration::from_millis(250));
     }
-    Err("旧服务删除超时".into())
+    Err("timed out waiting for old service removal".into())
 }
 
 #[cfg(windows)]
@@ -236,21 +103,17 @@ fn wait_until_running(service: &windows_service::service::Service) -> Result<(),
         std::thread::sleep(std::time::Duration::from_millis(250));
         match service.query_status() {
             Ok(status) if status.current_state == ServiceState::Running => {
-                log::info!("服务启动成功");
+                log::info!("service is running");
                 return Ok(());
             }
-            Ok(status) => {
-                last_state = Some(format!("{:?}", status.current_state));
-            }
-            Err(err) => {
-                last_state = Some(format!("查询服务状态失败: {err}"));
-            }
+            Ok(status) => last_state = Some(format!("{:?}", status.current_state)),
+            Err(err) => last_state = Some(format!("query service status failed: {err}")),
         }
     }
 
     Err(format!(
-        "服务启动超时，最后状态: {}",
-        last_state.unwrap_or_else(|| "未知".into())
+        "service start timed out; last state: {}",
+        last_state.unwrap_or_else(|| "unknown".into())
     ))
 }
 
@@ -262,150 +125,143 @@ fn wait_until_stopped(service: &windows_service::service::Service) -> Result<(),
     while std::time::Instant::now() < deadline {
         match service.query_status() {
             Ok(status) if status.current_state == ServiceState::Stopped => {
-                log::info!("服务已停止");
+                log::info!("service is stopped");
                 return Ok(());
             }
-            Ok(status) => {
-                last_state = Some(format!("{:?}", status.current_state));
-            }
-            Err(err) => {
-                last_state = Some(format!("查询服务状态失败: {err}"));
-            }
+            Ok(status) => last_state = Some(format!("{:?}", status.current_state)),
+            Err(err) => last_state = Some(format!("query service status failed: {err}")),
         }
         std::thread::sleep(std::time::Duration::from_millis(250));
     }
 
     Err(format!(
-        "服务停止超时，最后状态: {}",
-        last_state.unwrap_or_else(|| "未知".into())
+        "service stop timed out; last state: {}",
+        last_state.unwrap_or_else(|| "unknown".into())
     ))
 }
 
 #[cfg(windows)]
-fn restart_existing_service(service: &windows_service::service::Service) -> Result<(), String> {
-    log::info!("重启已有服务，确保加载当前安装包的服务宿主");
+fn start_existing_service(service: &windows_service::service::Service) -> Result<(), String> {
     match service.query_status() {
+        Ok(status) if status.current_state == ServiceState::Running => return Ok(()),
+        Ok(status) if status.current_state == ServiceState::StartPending => {
+            return wait_until_running(service);
+        }
         Ok(status) if status.current_state == ServiceState::Stopped => {}
         Ok(status) if status.current_state == ServiceState::StopPending => {
-            wait_until_stopped(service)?;
+            wait_until_stopped(service)?
         }
         Ok(_) => {
             service
                 .stop()
-                .map_err(|e| format!("停止已有服务失败: {}", e))?;
+                .map_err(|e| format!("failed to stop existing service: {e}"))?;
             wait_until_stopped(service)?;
         }
-        Err(err) => return Err(format!("查询已有服务状态失败: {}", err)),
+        Err(err) => return Err(format!("query existing service status failed: {err}")),
     }
 
     service
-        .start(&Vec::<&std::ffi::OsStr>::new())
-        .map_err(|e| format!("启动已有服务失败: {}", e))?;
+        .start(&Vec::<&OsStr>::new())
+        .map_err(|e| format!("failed to start existing service: {e} ({e:?})"))?;
     wait_until_running(service)
 }
 
+#[cfg(windows)]
+fn find_bundled_service_binary() -> Result<PathBuf, String> {
+    let exe = std::env::current_exe().map_err(|e| format!("locate helper failed: {e}"))?;
+    let helper_dir = exe
+        .parent()
+        .ok_or_else(|| "helper executable has no parent directory".to_string())?;
+    service_paths::find_bundled_service_binary(helper_dir)
+}
+
 fn main() {
-    // 初始化日志
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
-    log::info!("ClashNova 服务安装程序启动");
-
-    // 解析命令行参数
     let args: Vec<String> = std::env::args().collect();
     let result_path = arg_value(&args, "--result");
+    let action = arg_value(&args, "--action").unwrap_or_else(|| "install".to_string());
 
-    // 查找 --dir 参数
     let config_dir = match arg_value(&args, "--dir") {
         Some(dir) => PathBuf::from(dir),
         None => {
-            let message = "错误: 缺少 --dir 参数";
+            let message = "missing --dir argument";
             write_result(result_path.as_deref(), false, message);
             eprintln!("{message}");
-            eprintln!("用法: {} --dir <配置目录>", args[0]);
             std::process::exit(1);
         }
     };
 
-    log::info!("配置目录: {}", config_dir.display());
+    let result = match action.as_str() {
+        "install" | "repair" | "start" => install_or_repair(&config_dir),
+        other => Err(format!("unknown service action: {other}")),
+    };
+    let success_message = if action == "start" {
+        "service started"
+    } else {
+        "service installed"
+    };
 
-    // 执行安装
-    match install(&config_dir) {
-        Ok(_) => {
-            log::info!("服务安装成功");
-            println!("服务安装成功");
-            write_result(result_path.as_deref(), true, "服务安装成功");
+    match result {
+        Ok(()) => {
+            log::info!("{success_message}");
+            println!("{success_message}");
+            write_result(result_path.as_deref(), true, success_message);
             std::process::exit(0);
         }
-        Err(e) => {
-            log::error!("服务安装失败: {}", e);
-            eprintln!("服务安装失败: {}", e);
-            write_result(result_path.as_deref(), false, &e);
+        Err(err) => {
+            log::error!("service action failed: {err}");
+            eprintln!("service action failed: {err}");
+            write_result(result_path.as_deref(), false, &err);
             std::process::exit(1);
         }
     }
 }
 
 #[cfg(windows)]
-fn install(config_dir: &std::path::Path) -> Result<(), String> {
-    log::info!("开始安装服务: {}", SERVICE_NAME);
+fn install_or_repair(config_dir: &Path) -> Result<(), String> {
+    log::info!("installing or repairing service {}", SERVICE_NAME);
 
-    // 获取服务宿主路径（同目录、资源目录和双 resources 目录都兼容）。
-    let exe = std::env::current_exe().map_err(|e| format!("获取当前可执行文件路径失败: {}", e))?;
-    let installer_dir = exe.parent().ok_or("无法获取安装程序所在目录")?;
-    let service_exe = find_service_binary(installer_dir)?;
-
-    log::info!("服务宿主路径: {}", service_exe.display());
-
-    // 服务启动参数
+    let bundled_exe = find_bundled_service_binary()?;
     let launch_args = service_host::expected_launch_args(config_dir);
+    let manager = ServiceManager::local_computer(
+        None::<&str>,
+        ServiceManagerAccess::CONNECT | ServiceManagerAccess::CREATE_SERVICE,
+    )
+    .map_err(|e| format!("connect to service manager failed; admin rights required: {e}"))?;
 
-    // 连接到服务管理器
-    let manager_access = ServiceManagerAccess::CONNECT | ServiceManagerAccess::CREATE_SERVICE;
-    let manager = ServiceManager::local_computer(None::<&str>, manager_access)
-        .map_err(|e| format!("连接服务管理器失败（需要管理员权限）: {}", e))?;
-
-    // 检查服务是否已存在
     let service_access = ServiceAccess::QUERY_STATUS
         | ServiceAccess::QUERY_CONFIG
         | ServiceAccess::START
         | ServiceAccess::STOP
-        | ServiceAccess::DELETE;
+        | ServiceAccess::DELETE
+        | ServiceAccess::CHANGE_CONFIG;
+
     if let Ok(service) = manager.open_service(SERVICE_NAME, service_access) {
-        if !service_matches_expected(&service, &service_exe) {
-            log::warn!("服务已存在但注册信息与当前安装包不匹配，执行重装");
+        if !service_matches_expected(&service) {
+            log::warn!("existing service points to a stale path; recreating it");
             let _ = service.stop();
+            let _ = wait_until_stopped(&service);
             service
                 .delete()
-                .map_err(|e| format!("删除旧服务失败: {}", e))?;
+                .map_err(|e| format!("delete stale service failed: {e}"))?;
             drop(service);
             wait_until_removed(&manager)?;
-        } else if let Ok(status) = service.query_status() {
-            log::info!("服务已存在，检查状态");
-            match status.current_state {
-                ServiceState::Running => {
-                    log::info!("服务已在运行，执行重启以加载当前安装包");
-                    restart_existing_service(&service)?;
-                    return Ok(());
-                }
-                ServiceState::Stopped
-                | ServiceState::StopPending
-                | ServiceState::Paused
-                | ServiceState::PausePending => {
-                    log::info!("服务已存在但未运行，尝试启动");
-
-                    restart_existing_service(&service)?;
-                    return Ok(());
-                }
-                _ => {
-                    log::warn!("服务处于未知状态: {:?}", status.current_state);
-                }
+        } else {
+            if matches!(
+                service.query_status().map(|s| s.current_state),
+                Ok(ServiceState::Running) | Ok(ServiceState::StartPending)
+            ) {
+                start_existing_service(&service)?;
+                return Ok(());
             }
+            service_paths::prepare_managed_service_binary(&bundled_exe)?;
+            start_existing_service(&service)?;
+            return Ok(());
         }
     }
 
-    // 创建服务
-    log::info!("创建新服务");
-
+    let service_exe = service_paths::prepare_managed_service_binary(&bundled_exe)?;
     let service_info = ServiceInfo {
         name: OsString::from(SERVICE_NAME),
         display_name: OsString::from("ClashNova Core Service"),
@@ -415,32 +271,27 @@ fn install(config_dir: &std::path::Path) -> Result<(), String> {
         executable_path: service_exe,
         launch_arguments: launch_args,
         dependencies: vec![],
-        account_name: None, // LocalSystem
+        account_name: None,
         account_password: None,
     };
 
-    let create_access =
-        ServiceAccess::CHANGE_CONFIG | ServiceAccess::START | ServiceAccess::QUERY_STATUS;
     let service = manager
-        .create_service(&service_info, create_access)
-        .map_err(|e| format!("创建服务失败: {}", e))?;
+        .create_service(
+            &service_info,
+            ServiceAccess::CHANGE_CONFIG | ServiceAccess::START | ServiceAccess::QUERY_STATUS,
+        )
+        .map_err(|e| format!("create service failed: {e}"))?;
 
-    log::info!("设置服务描述");
     service
-        .set_description("ClashNova 内核服务 - 用于 TUN 模式免管理员运行")
-        .map_err(|e| format!("设置服务描述失败: {}", e))?;
-
-    log::info!("启动服务");
+        .set_description("ClashNova core service for TUN mode without an elevated GUI")
+        .map_err(|e| format!("set service description failed: {e}"))?;
     service
-        .start(&Vec::<&std::ffi::OsStr>::new())
-        .map_err(|e| format!("启动服务失败: {}", e))?;
-
-    wait_until_running(&service)?;
-    log::info!("服务安装并启动成功");
-    Ok(())
+        .start(&Vec::<&OsStr>::new())
+        .map_err(|e| format!("start service failed: {e} ({e:?})"))?;
+    wait_until_running(&service)
 }
 
 #[cfg(not(windows))]
-fn install(_config_dir: &std::path::Path) -> Result<(), String> {
-    Err("服务模式仅支持 Windows".into())
+fn install_or_repair(_config_dir: &Path) -> Result<(), String> {
+    Err("service mode is only supported on Windows".into())
 }

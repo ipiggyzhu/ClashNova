@@ -10,6 +10,7 @@ mod service;
 mod service_host;
 mod service_installer;
 mod service_manager;
+mod service_paths;
 mod state;
 mod stats;
 mod sysproxy_win;
