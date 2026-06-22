@@ -442,6 +442,11 @@ pub fn read_profile(app: AppHandle, id: String) -> Result<String, String> {
 }
 
 #[tauri::command]
+pub fn list_profile_rule_targets(app: AppHandle, id: String) -> Result<Vec<String>, String> {
+    profiles::list_rule_targets(&app, &id)
+}
+
+#[tauri::command]
 pub async fn save_profile_content(
     app: AppHandle,
     id: String,
@@ -490,6 +495,15 @@ pub async fn toggle_enhancer(
     enabled: bool,
 ) -> Result<(), String> {
     profiles::toggle_enhancer(&app, profile_id, enhancer_id, enabled).await
+}
+
+#[tauri::command]
+pub async fn reorder_enhancers(
+    app: AppHandle,
+    profile_id: String,
+    enhancer_ids: Vec<String>,
+) -> Result<(), String> {
+    profiles::reorder_enhancers(&app, profile_id, enhancer_ids).await
 }
 
 #[tauri::command]

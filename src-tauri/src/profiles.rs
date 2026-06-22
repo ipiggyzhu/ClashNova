@@ -11,10 +11,22 @@ use crate::state::{atomic_write, now_millis, AppState};
 const USER_AGENT: &str = "ClashNova/2.0 clash-verge-compatible clash-meta";
 const BUILTIN_PRUNE_ENHANCER_ID: &str = "builtin-prune-invalid-nodes";
 const BUILTIN_PRUNE_ENHANCER_NAME: &str = "内置：去除无效节点";
-const BUILTIN_PRUNE_SCRIPT: &str = r#"// 去除名称里明显不是节点的项目，并同步清理策略组引用。
+const BUILTIN_PRUNE_SCRIPT: &str = r#"// 去除名称里明显不是节点的项目，并同步清理策略组和订阅提供者引用。
 function main(config) {
-  const badName = /过期|到期|失效|剩余|流量|官网|套餐|订阅|网址|traffic|expire/i;
+  const invalidNodeFilterBody = '过期|到期|失效|剩余|流量|官网|套餐|订阅|网址|重置|用量|群组|频道|traffic|expire|subscription|remaining|reset|used|total';
+  const invalidNodeFilter = '(?i)(' + invalidNodeFilterBody + ')';
+  const badName = new RegExp(invalidNodeFilterBody, 'i');
   const removed = {};
+  const applyExcludeFilter = function(target) {
+    if (!target || typeof target !== 'object') return;
+    const current = String(target['exclude-filter'] || '').trim();
+    if (!current) {
+      target['exclude-filter'] = invalidNodeFilter;
+    } else if (!/剩余|流量|remaining|traffic|expire/i.test(current)) {
+      target['exclude-filter'] = '(?i)(?:' + current.replace(/^\(\?i\)/, '') + '|' + invalidNodeFilterBody + ')';
+    }
+  };
+
   config.proxies = (config.proxies || []).filter(function(proxy) {
     const name = String((proxy && proxy.name) || '');
     const drop = badName.test(name);
@@ -22,10 +34,16 @@ function main(config) {
     return !drop;
   });
 
+  for (const provider of Object.values(config['proxy-providers'] || {})) {
+    applyExcludeFilter(provider);
+  }
+
   for (const group of config['proxy-groups'] || []) {
+    if (group && group.use) applyExcludeFilter(group);
     if (Array.isArray(group.proxies)) {
       group.proxies = group.proxies.filter(function(name) {
-        return !removed[name];
+        const text = String(name || '');
+        return !removed[text] && !badName.test(text);
       });
     }
   }
@@ -115,7 +133,10 @@ fn ensure_builtin_prune_enhancers(app: &AppHandle, index: &mut [ProfileMeta]) ->
             .any(|e| e.id == BUILTIN_PRUNE_ENHANCER_ID)
         {
             let path = enhancer_file(&state, &profile.id, &builtin);
-            if !path.exists() {
+            let needs_write = fs::read(&path)
+                .map(|content| content != BUILTIN_PRUNE_SCRIPT.as_bytes())
+                .unwrap_or(true);
+            if needs_write {
                 if let Err(err) = atomic_write(&path, BUILTIN_PRUNE_SCRIPT.as_bytes()) {
                     log::warn!("写入内置增强脚本失败 {}: {err}", path.display());
                 }
@@ -523,6 +544,68 @@ pub fn read_content(app: &AppHandle, id: &str) -> Result<String, String> {
     fs::read_to_string(state.dirs.profile_file(id)).map_err(|e| format!("读取订阅失败: {e}"))
 }
 
+pub fn list_rule_targets(app: &AppHandle, id: &str) -> Result<Vec<String>, String> {
+    let index = load_index(app);
+    let meta = index
+        .iter()
+        .find(|p| p.id == id)
+        .ok_or_else(|| format!("订阅不存在: {id}"))?;
+    let profile_yaml = read_content(app, &meta.id)?;
+    let enhanced = if meta.enhancers.iter().any(|e| e.enabled) {
+        apply_enhancers(app, meta, &profile_yaml)
+    } else {
+        profile_yaml
+    };
+    let root = serde_yaml::from_str::<serde_yaml::Value>(&enhanced)
+        .map_err(|e| format!("YAML 语法错误: {e}"))?;
+
+    let mut targets = Vec::new();
+    for item in ["DIRECT", "REJECT", "REJECT-DROP", "PASS", "GLOBAL"] {
+        push_rule_target(&mut targets, item);
+    }
+
+    if let Some(groups) = yaml_get(&root, "proxy-groups").and_then(|v| v.as_sequence()) {
+        for group in groups {
+            if let Some(name) = yaml_get(group, "name").and_then(|v| v.as_str()) {
+                push_rule_target(&mut targets, name);
+            }
+        }
+        for group in groups {
+            if let Some(proxies) = yaml_get(group, "proxies").and_then(|v| v.as_sequence()) {
+                for proxy in proxies {
+                    if let Some(name) = proxy.as_str() {
+                        push_rule_target(&mut targets, name);
+                    }
+                }
+            }
+        }
+    }
+
+    if let Some(proxies) = yaml_get(&root, "proxies").and_then(|v| v.as_sequence()) {
+        for proxy in proxies {
+            if let Some(name) = yaml_get(proxy, "name").and_then(|v| v.as_str()) {
+                push_rule_target(&mut targets, name);
+            }
+        }
+    }
+
+    Ok(targets)
+}
+
+fn yaml_get<'a>(value: &'a serde_yaml::Value, key: &str) -> Option<&'a serde_yaml::Value> {
+    value
+        .as_mapping()
+        .and_then(|mapping| mapping.get(&serde_yaml::Value::from(key)))
+}
+
+fn push_rule_target(targets: &mut Vec<String>, value: &str) {
+    let name = value.trim();
+    if name.is_empty() || targets.iter().any(|item| item == name) {
+        return;
+    }
+    targets.push(name.to_string());
+}
+
 /// 校验 YAML 后写回订阅内容;当前项则重生成并热加载。
 pub async fn save_content(app: &AppHandle, id: String, content: String) -> Result<(), String> {
     serde_yaml::from_str::<serde_yaml::Value>(&content)
@@ -583,7 +666,18 @@ fn apply_enhancers(app: &AppHandle, meta: &ProfileMeta, profile_yaml: &str) -> S
     let Ok(mut base) = serde_yaml::from_str::<serde_yaml::Value>(profile_yaml) else {
         return profile_yaml.to_string();
     };
-    for e in meta.enhancers.iter().filter(|e| e.enabled) {
+    let mut enabled_enhancers: Vec<&EnhancerMeta> =
+        meta.enhancers.iter().filter(|e| e.enabled).collect();
+    // Cleanup enhancers should see the final config produced by user scripts.
+    enabled_enhancers.sort_by_key(|e| {
+        if e.id == BUILTIN_PRUNE_ENHANCER_ID {
+            1
+        } else {
+            0
+        }
+    });
+
+    for e in enabled_enhancers {
         let path = enhancer_file(&state, &meta.id, e);
         let content = match fs::read_to_string(&path) {
             Ok(c) => c,
@@ -724,6 +818,52 @@ pub async fn toggle_enhancer(
         .find(|e| e.id == eid)
         .ok_or_else(|| format!("增强项不存在: {eid}"))?;
     e.enabled = enabled;
+    let is_current = slot.current;
+    save_index(app, &index)?;
+
+    if is_current {
+        regenerate_runtime(app)?;
+        crate::core::reload_runtime(app).await?;
+    }
+    Ok(())
+}
+
+/// 重排序增强项。
+pub async fn reorder_enhancers(
+    app: &AppHandle,
+    pid: String,
+    eids: Vec<String>,
+) -> Result<(), String> {
+    let mut index = load_index(app);
+    let slot = index
+        .iter_mut()
+        .find(|p| p.id == pid)
+        .ok_or_else(|| format!("订阅不存在: {pid}"))?;
+
+    // 验证所有 ID 都存在
+    if eids.len() != slot.enhancers.len() {
+        return Err("增强项数量不匹配".into());
+    }
+
+    // 验证 ID 唯一性
+    let mut unique_ids = std::collections::HashSet::new();
+    for eid in &eids {
+        if !unique_ids.insert(eid) {
+            return Err(format!("增强项 ID 重复: {eid}"));
+        }
+        if !slot.enhancers.iter().any(|e| &e.id == eid) {
+            return Err(format!("增强项不存在: {eid}"));
+        }
+    }
+
+    // 按新顺序重排
+    let mut reordered = Vec::with_capacity(eids.len());
+    for eid in &eids {
+        if let Some(enh) = slot.enhancers.iter().find(|e| &e.id == eid).cloned() {
+            reordered.push(enh);
+        }
+    }
+    slot.enhancers = reordered;
     let is_current = slot.current;
     save_index(app, &index)?;
 

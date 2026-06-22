@@ -101,6 +101,7 @@ const FLIGHT_STAGGER_MS = 700
 const MAX_ANIMATION_STEP_MS = 34
 const ROUTE_DATA_REFRESH_MS = 1800
 const ROUTE_BASE_ALTITUDE = 0.012
+const FLAT_PLANE_SCALE = 0.45
 
 function routeColor(code: string): string {
   const hash = [...code].reduce((sum, ch) => (sum * 31 + ch.charCodeAt(0)) >>> 0, 0)
@@ -110,6 +111,7 @@ function routeColor(code: string): string {
 function buildRegionsFromConnections(payload: ConnectionsPayload): RegionTraffic[] {
   const acc = new Map<string, RegionTraffic>()
   for (const c of payload.connections) {
+    // mihomo chains 原始顺序为出口节点在前、入口组在后。
     const exit = c.chains[0] ?? ''
     if (!exit || exit === 'DIRECT' || exit === 'REJECT') continue
     const region = REGIONS.find((r) => r.match.test(exit))
@@ -781,11 +783,13 @@ export default function RouteMap() {
                       >
                         <mpath href={`#rm-route-${t.code}`} />
                       </animateMotion>
-                      <path
-                        d="M15.6 0C11.4-1.9 6-2.8.6-2.9L-6-12.6c-1.2-1.8-3.6-.8-2.7 1.2l4.2 8.5-7.5-.3-4.2-3.1c-1.2-.9-2.4.6-1.2 1.8L-10.8 0l-6.6 4.5c-1.2 1.2 0 2.7 1.2 1.8l4.2-3.1 7.5-.3-4.2 8.5c-.9 2 1.5 3 2.7 1.2L.6 2.9C6 2.8 11.4 1.9 15.6 0Z"
-                        fill="currentColor"
-                        opacity={0.96}
-                      />
+                      <g transform={`scale(${FLAT_PLANE_SCALE})`}>
+                        <path
+                          d="M15.6 0C11.4-1.9 6-2.8.6-2.9L-6-12.6c-1.2-1.8-3.6-.8-2.7 1.2l4.2 8.5-7.5-.3-4.2-3.1c-1.2-.9-2.4.6-1.2 1.8L-10.8 0l-6.6 4.5c-1.2 1.2 0 2.7 1.2 1.8l4.2-3.1 7.5-.3-4.2 8.5c-.9 2 1.5 3 2.7 1.2L.6 2.9C6 2.8 11.4 1.9 15.6 0Z"
+                          fill="currentColor"
+                          opacity={0.96}
+                        />
+                      </g>
                     </g>
                     <circle className="endpoint-halo" cx={t.x} cy={t.y} r={9} fill={t.color} />
                     <circle className="endpoint-dot" cx={t.x} cy={t.y} r={3 + (t.bytes / maxBytes) * 3} fill={t.color} />

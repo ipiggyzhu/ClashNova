@@ -145,7 +145,10 @@ export default function Connections() {
               {list.map((c) => {
                 const r = rates.get(c.id) ?? { up: 0, down: 0 }
                 const speed = r.up + r.down
-                const proc = c.metadata.process ?? 'System'
+                // 优先显示进程名，没有进程名时从路径提取文件名，最后才显示 System
+                const proc = c.metadata.process ||
+                  (c.metadata.processPath ? c.metadata.processPath.split(/[/\\]/).filter(Boolean).pop() : null) ||
+                  'System'
                 return (
                   <tr key={c.id}>
                     <td className="host-cell">

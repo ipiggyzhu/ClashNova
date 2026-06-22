@@ -33,6 +33,7 @@ export interface IpcCommands {
   select_profile: { args: { id: string }; result: void }
   delete_profile: { args: { id: string }; result: void }
   read_profile: { args: { id: string }; result: string }
+  list_profile_rule_targets: { args: { id: string }; result: string[] }
   save_profile_content: { args: { id: string; content: string }; result: void }
   read_enhancer: { args: { profileId: string; enhancerId: string }; result: string }
   save_enhancer: {
@@ -41,6 +42,7 @@ export interface IpcCommands {
   }
   delete_enhancer: { args: { profileId: string; enhancerId: string }; result: void }
   toggle_enhancer: { args: { profileId: string; enhancerId: string; enabled: boolean }; result: void }
+  reorder_enhancers: { args: { profileId: string; enhancerIds: string[] }; result: void }
   set_system_proxy: { args: { enable: boolean }; result: void }
   set_tun: { args: { enable: boolean }; result: void }
   set_mode: { args: { mode: string }; result: void }

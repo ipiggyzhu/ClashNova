@@ -37,6 +37,7 @@ rules:
 interface EditorState {
   profile: ProfileMeta
   content: string
+  originalContent: string
 }
 
 /** 增强项编辑抽屉状态(enh 为 null 表示新建) */
@@ -46,6 +47,8 @@ interface EnhEditorState {
   kind: EnhancerMeta['kind']
   name: string
   content: string
+  originalName: string
+  originalContent: string
 }
 
 interface RuleEditorState {
@@ -72,8 +75,12 @@ const RULE_TYPES = [
   { value: 'GEOIP', label: '国家/地区' },
 ]
 
-const BASE_TARGETS = ['DIRECT', 'REJECT', 'GLOBAL']
+const BASE_TARGETS = ['DIRECT', 'REJECT', 'REJECT-DROP', 'PASS', 'GLOBAL']
 const BUILTIN_ENHANCER_PREFIX = 'builtin-'
+
+const uniqTargets = (items: string[]): string[] => [
+  ...new Set(items.map((item) => item.trim()).filter(Boolean)),
+]
 
 export default function Profiles() {
   const [profiles, setProfiles] = useState<ProfileMeta[]>([])
@@ -90,6 +97,7 @@ export default function Profiles() {
   const [ruleTargets, setRuleTargets] = useState<string[]>(BASE_TARGETS)
   const [profileMenu, setProfileMenu] = useState<ProfileMenuState | null>(null)
   const [confirmDelEnh, setConfirmDelEnh] = useState<string | null>(null)
+  const [draggedEnhIndex, setDraggedEnhIndex] = useState<number | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const notify = useNotificationStore((s) => s.add)
 
@@ -156,10 +164,16 @@ export default function Profiles() {
   const saveNewProfile = async (): Promise<void> => {
     if (!newProfile) return
     const name = newProfile.name.trim() || 'Local Profile.yaml'
-    await call('import_profile_file', { name, content: newProfile.content })
-    setNewProfile(null)
-    await refresh()
-    notify('success', '已新建本地配置', name)
+    const content = newProfile.content
+    try {
+      await call('import_profile_file', { name, content })
+      await refresh()
+      setNewProfile(null)
+      notify('success', '已新建本地配置', name)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      notify('error', '新建本地配置失败', message)
+    }
   }
 
   const doUpdate = async (p: ProfileMeta): Promise<void> => {
@@ -186,14 +200,24 @@ export default function Profiles() {
 
   const openEditor = async (p: ProfileMeta): Promise<void> => {
     const content = await call('read_profile', { id: p.id })
-    setEditor({ profile: p, content })
+    setEditor({ profile: p, content, originalContent: content })
   }
 
   const saveEditor = async (): Promise<void> => {
     if (!editor) return
-    await call('save_profile_content', { id: editor.profile.id, content: editor.content })
-    setEditor(null)
-    await refresh()
+    if (editor.content === editor.originalContent) {
+      setEditor(null)
+      return
+    }
+    const current = editor
+    try {
+      await call('save_profile_content', { id: current.profile.id, content: current.content })
+      await refresh()
+      setEditor(null)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      notify('error', '保存配置失败', message)
+    }
   }
 
   /* ---- 增强链 ---- */
@@ -209,12 +233,15 @@ export default function Profiles() {
     const content = enh
       ? await call('read_enhancer', { profileId: profile.id, enhancerId: enh.id })
       : ENH_TEMPLATES[kind]
+    const name = enh?.name ?? (kind === 'merge' ? 'New Merge' : 'New Script')
     setEnhEditor({
       pid: profile.id,
       enh,
       kind: enh?.kind ?? kind,
-      name: enh?.name ?? (kind === 'merge' ? '新 Merge 处理器' : '新 Script 处理器'),
+      name,
       content,
+      originalName: name,
+      originalContent: content,
     })
   }
 
@@ -228,15 +255,23 @@ export default function Profiles() {
       target: 'DIRECT',
       position: 'prepend',
     })
+    let targets = [...BASE_TARGETS]
+    setRuleTargets(targets)
+    try {
+      const profileTargets = await call('list_profile_rule_targets', { id: profile.id })
+      targets = uniqTargets([...targets, ...profileTargets])
+    } catch {
+      // Runtime targets below can still provide useful options.
+    }
     try {
       const payload = await getProxies()
       const names = Object.keys(payload.proxies)
-        .filter((name) => !BASE_TARGETS.includes(name))
         .sort((a, b) => a.localeCompare(b))
-      setRuleTargets([...BASE_TARGETS, ...names])
+      targets = uniqTargets([...targets, ...names])
     } catch {
-      setRuleTargets(BASE_TARGETS)
+      // Profile targets are enough when the core API is unavailable.
     }
+    setRuleTargets(targets)
   }
 
   const saveRuleEditor = async (): Promise<void> => {
@@ -249,17 +284,18 @@ export default function Profiles() {
     }
     const rule = `${ruleEditor.type},${value},${target}`
     const content = `${ruleEditor.position}-rules:\n  - ${JSON.stringify(rule)}\n`
+    const profileId = ruleEditor.profileId
     setRuleSaving(true)
     try {
       await call('save_enhancer', {
-        profileId: ruleEditor.profileId,
+        profileId,
         enhancerId: null,
         kind: 'merge',
         name: `规则：${value} → ${target}`,
         content,
       })
-      setRuleEditor(null)
       await refresh()
+      setRuleEditor(null)
       notify('success', '规则已添加', rule)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
@@ -271,15 +307,30 @@ export default function Profiles() {
 
   const saveEnhEditor = async (): Promise<void> => {
     if (!enhEditor) return
-    await call('save_enhancer', {
-      profileId: enhEditor.pid,
-      enhancerId: enhEditor.enh?.id ?? null,
-      kind: enhEditor.kind,
-      name: enhEditor.name.trim() || '未命名处理器',
-      content: enhEditor.content,
-    })
-    setEnhEditor(null)
-    await refresh()
+    const name = enhEditor.name.trim() || 'Unnamed enhancer'
+    if (
+      enhEditor.enh &&
+      name === enhEditor.originalName &&
+      enhEditor.content === enhEditor.originalContent
+    ) {
+      setEnhEditor(null)
+      return
+    }
+    const current = enhEditor
+    try {
+      await call('save_enhancer', {
+        profileId: current.pid,
+        enhancerId: current.enh?.id ?? null,
+        kind: current.kind,
+        name,
+        content: current.content,
+      })
+      await refresh()
+      setEnhEditor(null)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      notify('error', '保存增强项失败', message)
+    }
   }
 
   const toggleEnh = async (enh: EnhancerMeta, enabled: boolean): Promise<void> => {
@@ -293,6 +344,55 @@ export default function Profiles() {
     await call('delete_enhancer', { profileId: currentProfile.id, enhancerId: enh.id })
     setConfirmDelEnh(null)
     await refresh()
+  }
+
+  const reorderEnhancers = async (fromIndex: number, toIndex: number): Promise<void> => {
+    if (!currentProfile || fromIndex === toIndex) return
+    const newEnhancers = [...enhancers]
+    const [moved] = newEnhancers.splice(fromIndex, 1)
+    newEnhancers.splice(toIndex, 0, moved)
+
+    // 乐观更新 UI
+    setProfiles((prev) =>
+      prev.map((p) =>
+        p.id === currentProfile.id ? { ...p, enhancers: newEnhancers } : p
+      )
+    )
+
+    try {
+      // 调用后端 API 保存新顺序
+      await call('reorder_enhancers', {
+        profileId: currentProfile.id,
+        enhancerIds: newEnhancers.map(e => e.id)
+      })
+    } catch (err) {
+      // 失败时回滚
+      await refresh()
+      const message = err instanceof Error ? err.message : String(err)
+      notify('error', '重排序失败', message)
+    }
+  }
+
+  const handleEnhDragStart = (e: React.DragEvent, index: number): void => {
+    setDraggedEnhIndex(index)
+    e.dataTransfer.effectAllowed = 'move'
+  }
+
+  const handleEnhDragOver = (e: React.DragEvent, index: number): void => {
+    e.preventDefault()
+    if (draggedEnhIndex === null || draggedEnhIndex === index) return
+    e.dataTransfer.dropEffect = 'move'
+  }
+
+  const handleEnhDrop = (e: React.DragEvent, dropIndex: number): void => {
+    e.preventDefault()
+    if (draggedEnhIndex === null) return
+    void reorderEnhancers(draggedEnhIndex, dropIndex)
+    setDraggedEnhIndex(null)
+  }
+
+  const handleEnhDragEnd = (): void => {
+    setDraggedEnhIndex(null)
   }
 
   return (
@@ -423,9 +523,17 @@ export default function Profiles() {
         }
         flush
       >
-        {enhancers.map((e) => (
-          <div className="enh-row" key={e.id}>
-            <span className="grip">
+        {enhancers.map((e, index) => (
+          <div
+            className={`enh-row ${draggedEnhIndex === index ? 'dragging' : ''}`}
+            key={e.id}
+            draggable
+            onDragStart={(ev) => handleEnhDragStart(ev, index)}
+            onDragOver={(ev) => handleEnhDragOver(ev, index)}
+            onDrop={(ev) => handleEnhDrop(ev, index)}
+            onDragEnd={handleEnhDragEnd}
+          >
+            <span className="grip" style={{ cursor: 'grab' }}>
               <Icon name="rules" size={13} />
             </span>
             <span className={`ftype ${e.kind === 'merge' ? 'yaml' : 'js'}`}>
@@ -638,20 +746,14 @@ export default function Profiles() {
               </label>
               <label>
                 <span>目标策略 / 节点</span>
-                <Input
-                  list="profile-rule-targets"
+                <select
                   value={ruleEditor.target}
-                  placeholder="DIRECT / REJECT / 节点名"
                   onChange={(e) => setRuleEditor({ ...ruleEditor, target: e.target.value })}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') void saveRuleEditor()
-                  }}
-                />
-                <datalist id="profile-rule-targets">
+                >
                   {ruleTargets.map((target) => (
-                    <option key={target} value={target} />
+                    <option key={target} value={target}>{target}</option>
                   ))}
-                </datalist>
+                </select>
               </label>
               <label>
                 <span>插入位置</span>

@@ -1,0 +1,82 @@
+enable: true
+listen: "127.0.0.1:5335"
+prefer-h3: false
+respect-rules: true
+use-hosts: false
+use-system-hosts: false
+ipv6: false
+enhanced-mode: fake-ip
+fake-ip-range: 198.18.0.1/16
+fake-ip-filter-mode: blacklist
+default-nameserver:
+  - 223.5.5.5
+  - 223.6.6.6
+  - 119.29.29.29
+nameserver:
+  - https://dns.alidns.com/dns-query
+  - https://doh.360.cn/dns-query
+  - https://sm2.doh.pub/dns-query
+  - tls://dns.alidns.com
+  - tls://dot.360.cn
+  - tls://dot.pub
+fallback:
+  - https://dns.google/dns-query
+  - https://cloudflare-dns.com/dns-query
+  - https://security.cloudflare-dns.com/dns-query
+proxy-server-nameserver:
+  - https://dns.alidns.com/dns-query
+  - https://doh.360.cn/dns-query
+  - https://sm2.doh.pub/dns-query
+  - tls://dns.alidns.com
+  - tls://dot.360.cn
+  - tls://dot.pub
+direct-nameserver:
+  - https://dns.alidns.com/dns-query
+  - https://doh.360.cn/dns-query
+  - https://sm2.doh.pub/dns-query
+  - tls://dns.alidns.com
+  - tls://dot.360.cn
+  - tls://dot.pub
+direct-nameserver-follow-policy: false
+nameserver-policy:
+  geosite:cn:
+    - https://dns.alidns.com/dns-query
+    - https://doh.360.cn/dns-query
+  geosite:geolocation-!cn:
+    - https://dns.google/dns-query
+    - https://cloudflare-dns.com/dns-query
+  +.challenges.cloudflare.com:
+    - https://dns.google/dns-query
+    - https://cloudflare-dns.com/dns-query
+fallback-filter:
+  geoip: true
+  geoip-code: CN
+  ipcidr:
+    - 240.0.0.0/4
+    - 0.0.0.0/32
+    - 127.0.0.1/32
+  domain:
+    - +.google.com
+    - +.facebook.com
+    - +.twitter.com
+    - +.youtube.com
+    - +.googleapis.com
+    - +.gstatic.com
+fake-ip-filter:
+  - "*.lan"
+  - "*.local"
+  - "stun.*.*.*"
+  - "stun.*.*"
+  - time.windows.com
+  - time.nist.gov
+  - time.apple.com
+  - "*.ntp.org.cn"
+  - pool.ntp.org
+  - ntp.aliyun.com
+  - music.163.com
+  - "*.music.163.com"
+  - "*.msftconnecttest.com"
+  - "*.msftncsi.com"
+  - localhost.ptlogin2.qq.com
+  - "*.ipv6.microsoft.com"
+  - "*.*.xboxlive.com"

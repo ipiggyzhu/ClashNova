@@ -7,6 +7,7 @@ import Seg from './ui/Seg'
 import Toggle from './ui/Toggle'
 import { useT } from '../i18n'
 import { useAppStore } from '../stores/app'
+import { useNotificationStore } from '../stores/notifications'
 import type { AppSettings, DnsEnhancedMode, FakeIpFilterMode } from '../types/clash'
 
 interface RowProps {
@@ -49,6 +50,31 @@ const EMPTY_DNS_FORM: DnsOverrideForm = {
   nameserverPolicy: '',
 }
 
+const DNS_FORM_MANAGED_KEYS = new Set([
+  'enable',
+  'listen',
+  'enhanced-mode',
+  'fake-ip-range',
+  'fake-ip-filter-mode',
+  'ipv6',
+  'prefer-h3',
+  'respect-rules',
+  'use-hosts',
+  'use-system-hosts',
+  'nameserver',
+  'fallback',
+  'proxy-server-nameserver',
+  'direct-nameserver',
+  'fake-ip-filter',
+  'nameserver-policy',
+])
+
+function errorMessage(err: unknown): string {
+  if (err instanceof Error) return err.message
+  if (typeof err === 'string') return err
+  return String(err)
+}
+
 function normalizeDnsRoot(raw: string): string {
   const lines = raw.split(/\r?\n/)
   const dnsStart = lines.findIndex((line) => /^dns\s*:\s*(?:#.*)?$/.test(line))
@@ -78,6 +104,34 @@ function stripYamlValue(value: string): string {
     return trimmed.slice(1, -1)
   }
   return trimmed
+}
+
+function findYamlKeyDelimiter(line: string): number {
+  let quote: '"' | "'" | '' = ''
+  for (let i = 0; i < line.length; i += 1) {
+    const char = line[i]
+    if (quote) {
+      if (char === quote && line[i - 1] !== '\\') quote = ''
+      continue
+    }
+    if (char === '"' || char === "'") {
+      quote = char
+      continue
+    }
+    if (char === ':' && (i === line.length - 1 || /\s/.test(line[i + 1]))) return i
+  }
+  return -1
+}
+
+function parseYamlMapEntry(line: string): { key: string; value: string } | null {
+  const trimmed = line.trim()
+  if (!trimmed || trimmed.startsWith('#') || trimmed.startsWith('- ')) return null
+  const delimiter = findYamlKeyDelimiter(trimmed)
+  if (delimiter <= 0) return null
+  return {
+    key: stripYamlValue(trimmed.slice(0, delimiter)),
+    value: trimmed.slice(delimiter + 1).trim(),
+  }
 }
 
 function extractYamlList(raw: string, key: string): string {
@@ -117,11 +171,11 @@ function extractNameserverPolicy(raw: string): string {
   for (let i = start + 1; i < lines.length; i += 1) {
     const line = lines[i]
     if (!/^\s+/.test(line)) break
-    const keyMatch = line.match(/^\s{2,}("?[^":]+"?|".+?")\s*:\s*(.*)$/)
-    if (keyMatch && !line.trimStart().startsWith('- ')) {
+    const entry = parseYamlMapEntry(line)
+    if (entry) {
       flush()
-      currentKey = stripYamlValue(keyMatch[1])
-      const inline = keyMatch[2].trim()
+      currentKey = entry.key
+      const inline = entry.value
       if (inline) currentServers = inline.split(/[;,]/).map(stripYamlValue).filter(Boolean)
       continue
     }
@@ -175,7 +229,38 @@ function appendPolicy(lines: string[], value: string): void {
   }
 }
 
-function buildDnsOverride(settings: AppSettings, form: DnsOverrideForm): string {
+function preserveUnmanagedDnsYaml(raw: string): string[] {
+  const lines = normalizeDnsRoot(raw).split(/\r?\n/)
+  const kept: string[] = []
+  let skippingManagedBlock = false
+
+  for (const line of lines) {
+    if (!line.trim()) {
+      if (!skippingManagedBlock && kept.length) kept.push('')
+      continue
+    }
+
+    const topLevel = /^\S/.test(line)
+    if (topLevel) {
+      const entry = parseYamlMapEntry(line)
+      skippingManagedBlock = Boolean(entry && DNS_FORM_MANAGED_KEYS.has(entry.key))
+      if (!skippingManagedBlock) kept.push(line)
+      continue
+    }
+
+    if (!skippingManagedBlock) kept.push(line)
+  }
+
+  while (kept.length && !kept[0].trim()) kept.shift()
+  while (kept.length && !kept[kept.length - 1].trim()) kept.pop()
+  return kept
+}
+
+function normalizeForCompare(value: string): string {
+  return value.replace(/\r\n/g, '\n').trim()
+}
+
+function buildDnsOverride(settings: AppSettings, form: DnsOverrideForm, current: string): string {
   const lines = [
     `enable: ${settings.enableDns ? 'true' : 'false'}`,
     `listen: ${JSON.stringify(settings.dnsListen)}`,
@@ -196,6 +281,8 @@ function buildDnsOverride(settings: AppSettings, form: DnsOverrideForm): string 
   appendList(lines, 'direct-nameserver', form.directNameserver)
   appendList(lines, 'fake-ip-filter', form.fakeIpFilter)
   appendPolicy(lines, form.nameserverPolicy)
+  const preserved = preserveUnmanagedDnsYaml(current)
+  if (preserved.length) lines.push('', ...preserved)
   return `${lines.join('\n')}\n`
 }
 
@@ -203,13 +290,17 @@ export default function DnsSettings({ onClose }: DnsSettingsProps) {
   const t = useT()
   const settings = useAppStore((s) => s.settings)
   const patchSettings = useAppStore((s) => s.patchSettings)
+  const notify = useNotificationStore((s) => s.add)
 
   const [draft, setDraft] = useState<Partial<Record<keyof AppSettings, string>>>({})
   const [form, setForm] = useState<DnsOverrideForm>(() => parseDnsForm(settings.dnsOverride ?? ''))
+  const [formDirty, setFormDirty] = useState(false)
   const [validationError, setValidationError] = useState<string | null>(null)
 
   const patch = (p: Partial<AppSettings>): void => {
-    void patchSettings(p).catch(() => {})
+    void patchSettings(p)
+      .then(() => setValidationError(null))
+      .catch((err) => setValidationError(`${t('保存 DNS 设置失败')}：${errorMessage(err)}`))
   }
 
   const draftValue = (key: keyof AppSettings, fallback: string): string =>
@@ -267,6 +358,7 @@ export default function DnsSettings({ onClose }: DnsSettingsProps) {
 
   const resetDefaults = (): void => {
     setForm(EMPTY_DNS_FORM)
+    setFormDirty(true)
     patch({
       enableDns: true,
       dnsListen: '127.0.0.1:5335',
@@ -282,12 +374,26 @@ export default function DnsSettings({ onClose }: DnsSettingsProps) {
   }
 
   const saveDnsOverride = (): void => {
-    void patchSettings({ dnsOverride: buildDnsOverride(settings, form) })
-      .then(onClose)
-      .catch(() => setValidationError(t('保存 DNS 覆写失败')))
+    if (!formDirty) {
+      onClose()
+      return
+    }
+
+    const current = settings.dnsOverride ?? ''
+    const next = buildDnsOverride(settings, form, current)
+    if (normalizeForCompare(next) === normalizeForCompare(current)) {
+      onClose()
+      return
+    }
+
+    onClose()
+    void patchSettings({ dnsOverride: next }).catch((err) => {
+      notify('error', t('保存 DNS 覆写失败'), errorMessage(err))
+    })
   }
 
   const updateForm = (key: keyof DnsOverrideForm, value: string): void => {
+    setFormDirty(true)
     setForm((prev) => ({ ...prev, [key]: value }))
   }
 

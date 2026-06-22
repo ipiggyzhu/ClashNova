@@ -267,16 +267,26 @@ export default function Settings() {
 
   const saveDrawer = (): void => {
     if (!drawer) return
+    const key = drawer.key
     const content =
-      drawer.key === 'bypass'
+      key === 'bypass'
         ? drawer.content
             .split(/[\n,;]+/)
             .map((item) => item.trim())
             .filter(Boolean)
             .join(';')
         : drawer.content
-    patch({ [drawer.key]: content } as Partial<AppSettings>)
+    const current = String(settings[key] ?? '')
+    if (content === current) {
+      setDrawer(null)
+      return
+    }
     setDrawer(null)
+    void withBusy(`drawer-${key}`, async () => {
+      await patchSettings({ [key]: content } as Partial<AppSettings>)
+    }).catch((err) => {
+      notify('error', t('保存设置失败'), errorMessage(err))
+    })
   }
 
   const enabledBadge = (v: string | boolean): JSX.Element => {
@@ -595,8 +605,8 @@ export default function Settings() {
             </div>
             <div className="dfoot">
               <Button onClick={() => setDrawer(null)}>{t('取消')}</Button>
-              <Button variant="primary" onClick={saveDrawer}>
-                <Icon name="check" size={13} />{t('保存')}
+              <Button variant="primary" onClick={saveDrawer} disabled={busy === `drawer-${drawer.key}`}>
+                <Icon name="check" size={13} />{busy === `drawer-${drawer.key}` ? t('保存中...') : t('保存')}
               </Button>
             </div>
           </div>
