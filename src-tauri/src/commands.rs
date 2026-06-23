@@ -58,9 +58,14 @@ fn restore_core_after_tun_failure(
     sidecar_was_running: bool,
     service_was_running: bool,
 ) {
-    if prev_settings.tun || service_was_running {
+    if prev_settings.tun {
         let _ = service::start_or_elevate();
         let _ = core::start(app);
+        return;
+    }
+
+    if service_was_running {
+        let _ = core::start_with_service(app);
         return;
     }
 
@@ -168,7 +173,7 @@ pub async fn apply_tun(app: &AppHandle, enable: bool) -> Result<(), String> {
         return Err(err);
     }
 
-    let core_result = if service::is_running() {
+    let core_result = if enable && service::is_running() {
         let reload_result = if !enable || service_was_running {
             core::reload_runtime(app).await
         } else {
@@ -648,7 +653,7 @@ pub async fn install_service(app: AppHandle) -> Result<(), String> {
     }
 
     // 安装成功，启动内核
-    core::start(&app)?;
+    core::start_with_service(&app)?;
     tray::sync_tray(&app);
     Ok(())
 }
@@ -670,7 +675,7 @@ pub async fn start_service(app: AppHandle) -> Result<(), String> {
         core::stop_sidecar(&app)?;
     }
 
-    if let Err(err) = crate::service::start_or_elevate() {
+    if let Err(err) = core::start_with_service(&app) {
         if sidecar_was_running {
             let _ = core::start(&app);
         }
@@ -687,7 +692,6 @@ pub async fn start_service(app: AppHandle) -> Result<(), String> {
         return Err(err);
     }
 
-    core::start(&app)?;
     tray::sync_tray(&app);
     Ok(())
 }

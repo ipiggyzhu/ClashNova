@@ -16,7 +16,11 @@ export type Unsubscribe = () => void
 const RECONNECT_MS = 3000
 
 /** 真实模式: 建 WebSocket 并在断开后 3s 自动重连, 直到取消订阅 */
-function subscribeWs<T>(path: string, onMessage: (data: T) => void): Unsubscribe {
+function subscribeWs<T>(
+  path: string,
+  onMessage: (data: T) => void,
+  onDisconnect?: () => void,
+): Unsubscribe {
   let ws: WebSocket | null = null
   let timer: ReturnType<typeof setTimeout> | null = null
   let closed = false
@@ -36,6 +40,7 @@ function subscribeWs<T>(path: string, onMessage: (data: T) => void): Unsubscribe
     }
     ws.onclose = () => {
       ws = null
+      onDisconnect?.()
       if (!closed) timer = setTimeout(connect, RECONNECT_MS)
     }
   }
@@ -59,7 +64,7 @@ function subscribeMock<T>(intervalMs: number, next: () => T, onMessage: (data: T
 /** WS /traffic — 每秒一个 TrafficPoint(B/s) */
 export function subscribeTraffic(onPoint: (point: TrafficPoint) => void): Unsubscribe {
   if (isMock) return subscribeMock(1000, mockNextTraffic, onPoint)
-  return subscribeWs<TrafficPoint>('/traffic', onPoint)
+  return subscribeWs<TrafficPoint>('/traffic', onPoint, () => onPoint({ up: 0, down: 0 }))
 }
 
 /** WS /connections — 每秒一份连接快照 */

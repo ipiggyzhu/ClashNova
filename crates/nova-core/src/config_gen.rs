@@ -44,6 +44,52 @@ fn normalize_dns_override(raw: &str) -> Result<Value, CoreError> {
     Ok(value)
 }
 
+fn ensure_tun_dns(doc: &mut Value, ov: &RuntimeOverrides) {
+    let Some(map) = doc.as_mapping_mut() else {
+        return;
+    };
+    let dns_key = Value::String("dns".into());
+    if !map
+        .get(&dns_key)
+        .map(Value::is_mapping)
+        .unwrap_or(false)
+    {
+        map.insert(dns_key.clone(), Value::Mapping(Mapping::new()));
+    }
+    let Some(dns) = map.get_mut(&dns_key).and_then(Value::as_mapping_mut) else {
+        return;
+    };
+
+    dns.insert(Value::String("enable".into()), Value::Bool(true));
+    dns.entry(Value::String("listen".into()))
+        .or_insert_with(|| Value::String(ov.dns_listen.clone()));
+    dns.entry(Value::String("ipv6".into()))
+        .or_insert(Value::Bool(ov.ipv6));
+
+    let mode_key = Value::String("enhanced-mode".into());
+    let enhanced_mode = dns
+        .get(&mode_key)
+        .and_then(Value::as_str)
+        .filter(|mode| !mode.trim().is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| {
+            let mode = if ov.dns_enhanced_mode.trim().is_empty() {
+                "fake-ip".to_string()
+            } else {
+                ov.dns_enhanced_mode.clone()
+            };
+            dns.insert(mode_key, Value::String(mode.clone()));
+            mode
+        });
+
+    if enhanced_mode == "fake-ip" {
+        dns.entry(Value::String("fake-ip-range".into()))
+            .or_insert_with(|| Value::String(ov.fake_ip_range.clone()));
+        dns.entry(Value::String("fake-ip-filter-mode".into()))
+            .or_insert_with(|| Value::String(ov.fake_ip_filter_mode.clone()));
+    }
+}
+
 /// 解析 profile YAML 并应用覆写,序列化回 YAML(锁定契约 D)。
 ///
 /// - 覆写 `mixed-port` / `external-controller` / `secret` / `mode` /
@@ -147,7 +193,7 @@ pub fn build_runtime_config(profile_yaml: &str, ov: &RuntimeOverrides) -> Result
                 .or_insert(Value::Bool(true));
         }
     }
-    if !ov.enable_dns {
+    if !ov.enable_dns && !ov.tun_enable {
         if let Some(dns) = doc
             .as_mapping_mut()
             .and_then(|m| m.get_mut("dns"))
@@ -155,6 +201,10 @@ pub fn build_runtime_config(profile_yaml: &str, ov: &RuntimeOverrides) -> Result
         {
             dns.insert(Value::String("enable".into()), Value::Bool(false));
         }
+    }
+
+    if ov.tun_enable {
+        ensure_tun_dns(&mut doc, ov);
     }
 
     // hosts 覆写:`域名 IP` 行 → hosts: {域名: IP};非法行跳过
@@ -269,6 +319,16 @@ proxies: []
         );
         // profile 原有的 tun 子键保留
         assert_eq!(tun.get("device"), Some(&Value::String("utun0".into())));
+        let dns = doc.get("dns").expect("TUN 应确保 dns 段存在");
+        assert_eq!(dns.get("enable"), Some(&Value::Bool(true)));
+        assert_eq!(
+            dns.get("enhanced-mode"),
+            Some(&Value::String("fake-ip".into()))
+        );
+        assert_eq!(
+            dns.get("fake-ip-range"),
+            Some(&Value::String("198.18.0.1/16".into()))
+        );
     }
 
     #[test]

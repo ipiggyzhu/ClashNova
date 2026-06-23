@@ -293,77 +293,33 @@ pub fn start(app: &AppHandle) -> Result<(), String> {
         refresh_version_async(app.clone());
         return Ok(());
     }
-    // 服务模式托管内核 → 不再拉起 sidecar, 仅经外部控制器对接
-    if crate::service::is_running() {
-        log::info!(
-            "内核由服务 {} 托管, 通过 IPC 启动",
-            crate::service::SERVICE_NAME
-        );
-
-        wait_for_service_ipc_ready(Duration::from_secs(30), Duration::from_millis(250))?;
-        if nova_service_ipc::is_reinstall_needed() {
-            return Err("服务版本不匹配，需要重装".into());
-        }
-
-        // 通过 IPC 启动 mihomo
-        start_core_via_service(app)?;
-
-        refresh_version_async(app.clone());
-        return Ok(());
-    }
-    if crate::service::status() == "installed" {
-        match crate::service::start() {
-            Ok(()) => {
-                log::info!(
-                    "内核由服务 {} 托管，通过 IPC 启动",
-                    crate::service::SERVICE_NAME
-                );
-
-                wait_for_service_ipc_ready(Duration::from_secs(30), Duration::from_millis(250))?;
-                if nova_service_ipc::is_reinstall_needed() {
-                    return Err("服务版本不匹配，需要重装".into());
-                }
-
-                // 通过 IPC 启动 mihomo
-                if let Err(e) = start_core_via_service(app) {
-                    log::warn!("IPC 启动内核失败: {}, 回退普通 sidecar", e);
-                } else {
-                    refresh_version_async(app.clone());
-                    return Ok(());
-                }
-            }
-            Err(err) => {
-                log::warn!("服务模式启动失败, 尝试 UAC 提权后再次启动: {err}");
-                match crate::service::start_or_elevate() {
-                    Ok(()) => {
-                        log::info!(
-                            "内核由服务 {} 托管，通过 IPC 启动",
-                            crate::service::SERVICE_NAME
-                        );
-
-                        wait_for_service_ipc_ready(
-                            Duration::from_secs(30),
-                            Duration::from_millis(250),
-                        )?;
-                        if nova_service_ipc::is_reinstall_needed() {
-                            return Err("服务版本不匹配，需要重装".into());
-                        }
-
-                        if let Err(e) = start_core_via_service(app) {
-                            log::warn!("IPC 启动内核失败: {}, 回退普通 sidecar", e);
-                        } else {
-                            refresh_version_async(app.clone());
-                            return Ok(());
-                        }
-                    }
-                    Err(err) => {
-                        log::warn!("提权启动服务失败, 回退普通 sidecar: {err}");
-                    }
-                }
-            }
-        }
-    }
     start_sidecar(app)?;
+    Ok(())
+}
+
+/// 显式以 Windows 服务托管内核。普通启动不会隐式走这里，避免服务故障污染非 TUN 模式。
+pub fn start_with_service(app: &AppHandle) -> Result<(), String> {
+    if crate::service::status() != "installed" {
+        return Err("服务未安装，请先安装服务模式".into());
+    }
+
+    stop_sidecar(app)?;
+    stop_orphan_sidecars(app);
+
+    if !crate::service::is_running() {
+        crate::service::start_or_elevate()?;
+    }
+
+    log::info!(
+        "内核由服务 {} 托管，通过 IPC 启动",
+        crate::service::SERVICE_NAME
+    );
+    wait_for_service_ipc_ready(Duration::from_secs(30), Duration::from_millis(250))?;
+    if nova_service_ipc::is_reinstall_needed() {
+        return Err("服务版本不匹配，需要重装".into());
+    }
+    start_core_via_service(app)?;
+    refresh_version_async(app.clone());
     Ok(())
 }
 
