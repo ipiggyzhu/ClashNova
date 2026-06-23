@@ -17,8 +17,8 @@ use windows_service::{
 };
 
 #[cfg(windows)]
-fn expected_service_binary_path() -> PathBuf {
-    crate::service_paths::managed_service_binary_path()
+fn expected_service_binary_path() -> Result<PathBuf, String> {
+    bundled_service_binary_from_current_exe()
 }
 
 #[cfg(windows)]
@@ -54,7 +54,9 @@ fn split_launch_command(command: &Path) -> (String, String) {
 
 #[cfg(windows)]
 fn service_command_matches_expected(launch_command: &Path) -> bool {
-    let expected_exe = expected_service_binary_path();
+    let Ok(expected_exe) = expected_service_binary_path() else {
+        return false;
+    };
     let (registered_exe, registered_args) = split_launch_command(launch_command);
     registered_exe == crate::service_paths::normalized_path(&expected_exe)
         && registered_args.contains("--dir")
@@ -82,7 +84,14 @@ fn diagnose_registered_service() -> Option<String> {
     }
 
     let registered = config.executable_path.display().to_string();
-    let expected = expected_service_binary_path();
+    let expected = match expected_service_binary_path() {
+        Ok(path) => path,
+        Err(err) => {
+            return Some(format!(
+                "service host cannot be located: {err}; please repair the service"
+            ));
+        }
+    };
     Some(format!(
         "service registration is stale: SCM points to `{registered}`, expected `{}` --dir <config_dir>; please repair the service",
         expected.display()
@@ -101,10 +110,10 @@ pub fn diagnose_installation() -> Result<(), String> {
         return Err(message);
     }
 
-    let expected_exe = expected_service_binary_path();
+    let expected_exe = expected_service_binary_path()?;
     if !expected_exe.exists() {
         return Err(format!(
-            "service registration is stale: managed service host is missing at {}; please repair the service",
+            "service registration is stale: bundled service host is missing at {}; please repair the service",
             expected_exe.display()
         ));
     }
@@ -228,6 +237,27 @@ fn wait_until_stopped(service: &windows_service::service::Service) -> Result<(),
 }
 
 #[cfg(windows)]
+fn app_control_hint(err: &str) -> Option<&'static str> {
+    if err.contains("4551")
+        || err.contains("应用程序控制策略已阻止此文件")
+        || err.contains("blocked by application control policy")
+    {
+        Some("Windows 应用控制策略阻止了服务程序启动。请先点击“修复”重建服务；如果仍失败，需要在 Windows 安全中心或组织策略中允许 ClashNova 服务程序，或使用已签名版本。")
+    } else {
+        None
+    }
+}
+
+#[cfg(windows)]
+fn format_service_start_error(prefix: &str, err: impl std::fmt::Display) -> String {
+    let message = format!("{prefix}: {err}");
+    match app_control_hint(&message) {
+        Some(hint) => format!("{message}\n{hint}"),
+        None => message,
+    }
+}
+
+#[cfg(windows)]
 fn start_existing_service(service: &windows_service::service::Service) -> Result<(), String> {
     match service.query_status() {
         Ok(status) if status.current_state == ServiceState::Running => return Ok(()),
@@ -247,9 +277,9 @@ fn start_existing_service(service: &windows_service::service::Service) -> Result
         Err(err) => return Err(format!("query existing service status failed: {err}")),
     }
 
-    service
-        .start(&Vec::<&OsStr>::new())
-        .map_err(|e| format!("failed to start existing service: {e} ({e:?})"))?;
+    service.start(&Vec::<&OsStr>::new()).map_err(|e| {
+        format_service_start_error("failed to start existing service", format!("{e} ({e:?})"))
+    })?;
     wait_until_running(service)
 }
 
@@ -342,10 +372,10 @@ pub fn start() -> Result<(), String> {
         return Err("service registration is stale; repair is required".into());
     }
 
-    let expected_exe = expected_service_binary_path();
+    let expected_exe = expected_service_binary_path()?;
     if !expected_exe.exists() {
         return Err(format!(
-            "service registration is stale: managed service host is missing at {}; repair is required",
+            "service registration is stale: bundled service host is missing at {}; repair is required",
             expected_exe.display()
         ));
     }
@@ -448,20 +478,18 @@ pub fn install(config_dir: &Path) -> Result<(), String> {
                 start_existing_service(&service)?;
                 return Ok(());
             }
-            crate::service_paths::prepare_managed_service_binary(&bundled_exe)?;
             start_existing_service(&service)?;
             return Ok(());
         }
     }
 
-    let service_exe = crate::service_paths::prepare_managed_service_binary(&bundled_exe)?;
     let service_info = ServiceInfo {
         name: OsString::from(SERVICE_NAME),
         display_name: OsString::from("ClashNova Core Service"),
         service_type: ServiceType::OWN_PROCESS,
         start_type: ServiceStartType::AutoStart,
         error_control: ServiceErrorControl::Normal,
-        executable_path: service_exe,
+        executable_path: bundled_exe,
         launch_arguments: launch_args,
         dependencies: vec![],
         account_name: None,
@@ -480,7 +508,7 @@ pub fn install(config_dir: &Path) -> Result<(), String> {
         .map_err(|e| format!("set service description failed: {e}"))?;
     service
         .start(&Vec::<&OsStr>::new())
-        .map_err(|e| format!("start service failed: {e} ({e:?})"))?;
+        .map_err(|e| format_service_start_error("start service failed", format!("{e} ({e:?})")))?;
     wait_until_running(&service)?;
     Ok(())
 }

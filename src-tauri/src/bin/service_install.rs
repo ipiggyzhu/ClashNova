@@ -71,8 +71,10 @@ fn split_launch_command(command: &Path) -> (String, String) {
 fn service_matches_expected(service: &windows_service::service::Service) -> bool {
     match service.query_config() {
         Ok(config) => {
-            let expected =
-                service_paths::normalized_path(&service_paths::managed_service_binary_path());
+            let Ok(expected_path) = find_bundled_service_binary() else {
+                return false;
+            };
+            let expected = service_paths::normalized_path(&expected_path);
             let (registered_exe, registered_args) = split_launch_command(&config.executable_path);
             registered_exe == expected && registered_args.contains("--dir")
         }
@@ -141,6 +143,27 @@ fn wait_until_stopped(service: &windows_service::service::Service) -> Result<(),
 }
 
 #[cfg(windows)]
+fn app_control_hint(err: &str) -> Option<&'static str> {
+    if err.contains("4551")
+        || err.contains("应用程序控制策略已阻止此文件")
+        || err.contains("blocked by application control policy")
+    {
+        Some("Windows 应用控制策略阻止了服务程序启动。请先点击“修复”重建服务；如果仍失败，需要在 Windows 安全中心或组织策略中允许 ClashNova 服务程序，或使用已签名版本。")
+    } else {
+        None
+    }
+}
+
+#[cfg(windows)]
+fn format_service_start_error(prefix: &str, err: impl std::fmt::Display) -> String {
+    let message = format!("{prefix}: {err}");
+    match app_control_hint(&message) {
+        Some(hint) => format!("{message}\n{hint}"),
+        None => message,
+    }
+}
+
+#[cfg(windows)]
 fn start_existing_service(service: &windows_service::service::Service) -> Result<(), String> {
     match service.query_status() {
         Ok(status) if status.current_state == ServiceState::Running => return Ok(()),
@@ -160,9 +183,9 @@ fn start_existing_service(service: &windows_service::service::Service) -> Result
         Err(err) => return Err(format!("query existing service status failed: {err}")),
     }
 
-    service
-        .start(&Vec::<&OsStr>::new())
-        .map_err(|e| format!("failed to start existing service: {e} ({e:?})"))?;
+    service.start(&Vec::<&OsStr>::new()).map_err(|e| {
+        format_service_start_error("failed to start existing service", format!("{e} ({e:?})"))
+    })?;
     wait_until_running(service)
 }
 
@@ -255,20 +278,18 @@ fn install_or_repair(config_dir: &Path) -> Result<(), String> {
                 start_existing_service(&service)?;
                 return Ok(());
             }
-            service_paths::prepare_managed_service_binary(&bundled_exe)?;
             start_existing_service(&service)?;
             return Ok(());
         }
     }
 
-    let service_exe = service_paths::prepare_managed_service_binary(&bundled_exe)?;
     let service_info = ServiceInfo {
         name: OsString::from(SERVICE_NAME),
         display_name: OsString::from("ClashNova Core Service"),
         service_type: ServiceType::OWN_PROCESS,
         start_type: ServiceStartType::AutoStart,
         error_control: ServiceErrorControl::Normal,
-        executable_path: service_exe,
+        executable_path: bundled_exe,
         launch_arguments: launch_args,
         dependencies: vec![],
         account_name: None,
@@ -287,7 +308,7 @@ fn install_or_repair(config_dir: &Path) -> Result<(), String> {
         .map_err(|e| format!("set service description failed: {e}"))?;
     service
         .start(&Vec::<&OsStr>::new())
-        .map_err(|e| format!("start service failed: {e} ({e:?})"))?;
+        .map_err(|e| format_service_start_error("start service failed", format!("{e} ({e:?})")))?;
     wait_until_running(&service)
 }
 
