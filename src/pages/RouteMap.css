@@ -20,7 +20,12 @@
   transition:opacity .25s}
 .pg-routemap .globe-plane svg{display:block;width:18px;height:18px;fill:currentColor}
 .pg-routemap .flat-svg text{font-size:11px;font-weight:600;fill:var(--text)}
+.pg-routemap .flat-svg .node-label{paint-order:stroke;stroke:var(--card);stroke-width:4px;
+  stroke-linejoin:round}
+.pg-routemap .flat-svg .origin-label{fill:#8a5a00}
 .pg-routemap .flat-svg text.sub{font-size:9.5px;font-weight:400;fill:var(--text-3)}
+.pg-routemap .flat-svg .label-leader{fill:none;stroke:var(--text-3);stroke-width:.75;
+  stroke-dasharray:2.5 3.5;opacity:.55}
 .pg-routemap .flat-svg .route-glow{opacity:.20;filter:drop-shadow(0 0 8px currentColor)}
 .pg-routemap .flat-svg .route-line{opacity:.9;filter:drop-shadow(0 0 3px currentColor)}
 .pg-routemap .flat-svg .route-trace{opacity:.55;stroke-dasharray:5 8;animation:routemap-trace 1.8s linear infinite}

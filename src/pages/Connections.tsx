@@ -12,6 +12,17 @@ import type { ConnItem } from '../types/clash'
 import { fmtBytes, fmtDuration, fmtSpeed } from '../utils/format'
 
 const PROC_COLORS = ['#64D2FF', '#BF5AF2', '#FF9F0A', '#32D74B', '#FF375F', '#FFD60A', '#40C8E0']
+const CONNECTION_FRAME_MS = 100
+const CONNECTION_RATE_SMOOTHING_MS = 380
+const CONNECTION_BYTES_SMOOTHING_MS = 260
+const CONNECTION_RATE_EMA = 0.58
+
+interface ConnVisualRow {
+  upload: number
+  download: number
+  up: number
+  down: number
+}
 
 function procColor(name: string): string {
   let h = 0
@@ -24,49 +35,140 @@ function connDuration(start: string): string {
   return fmtDuration(sec)
 }
 
+function expStep(from: number, to: number, dtMs: number, smoothingMs: number): number {
+  const alpha = 1 - Math.exp(-dtMs / smoothingMs)
+  const next = from + (to - from) * alpha
+  return Math.abs(next - to) < 1 ? to : next
+}
+
+function blendRate(previous: number, raw: number): number {
+  return previous + (raw - previous) * CONNECTION_RATE_EMA
+}
+
 export default function Connections() {
   const payload = useLiveStore((s) => s.connections)
+  const [visiblePayload, setVisiblePayload] = useState(payload)
   const [keyword, setKeyword] = useState('')
   const [network, setNetwork] = useState('all')
   const [proxyFilter, setProxyFilter] = useState('all')
-  /* 上一帧快照, 用于差分出实时速率 */
-  const prevRef = useRef<Map<string, { up: number; down: number }>>(new Map())
-  const prevTimeRef = useRef<number>(performance.now())
-  const [rates, setRates] = useState<Map<string, { up: number; down: number }>>(new Map())
+  const prevCountersRef = useRef<Map<string, { up: number; down: number }>>(new Map())
+  const prevSnapshotTimeRef = useRef<number>(performance.now())
+  const targetRowsRef = useRef<Map<string, ConnVisualRow>>(new Map())
+  const visualRowsRef = useRef<Map<string, ConnVisualRow>>(new Map())
+  const orderRef = useRef<Map<string, number>>(new Map())
+  const orderSeqRef = useRef(0)
+  const [visualRows, setVisualRows] = useState<Map<string, ConnVisualRow>>(new Map())
 
   useEffect(() => startLiveStreams(), [])
 
   useEffect(() => {
-    const prev = prevRef.current
+    const prev = prevCountersRef.current
+    const previousTargets = targetRowsRef.current
     const now = performance.now()
-    const elapsedSec = Math.max(0.25, (now - prevTimeRef.current) / 1000)
-    const next = new Map<string, { up: number; down: number }>()
-    const nextRates = new Map<string, { up: number; down: number }>()
+    const elapsedSec = Math.max(0.25, (now - prevSnapshotTimeRef.current) / 1000)
+    const seen = new Set<string>()
+    const nextCounters = new Map<string, { up: number; down: number }>()
+    const nextTargets = new Map<string, ConnVisualRow>()
+    let visualChanged = false
+
     for (const c of payload.connections) {
-      next.set(c.id, { up: c.upload, down: c.download })
+      seen.add(c.id)
+      if (!orderRef.current.has(c.id)) {
+        orderRef.current.set(c.id, orderSeqRef.current)
+        orderSeqRef.current += 1
+      }
+
+      nextCounters.set(c.id, { up: c.upload, down: c.download })
       const p = prev.get(c.id)
-      nextRates.set(c.id, {
-        up: c.curUp ?? (p ? Math.max(0, (c.upload - p.up) / elapsedSec) : 0),
-        down: c.curDown ?? (p ? Math.max(0, (c.download - p.down) / elapsedSec) : 0),
-      })
+      const rawUp = c.curUp ?? (p ? Math.max(0, (c.upload - p.up) / elapsedSec) : 0)
+      const rawDown = c.curDown ?? (p ? Math.max(0, (c.download - p.down) / elapsedSec) : 0)
+      const previousTarget = previousTargets.get(c.id)
+      const target = {
+        upload: c.upload,
+        download: c.download,
+        up: previousTarget ? blendRate(previousTarget.up, rawUp) : rawUp,
+        down: previousTarget ? blendRate(previousTarget.down, rawDown) : rawDown,
+      }
+      nextTargets.set(c.id, target)
+      if (!visualRowsRef.current.has(c.id)) {
+        visualRowsRef.current.set(c.id, target)
+        visualChanged = true
+      }
     }
-    prevRef.current = next
-    prevTimeRef.current = now
-    setRates(nextRates)
+
+    for (const id of orderRef.current.keys()) {
+      if (!seen.has(id)) orderRef.current.delete(id)
+    }
+    for (const id of visualRowsRef.current.keys()) {
+      if (!seen.has(id)) {
+        visualRowsRef.current.delete(id)
+        visualChanged = true
+      }
+    }
+
+    prevCountersRef.current = nextCounters
+    targetRowsRef.current = nextTargets
+    prevSnapshotTimeRef.current = now
+
+    const ordered = [...payload.connections].sort(
+      (a, b) => (orderRef.current.get(a.id) ?? 0) - (orderRef.current.get(b.id) ?? 0),
+    )
+    setVisiblePayload({
+      uploadTotal: payload.uploadTotal,
+      downloadTotal: payload.downloadTotal,
+      connections: ordered,
+    })
+    if (visualChanged) setVisualRows(new Map(visualRowsRef.current))
   }, [payload])
 
+  useEffect(() => {
+    let last = performance.now()
+
+    const timer = window.setInterval(() => {
+      const now = performance.now()
+      const dt = Math.max(1, now - last)
+      last = now
+      let changed = false
+
+      for (const [id, target] of targetRowsRef.current) {
+        const current = visualRowsRef.current.get(id) ?? target
+        const next = {
+          upload: expStep(current.upload, target.upload, dt, CONNECTION_BYTES_SMOOTHING_MS),
+          download: expStep(current.download, target.download, dt, CONNECTION_BYTES_SMOOTHING_MS),
+          up: expStep(current.up, target.up, dt, CONNECTION_RATE_SMOOTHING_MS),
+          down: expStep(current.down, target.down, dt, CONNECTION_RATE_SMOOTHING_MS),
+        }
+        if (
+          next.upload !== current.upload ||
+          next.download !== current.download ||
+          next.up !== current.up ||
+          next.down !== current.down
+        ) {
+          visualRowsRef.current.set(id, next)
+          changed = true
+        }
+      }
+
+      if (changed) {
+        setVisualRows(new Map(visualRowsRef.current))
+      }
+    }, CONNECTION_FRAME_MS)
+
+    return () => window.clearInterval(timer)
+  }, [])
+
   const upSpeed = useMemo(
-    () => [...rates.values()].reduce((s, r) => s + r.up, 0),
-    [rates],
+    () => [...visualRows.values()].reduce((s, r) => s + r.up, 0),
+    [visualRows],
   )
   const downSpeed = useMemo(
-    () => [...rates.values()].reduce((s, r) => s + r.down, 0),
-    [rates],
+    () => [...visualRows.values()].reduce((s, r) => s + r.down, 0),
+    [visualRows],
   )
 
   const list = useMemo(() => {
     const kw = keyword.trim().toLowerCase()
-    return payload.connections.filter((c) => {
+    return visiblePayload.connections.filter((c) => {
       if (network !== 'all' && c.metadata.network !== network) return false
       // 代理筛选
       if (proxyFilter !== 'all') {
@@ -79,7 +181,7 @@ export default function Connections() {
       const hay = `${c.metadata.host} ${c.metadata.process ?? ''} ${c.rule} ${c.rulePayload} ${c.chains.join(' ')}`.toLowerCase()
       return hay.includes(kw)
     })
-  }, [payload, keyword, network, proxyFilter])
+  }, [visiblePayload, keyword, network, proxyFilter])
 
   const chainText = (c: ConnItem): string => [...c.chains].reverse().join(' → ')
   const isReject = (c: ConnItem): boolean => c.chains.includes('REJECT')
@@ -96,9 +198,9 @@ export default function Connections() {
           />
         </div>
         <span className="chip">
-          {list.length === payload.connections.length
-            ? `${payload.connections.length} 个连接`
-            : `${list.length} / ${payload.connections.length} 个连接`}
+          {list.length === visiblePayload.connections.length
+            ? `${visiblePayload.connections.length} 个连接`
+            : `${list.length} / ${visiblePayload.connections.length} 个连接`}
         </span>
         <Badge tone="purple">↑ {fmtSpeed(upSpeed)}</Badge>
         <Badge tone="cyan">↓ {fmtSpeed(downSpeed)}</Badge>
@@ -147,7 +249,12 @@ export default function Connections() {
             </thead>
             <tbody>
               {list.map((c) => {
-                const r = rates.get(c.id) ?? { up: 0, down: 0 }
+                const r = visualRows.get(c.id) ?? targetRowsRef.current.get(c.id) ?? {
+                  upload: c.upload,
+                  download: c.download,
+                  up: c.curUp ?? 0,
+                  down: c.curDown ?? 0,
+                }
                 const speed = r.up + r.down
                 // 优先显示进程名，没有进程名时从路径提取文件名，最后才显示 System
                 const proc = c.metadata.process ||
@@ -181,8 +288,8 @@ export default function Connections() {
                         {isReject(c) ? 'REJECT' : chainText(c)}
                       </span>
                     </td>
-                    <td className="num">{fmtBytes(c.upload)}</td>
-                    <td className="num">{fmtBytes(c.download)}</td>
+                    <td className="num">{fmtBytes(r.upload)}</td>
+                    <td className="num">{fmtBytes(r.download)}</td>
                     <td>
                       {speed > 0 ? (
                         <Badge tone="cyan">{fmtSpeed(speed)}</Badge>

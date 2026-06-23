@@ -70,6 +70,16 @@ interface RoutePath {
   points: RoutePoint[]
 }
 
+interface FlatTarget extends RegionTraffic {
+  x: number
+  y: number
+  labelX: number
+  labelY: number
+  routeD: string
+  nearIndex: number
+  nearCount: number
+}
+
 /** HTML 标签数据要求对象身份稳定(three-globe 按身份 diff, 否则每帧重建 DOM) */
 interface LabelDatum {
   code: string
@@ -102,6 +112,7 @@ const MAX_ANIMATION_STEP_MS = 34
 const ROUTE_DATA_REFRESH_MS = 1800
 const ROUTE_BASE_ALTITUDE = 0.012
 const FLAT_PLANE_SCALE = 0.45
+const FLAT_NEAR_DISTANCE = 92
 
 function routeColor(code: string): string {
   const hash = [...code].reduce((sum, ch) => (sum * 31 + ch.charCodeAt(0)) >>> 0, 0)
@@ -185,6 +196,30 @@ function buildRoutePath(region: RegionTraffic, index: number): RoutePath {
     weight: region.bytes,
     points,
   }
+}
+
+function flatRouteD(
+  origin: [number, number],
+  target: { x: number; y: number },
+  nearIndex: number,
+  nearCount: number,
+): string {
+  const [ox, oy] = origin
+  const dx = target.x - ox
+  const dy = target.y - oy
+  const dist = Math.hypot(dx, dy) || 1
+  if (nearIndex < 0 || nearCount < 2) {
+    const mx = (ox + target.x) / 2
+    const my = Math.min(oy, target.y) - Math.abs(dx) * 0.18 - 26
+    return `M${ox},${oy} Q${mx},${my} ${target.x},${target.y}`
+  }
+
+  const lane = nearIndex - (nearCount - 1) / 2
+  const nx = -dy / dist
+  const ny = dx / dist
+  const mx = (ox + target.x) / 2 + nx * lane * 34
+  const my = (oy + target.y) / 2 + ny * lane * 34 - 42
+  return `M${ox},${oy} Q${mx},${my} ${target.x},${target.y}`
 }
 
 function flightPhase(now: number, start: number, index: number, count: number): number {
@@ -684,7 +719,9 @@ export default function RouteMap() {
       return {
         land: [] as string[],
         origin: [0, 0] as [number, number],
-        targets: [] as Array<RegionTraffic & { x: number; y: number; color: string }>,
+        originLabel: { x: 0, y: 0 },
+        targets: [] as FlatTarget[],
+        focusTargets: [] as FlatTarget[],
       }
     }
     const projection = geoEquirectangular().fitExtent(
@@ -697,11 +734,40 @@ export default function RouteMap() {
     const path = geoPath(projection)
     const land = LAND.features.map((f) => path(f) ?? '').filter(Boolean)
     const origin = projection([ORIGIN.lng, ORIGIN.lat]) ?? [0, 0]
-    const targets = regions.map((r) => {
+    const projected = regions.map((r) => {
       const [x, y] = projection([r.lng, r.lat]) ?? [0, 0]
       return { ...r, x, y, color: r.color }
     })
-    return { land, origin, targets }
+    const near = projected
+      .filter((t) => Math.hypot(t.x - origin[0], t.y - origin[1]) < FLAT_NEAR_DISTANCE)
+      .sort((a, b) => a.y - b.y || a.x - b.x)
+    const nearOrder = new Map(near.map((t, index) => [t.code, index]))
+    const targets = projected.map((t) => {
+      const nearIndex = nearOrder.get(t.code) ?? -1
+      const nearCount = near.length
+      const lane = nearIndex >= 0 && nearCount > 1 ? nearIndex - (nearCount - 1) / 2 : 0
+      const labelX = Math.max(18, Math.min(FLAT_W - 18, t.x + (nearIndex >= 0 ? 28 : 9)))
+      const labelY = Math.max(18, Math.min(FLAT_H - 18, t.y + (nearIndex >= 0 ? lane * 21 - 19 : 4)))
+      return {
+        ...t,
+        nearIndex,
+        nearCount,
+        labelX,
+        labelY,
+        routeD: flatRouteD(origin, t, nearIndex, nearCount),
+      }
+    })
+    const focusTargets = targets.filter((t) => t.nearIndex >= 0)
+    return {
+      land,
+      origin,
+      originLabel: {
+        x: Math.max(18, Math.min(FLAT_W - 18, origin[0] + 11)),
+        y: Math.max(18, Math.min(FLAT_H - 18, origin[1] + (focusTargets.length ? 24 : 4))),
+      },
+      targets,
+      focusTargets,
+    }
   }, [regions, view])
 
   return (
@@ -741,16 +807,13 @@ export default function RouteMap() {
                 <path className="land" d={d} key={i} />
               ))}
               {flat.targets.map((t, index) => {
-                const [ox, oy] = flat.origin
-                const mx = (ox + t.x) / 2
-                const my = Math.min(oy, t.y) - Math.abs(t.x - ox) * 0.18 - 26
                 const flightMs = FLIGHT_DURATION_MS + FLIGHT_END_HOLD_MS
                 const flightDelay = `${(index * FLIGHT_STAGGER_MS) / 1000}s`
                 return (
                   <g key={t.code} style={{ color: t.color }}>
                     <path
                       className="route-glow"
-                      d={`M${ox},${oy} Q${mx},${my} ${t.x},${t.y}`}
+                      d={t.routeD}
                       fill="none"
                       stroke={t.color}
                       strokeWidth={5 + (t.bytes / maxBytes) * 4}
@@ -759,7 +822,7 @@ export default function RouteMap() {
                     <path
                       id={`rm-route-${t.code}`}
                       className="route-line"
-                      d={`M${ox},${oy} Q${mx},${my} ${t.x},${t.y}`}
+                      d={t.routeD}
                       fill="none"
                       stroke={t.color}
                       strokeWidth={1 + (t.bytes / maxBytes) * 2.4}
@@ -767,7 +830,7 @@ export default function RouteMap() {
                     />
                     <path
                       className="route-trace"
-                      d={`M${ox},${oy} Q${mx},${my} ${t.x},${t.y}`}
+                      d={t.routeD}
                       fill="none"
                       stroke={t.color}
                       strokeWidth={0.8}
@@ -793,13 +856,25 @@ export default function RouteMap() {
                     </g>
                     <circle className="endpoint-halo" cx={t.x} cy={t.y} r={9} fill={t.color} />
                     <circle className="endpoint-dot" cx={t.x} cy={t.y} r={3 + (t.bytes / maxBytes) * 3} fill={t.color} />
-                    <text x={t.x + 8} y={t.y + 4}>{t.name}</text>
+                    {t.nearIndex >= 0 && (
+                      <path
+                        className="label-leader"
+                        d={`M${t.x + 6},${t.y} L${t.labelX - 5},${t.labelY - 4}`}
+                      />
+                    )}
+                    <text className="node-label" x={t.labelX} y={t.labelY}>{t.name}</text>
                   </g>
                 )
               })}
               <circle className="origin-halo" cx={flat.origin[0]} cy={flat.origin[1]} r={10} />
               <circle cx={flat.origin[0]} cy={flat.origin[1]} r={5} fill="#FF9F0A" />
-              <text x={flat.origin[0] + 9} y={flat.origin[1] + 4}>{ORIGIN.name}</text>
+              {flat.focusTargets.length > 0 && (
+                <path
+                  className="label-leader"
+                  d={`M${flat.origin[0] + 6},${flat.origin[1]} L${flat.originLabel.x - 5},${flat.originLabel.y - 4}`}
+                />
+              )}
+              <text className="node-label origin-label" x={flat.originLabel.x} y={flat.originLabel.y}>{ORIGIN.name}</text>
             </svg>
           )}
           {regions.length === 0 && <div className="empty">暂无经代理出站的活跃连接</div>}

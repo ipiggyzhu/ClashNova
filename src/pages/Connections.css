@@ -5,6 +5,8 @@
 .pg-connections .toolbar .spacer{flex:1}
 .pg-connections .conn-card{width:100%;min-width:0;overflow-x:auto;overflow-y:hidden}
 .pg-connections .conn-card .tbl{min-width:1120px;table-layout:fixed}
+.pg-connections .tbl th,
+.pg-connections .tbl td{text-align:center}
 .pg-connections .tbl th:nth-child(1){width:22%}
 .pg-connections .tbl th:nth-child(2){width:13%}
 .pg-connections .tbl th:nth-child(3){width:15%}
@@ -17,7 +19,7 @@
 .pg-connections .host-cell .h{font-weight:600}
 .pg-connections .host-cell .h,
 .pg-connections .host-cell .ip,
-.pg-connections .chain{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pg-connections .chain{display:block;overflow:hidden;text-overflow:ellipsis;text-align:center;white-space:nowrap}
 .pg-connections .host-cell .h .port{color:var(--text-3);font-weight:400}
 .pg-connections .host-cell .ip{font-size:10.5px;color:var(--text-3);font-family:var(--mono)}
 .pg-connections .proc{display:inline-flex;align-items:center;gap:7px;min-width:0;max-width:100%}
@@ -29,5 +31,6 @@
 .pg-connections .chip.rj{color:var(--red);border-color:color-mix(in srgb,var(--red) 35%,transparent);
   background:rgba(255,69,58,.10)}
 .pg-connections td.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.pg-connections .icon-btn{margin:0 auto}
 .pg-connections .dur{color:var(--text-3)}
 .pg-connections .empty{padding:40px;text-align:center;color:var(--text-3);font-size:12.5px}

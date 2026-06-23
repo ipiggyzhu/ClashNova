@@ -11,9 +11,11 @@
 .pg-dashboard .dot-live{width:9px;height:9px;border-radius:50%;background:var(--green);
   box-shadow:0 0 8px var(--green);animation:pgdash-breath 2.4s ease-in-out infinite}
 @keyframes pgdash-breath{0%,100%{opacity:1}50%{opacity:.45}}
-.pg-dashboard .rt-half{display:grid;grid-template-columns:1fr 1fr;gap:22px;align-items:start}
+.pg-dashboard .rt-card .card-body{display:flex;flex-direction:column;min-height:244px}
+.pg-dashboard .rt-half{display:grid;grid-template-columns:1fr 1fr;gap:22px;align-items:stretch;flex:1;min-height:0}
+.pg-dashboard .rt-half > div{display:flex;flex-direction:column;min-width:0}
 .pg-dashboard .rt-half .stat-num{font-size:25px}
-.pg-dashboard .rt-chart{height:108px;margin-top:12px}
+.pg-dashboard .rt-chart{height:132px;margin-top:10px;flex:1;min-height:118px}
 .pg-dashboard .rt-foot{display:flex;gap:18px;margin-top:14px;font-size:11px;color:var(--text-3)}
 .pg-dashboard .rt-foot b{color:var(--text-2);font-family:var(--mono);font-weight:600}
 .pg-dashboard .trend{position:relative;height:170px;display:flex;align-items:flex-end;gap:22px;
@@ -33,11 +35,11 @@
   font-family:var(--mono);font-weight:800;color:var(--text)}
 .pg-dashboard .trend-summary span{font-size:11px;color:var(--text-3);padding-bottom:2px}
 .pg-dashboard .trend-bars{height:158px;display:grid;grid-template-columns:repeat(7,minmax(0,1fr));
-  gap:14px;align-items:end;padding:2px 8px 0;overflow:hidden}
+  gap:14px;align-items:stretch;padding:2px 8px 0;overflow:hidden}
 .pg-dashboard .trend-v2 .tcol{width:auto;min-width:0;display:flex;flex-direction:column;
-  align-items:center;gap:4px}
-.pg-dashboard .trend-v2 .bar-val{height:14px;font-size:10px;color:var(--text-3);
-  font-family:var(--mono);white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis}
+  align-items:center;gap:4px;height:100%}
+.pg-dashboard .trend-v2 .bar-val{height:16px;line-height:16px;font-size:10px;color:var(--text-3);
+  font-family:var(--mono);white-space:nowrap;max-width:100%;overflow:hidden;text-align:center;text-overflow:ellipsis}
 .pg-dashboard .trend-v2 .bar-val.hot{color:var(--orange);font-weight:700}
 .pg-dashboard .trend-v2 .bar-slot{height:104px;width:100%;display:flex;align-items:flex-end;
   justify-content:center}
@@ -45,6 +47,7 @@
   background:linear-gradient(180deg,rgba(255,159,10,.72),rgba(255,159,10,.28))}
 .pg-dashboard .trend-v2 .bar-col.hot{background:linear-gradient(180deg,#ff9f0a,#ffb340)}
 .pg-dashboard .trend-v2 .day{font-size:10.5px;line-height:1.1;color:var(--text-3);white-space:nowrap}
+.pg-dashboard .trend-v2 .tick-slot{height:3px;width:100%;display:flex;justify-content:center}
 .pg-dashboard .trend-v2 .tick{height:3px;width:min(34px,70%);border-radius:2px;background:var(--orange)}
 .pg-dashboard .sum-body{display:grid;grid-template-columns:auto auto 1fr;gap:34px;align-items:center}
 .pg-dashboard .donut-wrap{position:relative;width:158px;height:158px}

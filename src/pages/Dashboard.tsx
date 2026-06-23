@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import './Dashboard.css'
 import Card from '../components/ui/Card'
 import Icon from '../components/ui/Icon'
 import Seg from '../components/ui/Seg'
 import Spark from '../components/ui/Spark'
+import { useSmoothTraffic } from '../hooks/useSmoothTraffic'
 import { call, isMock } from '../services/ipc'
 import { useAppStore } from '../stores/app'
 import { startLiveStreams, useLiveStore } from '../stores/live'
@@ -45,35 +46,6 @@ function msTone(ms: number): string {
 
 function msText(ms: number | null): string {
   return ms === null ? '…' : ms < 0 ? '超时' : String(ms)
-}
-
-function useSmoothTraffic(target: { up: number; down: number }) {
-  const [value, setValue] = useState(target)
-  const valueRef = useRef(target)
-
-  useEffect(() => {
-    const from = valueRef.current
-    const started = performance.now()
-    const duration = 680
-    let raf = 0
-
-    const tick = (now: number): void => {
-      const t = Math.min(1, (now - started) / duration)
-      const eased = 1 - Math.pow(1 - t, 3)
-      const next = {
-        up: from.up + (target.up - from.up) * eased,
-        down: from.down + (target.down - from.down) * eased,
-      }
-      valueRef.current = next
-      setValue(next)
-      if (t < 1) raf = requestAnimationFrame(tick)
-    }
-
-    raf = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(raf)
-  }, [target.up, target.down])
-
-  return value
 }
 
 export default function Dashboard() {
@@ -137,19 +109,7 @@ export default function Dashboard() {
   useEffect(probeNet, [])
 
   const last = traffic[traffic.length - 1] ?? { up: 0, down: 0 }
-  const smoothLast = useSmoothTraffic(last)
-  const upPts = useMemo(() => traffic.map((p) => p.up), [traffic])
-  const downPts = useMemo(() => traffic.map((p) => p.down), [traffic])
-  const smoothUpPts = useMemo(() => {
-    const pts = upPts.length >= 2 ? [...upPts] : [0, 0]
-    pts[pts.length - 1] = smoothLast.up
-    return pts
-  }, [upPts, smoothLast.up])
-  const smoothDownPts = useMemo(() => {
-    const pts = downPts.length >= 2 ? [...downPts] : [0, 0]
-    pts[pts.length - 1] = smoothLast.down
-    return pts
-  }, [downPts, smoothLast.down])
+  const smoothTraffic = useSmoothTraffic(last, traffic)
 
   /* 趋势条形数据 */
   const trendMax = Math.max(1, ...trend.map((p) => p.up + p.down))
@@ -272,17 +232,17 @@ export default function Dashboard() {
 
       <div className="grid2">
         {/* ---- 实时流量 ---- */}
-        <Card icon={<Icon name="traffic" />} iconColor="var(--green)" title="实时流量">
+        <Card className="rt-card" icon={<Icon name="traffic" />} iconColor="var(--green)" title="实时流量">
           <div className="rt-half">
             <div>
               <div className="stat-label" style={{ color: 'var(--purple)' }}>
                 <Icon name="upload" size={12} />上传速度
               </div>
               <div className="stat-num" style={{ color: 'var(--purple)' }}>
-                {fmtSpeed(smoothLast.up)}
+                {fmtSpeed(smoothTraffic.display.up)}
               </div>
               <div className="rt-chart">
-                <Spark pts={smoothUpPts} color="#BF5AF2" h={108} fill dot />
+                <Spark pts={smoothTraffic.upPts} color="#BF5AF2" h={132} fill dot />
               </div>
             </div>
             <div>
@@ -290,10 +250,10 @@ export default function Dashboard() {
                 <Icon name="download" size={12} />下载速度
               </div>
               <div className="stat-num" style={{ color: 'var(--cyan)' }}>
-                {fmtSpeed(smoothLast.down)}
+                {fmtSpeed(smoothTraffic.display.down)}
               </div>
               <div className="rt-chart">
-                <Spark pts={smoothDownPts} color="#64D2FF" h={108} fill dot />
+                <Spark pts={smoothTraffic.downPts} color="#64D2FF" h={132} fill dot />
               </div>
             </div>
           </div>
@@ -336,7 +296,7 @@ export default function Dashboard() {
                         style={{ height: `${Math.max(7, (bytes / trendMax) * 96)}px` }}
                       />
                     </div>
-                    {i === 0 && <div className="tick" />}
+                    <div className="tick-slot">{i === 0 && <div className="tick" />}</div>
                     <span className="day">{DAY_NAMES[day.getDay()]}</span>
                   </div>
                 )

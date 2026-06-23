@@ -659,6 +659,12 @@ pub async fn start_service(app: AppHandle) -> Result<(), String> {
         return Err("服务未安装，请先安装服务模式".into());
     }
 
+    if app.state::<AppState>().settings_snapshot().tun {
+        apply_tun(&app, true).await?;
+        tray::sync_tray(&app);
+        return Ok(());
+    }
+
     let sidecar_was_running = core::is_sidecar_running(&app);
     if sidecar_was_running {
         core::stop_sidecar(&app)?;

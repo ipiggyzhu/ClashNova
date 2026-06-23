@@ -4,6 +4,7 @@ import Card from '../components/ui/Card'
 import Icon from '../components/ui/Icon'
 import Seg from '../components/ui/Seg'
 import Spark from '../components/ui/Spark'
+import { useSmoothTraffic } from '../hooks/useSmoothTraffic'
 import { call } from '../services/ipc'
 import { startLiveStreams, useLiveStore } from '../stores/live'
 import type { RankRow, SeriesPoint, StatDim, StatRange } from '../types/clash'
@@ -58,10 +59,9 @@ export default function Traffic() {
   }, [dim, range])
 
   const last = traffic[traffic.length - 1] ?? { up: 0, down: 0 }
-  const upPts = useMemo(() => traffic.map((p) => p.up), [traffic])
-  const downPts = useMemo(() => traffic.map((p) => p.down), [traffic])
-  const peakUp = Math.max(0, ...upPts)
-  const peakDown = Math.max(0, ...downPts)
+  const smoothTraffic = useSmoothTraffic(last, traffic)
+  const peakUp = Math.max(0, ...traffic.map((p) => p.up), smoothTraffic.current.up)
+  const peakDown = Math.max(0, ...traffic.map((p) => p.down), smoothTraffic.current.down)
 
   const todayUp = daySeries.reduce((acc, p) => acc + p.up, 0)
   const todayDown = daySeries.reduce((acc, p) => acc + p.down, 0)
@@ -84,16 +84,16 @@ export default function Traffic() {
             <span className="rt-label" style={{ color: 'var(--purple)' }}>
               <Icon name="upload" size={12} />上传
             </span>
-            <div className="rt-big">{fmtSpeed(last.up)}</div>
-            <Spark pts={upPts.length >= 2 ? upPts : [0, 0]} color="#BF5AF2" h={72} fill dot />
+            <div className="rt-big">{fmtSpeed(smoothTraffic.current.up)}</div>
+            <Spark pts={smoothTraffic.upPts} color="#BF5AF2" h={72} fill dot />
             <div className="rt-peak">峰值 {fmtSpeed(peakUp)}</div>
           </div>
           <div className="rt-cell">
             <span className="rt-label" style={{ color: 'var(--cyan)' }}>
               <Icon name="download" size={12} />下载
             </span>
-            <div className="rt-big">{fmtSpeed(last.down)}</div>
-            <Spark pts={downPts.length >= 2 ? downPts : [0, 0]} color="#64D2FF" h={72} fill dot />
+            <div className="rt-big">{fmtSpeed(smoothTraffic.current.down)}</div>
+            <Spark pts={smoothTraffic.downPts} color="#64D2FF" h={72} fill dot />
             <div className="rt-peak">峰值 {fmtSpeed(peakDown)}</div>
           </div>
         </div>
