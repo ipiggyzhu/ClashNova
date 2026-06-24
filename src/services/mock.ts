@@ -708,6 +708,13 @@ export const mockHandlers: Record<string, MockHandler> = {
     return undefined
   },
   service_status: () => (serviceRunning ? 'ready' : serviceInstalled ? 'unavailable:服务未运行' : 'not-installed'),
+  check_tun_adapter: () => ({
+    enabled: settings.tun,
+    adapterPresent: settings.tun && serviceRunning,
+    adapterName: settings.tun && serviceRunning ? 'ClashNova TUN' : undefined,
+    status: settings.tun && serviceRunning ? 'Up' : 'Down',
+    detail: settings.tun && serviceRunning ? 'Mock TUN adapter' : 'Mock adapter is not active',
+  }),
   install_service: () => {
     serviceInstalled = true
     serviceRunning = true

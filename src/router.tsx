@@ -14,7 +14,6 @@ const Rules = lazy(() => import('./pages/Rules'))
 const Providers = lazy(() => import('./pages/Providers'))
 const Test = lazy(() => import('./pages/Test'))
 const Profiles = lazy(() => import('./pages/Profiles'))
-const Config = lazy(() => import('./pages/Config'))
 const Settings = lazy(() => import('./pages/Settings'))
 
 function page(Page: LazyExoticComponent<ComponentType>) {
@@ -26,7 +25,7 @@ function page(Page: LazyExoticComponent<ComponentType>) {
 }
 
 /**
- * 契约 E 的 11 条路由 + M2 测试页 + 配置查看器, 全部实装。
+ * 契约 E 的 11 条路由 + M2 测试页, 全部实装。
  */
 export const router = createBrowserRouter([
   {
@@ -46,7 +45,7 @@ export const router = createBrowserRouter([
       { path: 'providers', element: page(Providers) },
       { path: 'test', element: page(Test) },
       { path: 'profiles', element: page(Profiles) },
-      { path: 'config', element: page(Config) },
+      { path: 'config', element: <Navigate to="/profiles" replace /> },
       { path: 'settings', element: page(Settings) },
       { path: '*', element: <Navigate to="/dashboard" replace /> },
     ],

@@ -49,11 +49,7 @@ fn ensure_tun_dns(doc: &mut Value, ov: &RuntimeOverrides) {
         return;
     };
     let dns_key = Value::String("dns".into());
-    if !map
-        .get(&dns_key)
-        .map(Value::is_mapping)
-        .unwrap_or(false)
-    {
+    if !map.get(&dns_key).map(Value::is_mapping).unwrap_or(false) {
         map.insert(dns_key.clone(), Value::Mapping(Mapping::new()));
     }
     let Some(dns) = map.get_mut(&dns_key).and_then(Value::as_mapping_mut) else {
@@ -99,7 +95,10 @@ fn ensure_tun_dns(doc: &mut Value, ov: &RuntimeOverrides) {
 /// - `tun_enable == false` 且 profile 自带 `tun` 段时强制 `tun.enable: false`
 ///   (防止 profile 私带 TUN 劫持开关);
 /// - profile 其余内容(proxies/proxy-groups/rules/dns 等)原样保留。
-pub fn build_runtime_config(profile_yaml: &str, ov: &RuntimeOverrides) -> Result<String, CoreError> {
+pub fn build_runtime_config(
+    profile_yaml: &str,
+    ov: &RuntimeOverrides,
+) -> Result<String, CoreError> {
     let mut doc: Value = if profile_yaml.trim().is_empty() {
         Value::Mapping(Mapping::new())
     } else {
@@ -108,15 +107,16 @@ pub fn build_runtime_config(profile_yaml: &str, ov: &RuntimeOverrides) -> Result
     if doc.is_null() {
         doc = Value::Mapping(Mapping::new());
     }
-    let map = doc
-        .as_mapping_mut()
-        .ok_or(CoreError::UnrecognizedFormat)?;
+    let map = doc.as_mapping_mut().ok_or(CoreError::UnrecognizedFormat)?;
 
     let mut set = |key: &str, val: Value| {
         map.insert(Value::String(key.to_string()), val);
     };
     set("mixed-port", Value::from(ov.mixed_port as u64));
-    set("external-controller", Value::String(ov.external_controller.clone()));
+    set(
+        "external-controller",
+        Value::String(ov.external_controller.clone()),
+    );
     set("secret", Value::String(ov.secret.clone()));
     set("mode", Value::String(ov.mode.clone()));
     set("allow-lan", Value::Bool(ov.allow_lan));
@@ -141,7 +141,10 @@ pub fn build_runtime_config(profile_yaml: &str, ov: &RuntimeOverrides) -> Result
     if ov.enable_dns {
         let mut dns_map = Mapping::new();
         dns_map.insert(Value::String("enable".into()), Value::Bool(true));
-        dns_map.insert(Value::String("listen".into()), Value::String(ov.dns_listen.clone()));
+        dns_map.insert(
+            Value::String("listen".into()),
+            Value::String(ov.dns_listen.clone()),
+        );
 
         if !ov.dns_enhanced_mode.is_empty() {
             dns_map.insert(
@@ -163,9 +166,15 @@ pub fn build_runtime_config(profile_yaml: &str, ov: &RuntimeOverrides) -> Result
 
         dns_map.insert(Value::String("ipv6".into()), Value::Bool(ov.ipv6_dns));
         dns_map.insert(Value::String("prefer-h3".into()), Value::Bool(ov.prefer_h3));
-        dns_map.insert(Value::String("respect-rules".into()), Value::Bool(ov.respect_rules));
+        dns_map.insert(
+            Value::String("respect-rules".into()),
+            Value::Bool(ov.respect_rules),
+        );
         dns_map.insert(Value::String("use-hosts".into()), Value::Bool(ov.use_hosts));
-        dns_map.insert(Value::String("use-system-hosts".into()), Value::Bool(ov.use_system_hosts));
+        dns_map.insert(
+            Value::String("use-system-hosts".into()),
+            Value::Bool(ov.use_system_hosts),
+        );
 
         let mut patch_map = Mapping::new();
         patch_map.insert(Value::String("dns".into()), Value::Mapping(dns_map));
@@ -313,10 +322,7 @@ proxies: []
         assert_eq!(tun.get("enable"), Some(&Value::Bool(true)));
         assert_eq!(tun.get("stack"), Some(&Value::String("gvisor".into())));
         assert_eq!(tun.get("auto-route"), Some(&Value::Bool(true)));
-        assert_eq!(
-            tun.get("auto-detect-interface"),
-            Some(&Value::Bool(true))
-        );
+        assert_eq!(tun.get("auto-detect-interface"), Some(&Value::Bool(true)));
         // profile 原有的 tun 子键保留
         assert_eq!(tun.get("device"), Some(&Value::String("utun0".into())));
         let dns = doc.get("dns").expect("TUN 应确保 dns 段存在");
@@ -357,10 +363,7 @@ rules:
         assert_eq!(doc.get("rules"), src.get("rules"));
         // 空 profile 也应能生成合法配置
         let empty = build_runtime_config("", &overrides(false)).expect("空 profile 应成功");
-        assert_eq!(
-            parse(&empty).get("mixed-port"),
-            Some(&Value::from(7897u64))
-        );
+        assert_eq!(parse(&empty).get("mixed-port"), Some(&Value::from(7897u64)));
     }
 
     #[test]
@@ -368,13 +371,20 @@ rules:
         let profile = "dns:\n  enable: false\n  listen: 0.0.0.0:53\nproxies: []\n";
         let mut ov = overrides(false);
         ov.enable_dns = true;
-        ov.dns_override = "enhanced-mode: fake-ip\nnameserver:\n  - https://doh.pub/dns-query\n".into();
+        ov.dns_override =
+            "enhanced-mode: fake-ip\nnameserver:\n  - https://doh.pub/dns-query\n".into();
         let out = build_runtime_config(profile, &ov).expect("生成应成功");
         let doc = parse(&out);
         let dns = doc.get("dns").expect("dns 段应存在");
-        assert_eq!(dns.get("enhanced-mode"), Some(&Value::String("fake-ip".into())));
+        assert_eq!(
+            dns.get("enhanced-mode"),
+            Some(&Value::String("fake-ip".into()))
+        );
         // enable_dns=true 时使用 ov.dns_listen，而不是 profile 中的值
-        assert_eq!(dns.get("listen"), Some(&Value::String("127.0.0.1:5335".into())));
+        assert_eq!(
+            dns.get("listen"),
+            Some(&Value::String("127.0.0.1:5335".into()))
+        );
         // 高级 DNS 已启用时,覆写片段未显式给 enable 也会保持启用
         assert_eq!(dns.get("enable"), Some(&Value::Bool(true)));
         // 显式给 enable: true 则覆盖
@@ -431,7 +441,10 @@ rules:
             hosts.get("router.local"),
             Some(&Value::String("192.168.1.1".into()))
         );
-        assert_eq!(hosts.get("nas.lan"), Some(&Value::String("10.0.0.2".into())));
+        assert_eq!(
+            hosts.get("nas.lan"),
+            Some(&Value::String("10.0.0.2".into()))
+        );
         assert!(hosts.get("bad-line").is_none());
     }
 }

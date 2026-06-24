@@ -1,10 +1,10 @@
 use crate::types::*;
 use anyhow::{Context, Result};
 use std::collections::VecDeque;
-#[cfg(windows)]
-use std::sync::mpsc;
 use std::io::Read;
 use std::process::{Child, ChildStderr, ChildStdout, Command, Stdio};
+#[cfg(windows)]
+use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -12,16 +12,16 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use std::io::{BufRead, BufReader, BufWriter, Write};
 
 #[cfg(windows)]
+use windows::Win32::Security::{
+    InitializeSecurityDescriptor, SetSecurityDescriptorDacl, PSECURITY_DESCRIPTOR,
+    SECURITY_ATTRIBUTES,
+};
+#[cfg(windows)]
 use windows::Win32::Storage::FileSystem::{FlushFileBuffers, PIPE_ACCESS_DUPLEX};
 #[cfg(windows)]
 use windows::Win32::System::Pipes::{
-    CreateNamedPipeW, ConnectNamedPipe, DisconnectNamedPipe, PIPE_READMODE_BYTE,
-    PIPE_TYPE_BYTE, PIPE_WAIT, PIPE_UNLIMITED_INSTANCES,
-};
-#[cfg(windows)]
-use windows::Win32::Security::{
-    InitializeSecurityDescriptor, SetSecurityDescriptorDacl,
-    PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES,
+    ConnectNamedPipe, CreateNamedPipeW, DisconnectNamedPipe, PIPE_READMODE_BYTE, PIPE_TYPE_BYTE,
+    PIPE_UNLIMITED_INSTANCES, PIPE_WAIT,
 };
 
 /// 内核管理器
@@ -127,7 +127,13 @@ impl CoreManager {
 
         first_line
             .split_whitespace()
-            .find(|part| part.starts_with('v') && part[1..].chars().next().is_some_and(|ch| ch.is_ascii_digit()))
+            .find(|part| {
+                part.starts_with('v')
+                    && part[1..]
+                        .chars()
+                        .next()
+                        .is_some_and(|ch| ch.is_ascii_digit())
+            })
             .map(|part| part.to_string())
             .or_else(|| Some(first_line.to_string()))
     }
@@ -398,7 +404,6 @@ impl IpcServer {
         });
     }
 
-
     /// 启动 IPC 服务（Windows 命名管道）
     #[cfg(windows)]
     pub fn run(&self) -> Result<()> {
@@ -450,9 +455,9 @@ impl IpcServer {
                     PIPE_ACCESS_DUPLEX,
                     PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
                     PIPE_UNLIMITED_INSTANCES,
-                    8192, // 输出缓冲区大小
-                    8192, // 输入缓冲区大小
-                    0,    // 默认超时
+                    8192,                              // 输出缓冲区大小
+                    8192,                              // 输入缓冲区大小
+                    0,                                 // 默认超时
                     Some(&sa as *const _ as *const _), // 自定义安全属性
                 )
             };
@@ -480,7 +485,9 @@ impl IpcServer {
                 // ERROR_PIPE_CONNECTED (535) 表示客户端已经连接
                 if error_code != 535 {
                     log::warn!("客户端连接失败: {:?}", e);
-                    unsafe { CloseHandle(h_pipe).ok(); }
+                    unsafe {
+                        CloseHandle(h_pipe).ok();
+                    }
                     continue;
                 }
             }
@@ -519,19 +526,21 @@ impl IpcServer {
 
     /// 在独立线程中处理单个客户端
     #[cfg(windows)]
-    fn handle_client(h_pipe: windows::Win32::Foundation::HANDLE, core_manager: Arc<Mutex<CoreManager>>) -> Result<()> {
+    fn handle_client(
+        h_pipe: windows::Win32::Foundation::HANDLE,
+        core_manager: Arc<Mutex<CoreManager>>,
+    ) -> Result<()> {
         use std::os::windows::io::{FromRawHandle, IntoRawHandle};
 
         // 使用标准库的文件 API 包装句柄
-        let pipe_file = unsafe {
-            std::fs::File::from_raw_handle(h_pipe.0 as *mut _)
-        };
+        let pipe_file = unsafe { std::fs::File::from_raw_handle(h_pipe.0 as *mut _) };
 
         // 读取请求
         let mut request_line = String::new();
         {
             let mut reader = BufReader::new(&pipe_file);
-            reader.read_line(&mut request_line)
+            reader
+                .read_line(&mut request_line)
                 .context("读取请求失败")?;
         }
 
@@ -580,20 +589,20 @@ impl IpcServer {
         pipe_file: &std::fs::File,
         response: &ServiceResponse<serde_json::Value>,
     ) -> Result<()> {
-        let response_json = serde_json::to_string(response)
-            .context("序列化响应失败")?;
+        let response_json = serde_json::to_string(response).context("序列化响应失败")?;
 
         let mut writer = BufWriter::new(pipe_file);
-        writeln!(writer, "{}", response_json)
-            .context("发送响应失败")?;
-        writer.flush()
-            .context("刷新管道失败")?;
+        writeln!(writer, "{}", response_json).context("发送响应失败")?;
+        writer.flush().context("刷新管道失败")?;
         Ok(())
     }
 
     /// 静态方法处理请求（用于多线程）
     #[cfg(windows)]
-    fn handle_request_static(request: ServiceRequest, core_manager: Arc<Mutex<CoreManager>>) -> ServiceResponse<serde_json::Value> {
+    fn handle_request_static(
+        request: ServiceRequest,
+        core_manager: Arc<Mutex<CoreManager>>,
+    ) -> ServiceResponse<serde_json::Value> {
         match request.command.as_str() {
             "ping" => ServiceResponse::ok(),
 
@@ -628,10 +637,7 @@ impl IpcServer {
             }
 
             "logs" => {
-                let lines: usize = request
-                    .data
-                    .and_then(|d| d.parse().ok())
-                    .unwrap_or(100);
+                let lines: usize = request.data.and_then(|d| d.parse().ok()).unwrap_or(100);
 
                 let manager = core_manager.lock().unwrap();
                 let logs = manager.get_logs(lines);
@@ -641,7 +647,9 @@ impl IpcServer {
             "version" => {
                 let version = ServiceVersion {
                     version: env!("CARGO_PKG_VERSION").to_string(),
-                    build_id: option_env!("CLASHNOVA_BUILD_ID").unwrap_or(env!("CARGO_PKG_VERSION")).to_string(),
+                    build_id: option_env!("CLASHNOVA_BUILD_ID")
+                        .unwrap_or(env!("CARGO_PKG_VERSION"))
+                        .to_string(),
                 };
                 ServiceResponse::success(serde_json::to_value(version).unwrap())
             }
@@ -656,7 +664,10 @@ impl IpcServer {
     }
 
     #[cfg(not(windows))]
-    pub fn run_with_ready_signal(&self, _ready_tx: Option<std::sync::mpsc::Sender<Result<()>>>) -> Result<()> {
+    pub fn run_with_ready_signal(
+        &self,
+        _ready_tx: Option<std::sync::mpsc::Sender<Result<()>>>,
+    ) -> Result<()> {
         anyhow::bail!("IPC 服务仅支持 Windows 平台")
     }
 }

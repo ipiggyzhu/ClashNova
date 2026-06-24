@@ -9,6 +9,11 @@
 .pg-test .site:hover{border-color:var(--line-2);transform:translateY(-1px)}
 .pg-test .site .logo{width:42px;height:42px;border-radius:12px;display:flex;align-items:center;
   justify-content:center;font-size:19px;font-weight:700;color:#fff}
+.pg-test .site .logo svg{width:27px;height:27px;display:block;fill:currentColor}
+.pg-test .site .logo.brand-github svg{width:28px;height:28px}
+.pg-test .site .logo.brand-youtube svg{width:25px;height:25px}
+.pg-test .site .logo.brand-cloudflare svg{width:30px;height:30px}
+.pg-test .site .logo.brand-baidu svg{width:29px;height:29px}
 .pg-test .site .nm{font-size:13px;font-weight:600}
 .pg-test .site .host{font-size:11px;color:var(--text-3);max-width:100%;overflow:hidden;
   text-overflow:ellipsis;white-space:nowrap}

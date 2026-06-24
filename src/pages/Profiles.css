@@ -69,6 +69,12 @@
   border:1px solid var(--line);border-radius:var(--radius-sm);color:var(--text);
   font-family:var(--mono);font-size:11.5px;line-height:1.7;padding:12px;outline:none;resize:none}
 .pg-profiles .editor .efoot{display:flex;justify-content:flex-end;gap:10px;padding:0 16px 14px;flex:0 0 auto}
+.pg-profiles .runtime-editor .code-editor-shell{flex:1 1 auto;min-height:0}
+.pg-profiles .runtime-status{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:12px;padding:48px 24px;color:var(--text-2)}
+.pg-profiles .runtime-status.error{color:var(--red)}
+.pg-profiles .runtime-status svg{opacity:.5}
+.pg-profiles .runtime-status.error svg{opacity:1}
 .pg-profiles .confirm{font-size:12px;color:var(--text-2);display:flex;align-items:center;gap:10px}
 .pg-profiles .rule-dialog,.pg-profiles .meta-dialog{width:520px;max-width:92vw;background:var(--card);
   border:1px solid var(--line-2);border-radius:var(--radius);box-shadow:var(--shadow)}

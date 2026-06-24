@@ -63,8 +63,18 @@ function subscribeMock<T>(intervalMs: number, next: () => T, onMessage: (data: T
 
 /** WS /traffic — 每秒一个 TrafficPoint(B/s) */
 export function subscribeTraffic(onPoint: (point: TrafficPoint) => void): Unsubscribe {
-  if (isMock) return subscribeMock(1000, mockNextTraffic, onPoint)
-  return subscribeWs<TrafficPoint>('/traffic', onPoint, () => onPoint({ up: 0, down: 0 }))
+  if (isMock) {
+    return subscribeMock(
+      1000,
+      () => ({ ...mockNextTraffic(), timestamp: Date.now(), source: 'mock' as const }),
+      onPoint,
+    )
+  }
+  return subscribeWs<TrafficPoint>(
+    '/traffic',
+    (point) => onPoint({ ...point, timestamp: Date.now(), source: point.source ?? 'traffic' }),
+    () => onPoint({ up: 0, down: 0, timestamp: Date.now(), source: 'disconnect' as const }),
+  )
 }
 
 /** WS /connections — 每秒一份连接快照 */

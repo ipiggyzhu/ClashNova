@@ -8,7 +8,7 @@ import NotificationPanel from '../NotificationPanel'
 import Icon from '../ui/Icon'
 import Seg from '../ui/Seg'
 
-/** 路由段 → 页面标题(契约 E 的 11 条路由 + 配置文件) */
+/** 路由段 → 页面标题(契约 E 的 11 条路由) */
 export const PAGE_TITLES: Record<string, string> = {
   dashboard: '仪表盘',
   traffic: '流量统计',
@@ -21,7 +21,6 @@ export const PAGE_TITLES: Record<string, string> = {
   providers: '提供者',
   test: '测试',
   profiles: '订阅',
-  config: '配置文件',
   settings: '设置',
 }
 

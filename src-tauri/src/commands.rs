@@ -1,6 +1,6 @@
 //! 契约 B 的 15 个 Tauri 命令 + 托盘共用的内部应用函数。
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Manager};
 use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_opener::OpenerExt;
@@ -9,6 +9,16 @@ use crate::core::{self, CoreStatus};
 use crate::profiles::{self, EnhancerMeta, ProfileMeta};
 use crate::state::{AppSettings, AppState};
 use crate::{hotkeys, service, sysproxy_win, tray};
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TunAdapterStatus {
+    pub enabled: bool,
+    pub adapter_present: bool,
+    pub adapter_name: Option<String>,
+    pub status: Option<String>,
+    pub detail: Option<String>,
+}
 
 /* ---------------- 内部应用函数(命令与托盘共用) ---------------- */
 
@@ -95,6 +105,157 @@ pub(crate) fn is_service_ipc_failure(err: &str) -> bool {
         || err.contains("服务返回空响应")
         || err.contains("响应为空")
         || err.contains("服务版本不匹配，需要重装")
+}
+
+fn service_ipc_starting_message(err: impl std::fmt::Display) -> String {
+    format!("unavailable:服务 IPC 初始化中: {err}")
+}
+
+#[cfg(windows)]
+fn query_tun_adapter(enabled: bool) -> TunAdapterStatus {
+    use std::os::windows::process::CommandExt;
+
+    let script = r#"
+$ErrorActionPreference = 'SilentlyContinue'
+$specific = '(?i)(Mihomo|ClashNova|Clash[ -]?(Meta|Verge)|Clash)'
+$wintun = '(?i)Wintun Userspace Tunnel'
+$adapters = @(Get-NetAdapter -IncludeHidden | Where-Object {
+  $name = [string]$_.Name
+  $desc = [string]$_.InterfaceDescription
+  $matchesSpecific = ($name -match $specific) -or ($desc -match $specific)
+  $matchesWintun = ($desc -match $wintun) -and ($name -match '(?i)(Mihomo|Clash|Meta|ClashNova)')
+  $matchesSpecific -or $matchesWintun
+} | Sort-Object @{Expression = { if ($_.Status -eq 'Up') { 0 } else { 1 } }}, Name)
+if ($adapters.Count -eq 0) {
+  [pscustomobject]@{ present = $false; name = $null; status = $null; detail = '未找到 Mihomo/Clash/Wintun 虚拟网卡' } | ConvertTo-Json -Compress
+} else {
+  $a = $adapters[0]
+  [pscustomobject]@{ present = ($a.Status -eq 'Up'); name = $a.Name; status = $a.Status; detail = $a.InterfaceDescription } | ConvertTo-Json -Compress
+}
+"#;
+
+    let mut cmd = std::process::Command::new("powershell.exe");
+    cmd.args([
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        script,
+    ]);
+    cmd.creation_flags(0x0800_0000);
+
+    let output = match cmd.output() {
+        Ok(output) => output,
+        Err(err) => {
+            return TunAdapterStatus {
+                enabled,
+                adapter_present: false,
+                adapter_name: None,
+                status: None,
+                detail: Some(format!("执行 Get-NetAdapter 失败: {err}")),
+            };
+        }
+    };
+
+    if !output.status.success() {
+        return TunAdapterStatus {
+            enabled,
+            adapter_present: false,
+            adapter_name: None,
+            status: None,
+            detail: Some(format!(
+                "Get-NetAdapter 返回失败: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            )),
+        };
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json = stdout.trim();
+    let parsed = serde_json::from_str::<serde_json::Value>(json);
+    let Ok(value) = parsed else {
+        return TunAdapterStatus {
+            enabled,
+            adapter_present: false,
+            adapter_name: None,
+            status: None,
+            detail: Some(format!("解析网卡检测结果失败: {json}")),
+        };
+    };
+
+    TunAdapterStatus {
+        enabled,
+        adapter_present: value
+            .get("present")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false),
+        adapter_name: value
+            .get("name")
+            .and_then(serde_json::Value::as_str)
+            .map(ToOwned::to_owned),
+        status: value
+            .get("status")
+            .and_then(serde_json::Value::as_str)
+            .map(ToOwned::to_owned),
+        detail: value
+            .get("detail")
+            .and_then(serde_json::Value::as_str)
+            .filter(|detail| !detail.trim().is_empty())
+            .map(ToOwned::to_owned),
+    }
+}
+
+#[cfg(not(windows))]
+fn query_tun_adapter(enabled: bool) -> TunAdapterStatus {
+    TunAdapterStatus {
+        enabled,
+        adapter_present: false,
+        adapter_name: None,
+        status: Some("unsupported".into()),
+        detail: Some("虚拟网卡检测仅支持 Windows".into()),
+    }
+}
+
+async fn query_tun_adapter_async(enabled: bool) -> TunAdapterStatus {
+    tauri::async_runtime::spawn_blocking(move || query_tun_adapter(enabled))
+        .await
+        .unwrap_or_else(|err| TunAdapterStatus {
+            enabled,
+            adapter_present: false,
+            adapter_name: None,
+            status: None,
+            detail: Some(format!("网卡检测任务失败: {err}")),
+        })
+}
+
+async fn wait_tun_adapter(
+    app: &AppHandle,
+    expected: bool,
+    timeout: Duration,
+) -> Result<TunAdapterStatus, String> {
+    let started = Instant::now();
+    let mut last = query_tun_adapter_async(app.state::<AppState>().settings_snapshot().tun).await;
+
+    loop {
+        if last.status.as_deref() == Some("unsupported") {
+            return Ok(last);
+        }
+        if !expected || last.adapter_present {
+            return Ok(last);
+        }
+
+        if started.elapsed() >= timeout {
+            let service_status = service_status().await;
+            return Err(format!(
+                "等待 TUN 虚拟网卡出现超时: 服务状态={service_status}, 网卡状态={}, 详情={}",
+                last.status.as_deref().unwrap_or("unknown"),
+                last.detail.as_deref().unwrap_or("无")
+            ));
+        }
+
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        last = query_tun_adapter_async(app.state::<AppState>().settings_snapshot().tun).await;
+    }
 }
 
 /// 切换 TUN:更新设置 → 检查服务 → 重生成配置 → 重启内核。
@@ -207,6 +368,16 @@ pub async fn apply_tun(app: &AppHandle, enable: bool) -> Result<(), String> {
                 .await;
                 return Err(tun_err);
             }
+            if let Err(adapter_err) = wait_tun_adapter(app, true, Duration::from_secs(10)).await {
+                rollback_tun_change(
+                    app,
+                    &prev_settings,
+                    sidecar_was_running,
+                    service_was_running,
+                )
+                .await;
+                return Err(adapter_err);
+            }
             if service::is_running() {
                 let _ = crate::service_manager::get_service_manager()
                     .refresh()
@@ -233,6 +404,19 @@ pub async fn apply_tun(app: &AppHandle, enable: bool) -> Result<(), String> {
         )
         .await;
         return Err(err);
+    }
+
+    if enable {
+        if let Err(err) = wait_tun_adapter(app, true, Duration::from_secs(10)).await {
+            rollback_tun_change(
+                app,
+                &prev_settings,
+                sidecar_was_running,
+                service_was_running,
+            )
+            .await;
+            return Err(err);
+        }
     }
 
     if service::is_running() {
@@ -574,7 +758,8 @@ pub fn open_url(app: AppHandle, url: String) -> Result<(), String> {
 pub async fn service_status() -> String {
     let manager = crate::service_manager::get_service_manager();
 
-    if crate::service::diagnose_installation().is_err() {
+    if let Err(err) = crate::service::diagnose_installation() {
+        log::warn!("服务安装诊断失败: {err}");
         return "needs-reinstall".to_string();
     }
     if crate::service::status() != "installed" {
@@ -591,7 +776,7 @@ pub async fn service_status() -> String {
     };
     if let Err(err) = ipc_ready {
         log::warn!("服务 SCM 已运行，但 IPC 不可用: {err}");
-        return "needs-reinstall".to_string();
+        return service_ipc_starting_message(err);
     }
 
     let reinstall_needed =
@@ -631,6 +816,11 @@ pub async fn service_status() -> String {
             format!("unavailable:{}", reason)
         }
     }
+}
+
+#[tauri::command]
+pub async fn check_tun_adapter(app: AppHandle) -> TunAdapterStatus {
+    query_tun_adapter_async(app.state::<AppState>().settings_snapshot().tun).await
 }
 
 #[tauri::command]

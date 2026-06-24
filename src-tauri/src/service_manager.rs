@@ -148,7 +148,8 @@ impl ServiceManager {
             .await
         {
             log::warn!("IPC 连接失败: {}", e);
-            self.set_status(ServiceStatus::NeedsReinstall).await;
+            self.set_status(ServiceStatus::Unavailable("服务 IPC 初始化中".into()))
+                .await;
             return Ok(());
         }
 
@@ -213,9 +214,10 @@ impl ServiceManager {
             self.set_status(ServiceStatus::Ready).await;
             log::info!("服务已恢复");
         } else {
-            // 服务在运行但 IPC 不可用，可能需要重装
-            log::warn!("服务在运行但 IPC 不可用，建议重装");
-            self.set_status(ServiceStatus::NeedsReinstall).await;
+            // 服务在运行但 IPC 不可用，先按启动/恢复中的瞬态状态处理。
+            log::warn!("服务在运行但 IPC 不可用，等待后续刷新");
+            self.set_status(ServiceStatus::Unavailable("服务 IPC 初始化中".into()))
+                .await;
         }
 
         Ok(())
@@ -252,7 +254,9 @@ impl ServiceManager {
                 .wait_for_ipc(120, std::time::Duration::from_millis(250))
                 .await
             {
-                self_ref.set_status(ServiceStatus::NeedsReinstall).await;
+                self_ref
+                    .set_status(ServiceStatus::Unavailable("服务 IPC 初始化中".into()))
+                    .await;
                 return Err(format!("IPC 连接失败: {}", e));
             }
 

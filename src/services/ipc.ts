@@ -11,6 +11,7 @@ import type {
   SeriesPoint,
   StatDim,
   StatRange,
+  TunAdapterStatus,
 } from '../types/clash'
 import { mockHandlers } from './mock'
 
@@ -54,6 +55,7 @@ export interface IpcCommands {
   /* ---- M2 ---- */
   open_url: { args: { url: string }; result: void }
   service_status: { args: undefined; result: string }
+  check_tun_adapter: { args: undefined; result: TunAdapterStatus }
   install_service: { args: undefined; result: void }
   start_service: { args: undefined; result: void }
   uninstall_service: { args: undefined; result: void }

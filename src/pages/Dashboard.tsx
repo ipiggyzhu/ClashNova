@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import './Dashboard.css'
 import Card from '../components/ui/Card'
 import Icon from '../components/ui/Icon'
@@ -8,7 +8,7 @@ import { useSmoothTraffic } from '../hooks/useSmoothTraffic'
 import { call, isMock } from '../services/ipc'
 import { useAppStore } from '../stores/app'
 import { startLiveStreams, useLiveStore } from '../stores/live'
-import type { RankRow, SeriesPoint, StatDim, StatRange } from '../types/clash'
+import type { RankRow, SeriesPoint, StatDim, StatRange, TunAdapterStatus } from '../types/clash'
 import { fmtBytes, fmtSpeed, fmtUptime } from '../utils/format'
 
 const DAY_NAMES = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
@@ -48,6 +48,14 @@ function msText(ms: number | null): string {
   return ms === null ? '…' : ms < 0 ? '超时' : String(ms)
 }
 
+function tunText(settingsTun: boolean, adapter: TunAdapterStatus | null): string {
+  if (!settingsTun) return '关闭'
+  if (!adapter) return '检测中…'
+  if (adapter.status === 'unsupported') return '已开启'
+  if (adapter.adapterPresent) return adapter.adapterName ? `已开启 · ${adapter.adapterName}` : '已开启'
+  return '网卡未就绪'
+}
+
 export default function Dashboard() {
   const core = useAppStore((s) => s.coreStatus)
   const settings = useAppStore((s) => s.settings)
@@ -66,11 +74,25 @@ export default function Dashboard() {
     internet: null,
     dns: null,
   })
+  const [tunAdapter, setTunAdapter] = useState<TunAdapterStatus | null>(null)
+  const tunAdapterRefreshInFlight = useRef(false)
 
   /* 实时流(traffic/connections)接入 + 内核状态 5s 轮询 */
   useEffect(() => {
     const release = startLiveStreams()
-    const timer = setInterval(() => void refreshCoreStatus().catch(() => {}), 5000)
+    const refreshRuntime = (): void => {
+      void refreshCoreStatus().catch(() => {})
+      if (tunAdapterRefreshInFlight.current) return
+      tunAdapterRefreshInFlight.current = true
+      void call('check_tun_adapter')
+        .then(setTunAdapter)
+        .catch(() => setTunAdapter(null))
+        .finally(() => {
+          tunAdapterRefreshInFlight.current = false
+        })
+    }
+    refreshRuntime()
+    const timer = setInterval(refreshRuntime, 5000)
     return () => {
       release()
       clearInterval(timer)
@@ -224,7 +246,7 @@ export default function Dashboard() {
             </div>
             <div className="stat-cell">
               <div className="stat-label">TUN</div>
-              <b>{settings.tun ? '已开启' : '关闭'}</b>
+              <b title={tunAdapter?.detail ?? undefined}>{tunText(settings.tun, tunAdapter)}</b>
             </div>
           </div>
         </Card>
@@ -239,7 +261,7 @@ export default function Dashboard() {
                 <Icon name="upload" size={12} />上传速度
               </div>
               <div className="stat-num" style={{ color: 'var(--purple)' }}>
-                {fmtSpeed(smoothTraffic.display.up)}
+                {fmtSpeed(smoothTraffic.current.up)}
               </div>
               <div className="rt-chart">
                 <Spark pts={smoothTraffic.upPts} color="#BF5AF2" h={132} fill dot />
@@ -250,7 +272,7 @@ export default function Dashboard() {
                 <Icon name="download" size={12} />下载速度
               </div>
               <div className="stat-num" style={{ color: 'var(--cyan)' }}>
-                {fmtSpeed(smoothTraffic.display.down)}
+                {fmtSpeed(smoothTraffic.current.down)}
               </div>
               <div className="rt-chart">
                 <Spark pts={smoothTraffic.downPts} color="#64D2FF" h={132} fill dot />

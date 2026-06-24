@@ -16,9 +16,23 @@ export interface ConnItem { id: string; metadata: ConnMeta; rule: string; rulePa
 export interface ConnectionsPayload { downloadTotal: number; uploadTotal: number; connections: ConnItem[] }
 export interface RuleItem { type: string; payload: string; proxy: string }
 export interface LogItem { type: 'info' | 'warning' | 'error' | 'debug'; payload: string; time: string }
-export interface TrafficPoint { up: number; down: number }
+export interface TrafficPoint {
+  up: number
+  down: number
+  upTotal?: number
+  downTotal?: number
+  timestamp?: number
+  source?: 'traffic' | 'connections' | 'disconnect' | 'mock'
+}
 export interface MemoryPoint { inuse: number; oslimit?: number }
 export interface CoreStatus { running: boolean; version: string; uptimeSec: number; memoryBytes: number }
+export interface TunAdapterStatus {
+  enabled: boolean
+  adapterPresent: boolean
+  adapterName?: string
+  status?: string
+  detail?: string
+}
 export interface ProfileQuota { used: number; total: number; expireAt?: number }
 export interface EnhancerMeta { id: string; kind: 'merge' | 'script'; name: string; enabled: boolean }
 export interface ProxyProviderItem { name: string; vehicleType: string; nodeCount: number;

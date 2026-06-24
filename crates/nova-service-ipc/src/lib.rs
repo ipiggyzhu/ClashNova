@@ -14,8 +14,8 @@ pub use types::*;
 
 #[cfg(feature = "client")]
 pub use client::{
-    connect, get_logs, get_status, get_version, is_ipc_available, is_reinstall_needed,
-    start_core, stop_core, IpcClient,
+    connect, get_logs, get_status, get_version, is_ipc_available, is_reinstall_needed, start_core,
+    stop_core, IpcClient,
 };
 
 #[cfg(feature = "client")]

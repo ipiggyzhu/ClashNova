@@ -14,7 +14,7 @@ import { updateGeo } from '../services/api'
 import { call } from '../services/ipc'
 import { useAppStore } from '../stores/app'
 import { useNotificationStore } from '../stores/notifications'
-import type { AppSettings, Language, Theme } from '../types/clash'
+import type { AppSettings, Language, Theme, TunAdapterStatus } from '../types/clash'
 
 interface RowProps {
   title: string
@@ -136,6 +136,7 @@ export default function Settings() {
   const [coreChannel, setCoreChannel] = useState('stable')
   const [drawer, setDrawer] = useState<DrawerState | null>(null)
   const [service, setService] = useState<ServiceUiStatus>('unknown')
+  const [tunAdapter, setTunAdapter] = useState<TunAdapterStatus | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [confirmReset, setConfirmReset] = useState(false)
   const [showDnsSettings, setShowDnsSettings] = useState(false)
@@ -169,8 +170,17 @@ export default function Settings() {
     setService(mapServiceStatus(status))
   }
 
+  const refreshTunAdapter = async (): Promise<void> => {
+    try {
+      setTunAdapter(await call('check_tun_adapter'))
+    } catch {
+      setTunAdapter(null)
+    }
+  }
+
   useEffect(() => {
     void refreshServiceStatus().catch(() => setService('unknown'))
+    void refreshTunAdapter()
   }, [])
 
   const patch = (p: Partial<AppSettings>): void => {
@@ -224,6 +234,7 @@ export default function Settings() {
     void withBusy('service', async () => {
       await call(serviceCommand())
       await refreshServiceStatus()
+      await refreshTunAdapter()
       await loadAll()
     }).catch((err) => {
       notify('error', t('服务模式操作失败'), errorMessage(err))
@@ -234,6 +245,7 @@ export default function Settings() {
     void withBusy('tun', async () => {
       await setTun(on)
       await refreshServiceStatus()
+      await refreshTunAdapter()
     }).catch((err) => {
       notify('error', t('TUN 切换失败'), errorMessage(err))
     })
@@ -300,6 +312,16 @@ export default function Settings() {
     return enabled ? <Badge tone="green">{t('已启用')}</Badge> : <Badge tone="gray">{t('未启用')}</Badge>
   }
 
+  const tunAdapterBadge = (): JSX.Element => {
+    if (!settings.tun) return <Badge tone="gray">{t('未启用')}</Badge>
+    if (!tunAdapter) return <Badge tone="gray">{t('检测中…')}</Badge>
+    if (tunAdapter.status === 'unsupported') return <Badge tone="blue">{t('检测不支持')}</Badge>
+    if (tunAdapter.adapterPresent) {
+      return <Badge tone="green">{tunAdapter.adapterName ?? t('网卡就绪')}</Badge>
+    }
+    return <Badge tone="orange">{t('网卡未就绪')}</Badge>
+  }
+
   return (
     <div className="pg-settings">
       <div className="col">
@@ -335,6 +357,7 @@ export default function Settings() {
             </Button>
           </Row>
           <Row title={t('TUN 模式')} desc={t('虚拟网卡接管全部流量, 需服务模式')}>
+            <span title={tunAdapter?.detail ?? undefined}>{tunAdapterBadge()}</span>
             <Toggle on={settings.tun} onChange={toggleTun} disabled={busy === 'tun'} />
           </Row>
           <Row title={t('服务模式')} desc={t('以 Windows 服务运行内核, TUN 免管理员')}>

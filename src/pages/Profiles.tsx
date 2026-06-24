@@ -40,6 +40,12 @@ interface EditorState {
   originalContent: string
 }
 
+interface RuntimeConfigViewerState {
+  content: string
+  loading: boolean
+  error: string
+}
+
 /** 增强项编辑抽屉状态(enh 为 null 表示新建) */
 interface EnhEditorState {
   pid: string
@@ -97,6 +103,7 @@ export default function Profiles() {
   const [fileImporting, setFileImporting] = useState(false)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [editor, setEditor] = useState<EditorState | null>(null)
+  const [runtimeViewer, setRuntimeViewer] = useState<RuntimeConfigViewerState | null>(null)
   const [confirmDel, setConfirmDel] = useState<ProfileMeta | null>(null)
   const [enhEditor, setEnhEditor] = useState<EnhEditorState | null>(null)
   const [ruleEditor, setRuleEditor] = useState<RuleEditorState | null>(null)
@@ -227,6 +234,35 @@ export default function Profiles() {
       const message = err instanceof Error ? err.message : String(err)
       notify('error', '保存配置失败', message)
     }
+  }
+
+  const loadRuntimeConfig = async (): Promise<void> => {
+    setRuntimeViewer((prev) => ({
+      content: prev?.content ?? '',
+      loading: true,
+      error: '',
+    }))
+    try {
+      const content = await call('get_runtime_config')
+      setRuntimeViewer({ content, loading: false, error: '' })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      setRuntimeViewer((prev) => ({
+        content: prev?.content ?? '',
+        loading: false,
+        error: message,
+      }))
+    }
+  }
+
+  const openRuntimeViewer = (): void => {
+    setRuntimeViewer({ content: '', loading: true, error: '' })
+    void loadRuntimeConfig()
+  }
+
+  const copyRuntimeConfig = (): void => {
+    if (!runtimeViewer?.content) return
+    void navigator.clipboard.writeText(runtimeViewer.content).catch(() => {})
   }
 
   const openMetaEditor = (p: ProfileMeta): void => {
@@ -483,6 +519,9 @@ export default function Profiles() {
           <Button onClick={() => fileInputRef.current?.click()} disabled={fileImporting}>
             <Icon name="folder" size={13} />{fileImporting ? '导入中…' : '打开文件'}
           </Button>
+          <Button onClick={openRuntimeViewer}>
+            <Icon name="settings" size={13} />查看运行配置
+          </Button>
         </div>
       </Card>
 
@@ -686,6 +725,49 @@ export default function Profiles() {
                 <Icon name="check" size={13} />保存
               </Button>
             </div>
+          </div>
+        </div>
+      )}
+      {runtimeViewer && (
+        <div className="editor-mask" onClick={() => setRuntimeViewer(null)}>
+          <div className="editor runtime-editor" onClick={(e) => e.stopPropagation()}>
+            <div className="ehead">
+              <Icon name="settings" size={14} />
+              当前运行配置
+              <span className="chip">YAML</span>
+              <span className="spacer" />
+              {!runtimeViewer.loading && !runtimeViewer.error && (
+                <>
+                  <Button size="sm" onClick={copyRuntimeConfig}>
+                    <Icon name="download" size={13} />复制
+                  </Button>
+                  <Button size="sm" onClick={() => void loadRuntimeConfig()}>
+                    <Icon name="refresh" size={13} />刷新
+                  </Button>
+                </>
+              )}
+              <button className="icon-btn" onClick={() => setRuntimeViewer(null)}>
+                <Icon name="x" />
+              </button>
+            </div>
+            {runtimeViewer.loading && (
+              <div className="runtime-status">
+                <Icon name="refresh" size={24} />
+                <span>加载中…</span>
+              </div>
+            )}
+            {runtimeViewer.error && (
+              <div className="runtime-status error">
+                <Icon name="x" size={24} />
+                <span>{runtimeViewer.error}</span>
+                <Button size="sm" onClick={() => void loadRuntimeConfig()}>
+                  重试
+                </Button>
+              </div>
+            )}
+            {!runtimeViewer.loading && !runtimeViewer.error && (
+              <CodeEditor value={runtimeViewer.content} onChange={() => {}} lang="yaml" readOnly />
+            )}
           </div>
         </div>
       )}

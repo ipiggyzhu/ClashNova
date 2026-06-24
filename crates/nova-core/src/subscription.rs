@@ -149,8 +149,7 @@ fn parse_ss(rest: &str) -> Result<Value, CoreError> {
     let (rest, name) = take_fragment(rest);
     let (rest, query) = take_query(rest);
 
-    let (method, password, host, port) = if let Some((userinfo, host_port)) =
-        rest.rsplit_once('@')
+    let (method, password, host, port) = if let Some((userinfo, host_port)) = rest.rsplit_once('@')
     {
         // SIP002:userinfo 为 base64(method:password),容忍未编码的明文
         let decoded = decode_b64(userinfo)
@@ -178,7 +177,11 @@ fn parse_ss(rest: &str) -> Result<Value, CoreError> {
     };
 
     let mut m = Mapping::new();
-    kv(&mut m, "name", Value::String(name.unwrap_or_else(|| format!("{host}:{port}"))));
+    kv(
+        &mut m,
+        "name",
+        Value::String(name.unwrap_or_else(|| format!("{host}:{port}"))),
+    );
     kv(&mut m, "type", Value::String("ss".into()));
     kv(&mut m, "server", Value::String(host));
     kv(&mut m, "port", Value::from(port as u64));
@@ -245,22 +248,28 @@ fn parse_vmess(rest: &str) -> Result<Value, CoreError> {
         }
     };
 
-    let server = str_of("add")
-        .ok_or_else(|| CoreError::InvalidUri("vmess: 缺少 add".into()))?;
+    let server = str_of("add").ok_or_else(|| CoreError::InvalidUri("vmess: 缺少 add".into()))?;
     let port = num_of("port")
         .and_then(|p| u16::try_from(p).ok())
         .ok_or_else(|| CoreError::InvalidUri("vmess: 端口非法".into()))?;
-    let uuid = str_of("id")
-        .ok_or_else(|| CoreError::InvalidUri("vmess: 缺少 id".into()))?;
+    let uuid = str_of("id").ok_or_else(|| CoreError::InvalidUri("vmess: 缺少 id".into()))?;
 
     let mut m = Mapping::new();
-    kv(&mut m, "name", Value::String(str_of("ps").unwrap_or_else(|| format!("{server}:{port}"))));
+    kv(
+        &mut m,
+        "name",
+        Value::String(str_of("ps").unwrap_or_else(|| format!("{server}:{port}"))),
+    );
     kv(&mut m, "type", Value::String("vmess".into()));
     kv(&mut m, "server", Value::String(server.clone()));
     kv(&mut m, "port", Value::from(port as u64));
     kv(&mut m, "uuid", Value::String(uuid));
     kv(&mut m, "alterId", Value::from(num_of("aid").unwrap_or(0)));
-    kv(&mut m, "cipher", Value::String(str_of("scy").unwrap_or_else(|| "auto".into())));
+    kv(
+        &mut m,
+        "cipher",
+        Value::String(str_of("scy").unwrap_or_else(|| "auto".into())),
+    );
     kv(&mut m, "udp", Value::Bool(true));
 
     let tls = matches!(json.get("tls"), Some(serde_json::Value::String(s)) if s == "tls")
@@ -275,7 +284,11 @@ fn parse_vmess(rest: &str) -> Result<Value, CoreError> {
     }
     if network == "ws" {
         let mut ws = Mapping::new();
-        kv(&mut ws, "path", Value::String(str_of("path").unwrap_or_else(|| "/".into())));
+        kv(
+            &mut ws,
+            "path",
+            Value::String(str_of("path").unwrap_or_else(|| "/".into())),
+        );
         if let Some(host) = str_of("host") {
             let mut headers = Mapping::new();
             kv(&mut headers, "Host", Value::String(host));
@@ -296,7 +309,11 @@ fn parse_trojan(rest: &str) -> Result<Value, CoreError> {
     let (host, port) = parse_host_port(host_port, "trojan")?;
 
     let mut m = Mapping::new();
-    kv(&mut m, "name", Value::String(name.unwrap_or_else(|| format!("{host}:{port}"))));
+    kv(
+        &mut m,
+        "name",
+        Value::String(name.unwrap_or_else(|| format!("{host}:{port}"))),
+    );
     kv(&mut m, "type", Value::String("trojan".into()));
     kv(&mut m, "server", Value::String(host));
     kv(&mut m, "port", Value::from(port as u64));
@@ -321,7 +338,11 @@ fn parse_vless(rest: &str) -> Result<Value, CoreError> {
     let (host, port) = parse_host_port(host_port, "vless")?;
 
     let mut m = Mapping::new();
-    kv(&mut m, "name", Value::String(name.unwrap_or_else(|| format!("{host}:{port}"))));
+    kv(
+        &mut m,
+        "name",
+        Value::String(name.unwrap_or_else(|| format!("{host}:{port}"))),
+    );
     kv(&mut m, "type", Value::String("vless".into()));
     kv(&mut m, "server", Value::String(host));
     kv(&mut m, "port", Value::from(port as u64));
@@ -339,7 +360,11 @@ fn parse_vless(rest: &str) -> Result<Value, CoreError> {
     }
     if network == "ws" {
         let mut ws = Mapping::new();
-        kv(&mut ws, "path", Value::String(query_get(&query, "path").unwrap_or("/").to_string()));
+        kv(
+            &mut ws,
+            "path",
+            Value::String(query_get(&query, "path").unwrap_or("/").to_string()),
+        );
         if let Some(host_header) = query_get(&query, "host") {
             let mut headers = Mapping::new();
             kv(&mut headers, "Host", Value::String(host_header.to_string()));
@@ -408,12 +433,12 @@ rules:
         let sip002 = "ss://YWVzLTI1Ni1nY206cGFzc3cwcmQ@hk.example.com:8388/?plugin=obfs-local%3Bobfs%3Dhttp%3Bobfs-host%3Dwww.bing.com#%E9%A6%99%E6%B8%AF%20SS";
         // 旧式: ss://base64("rc4-md5:legacy@old.example.com:8400")
         let legacy = "ss://cmM0LW1kNTpsZWdhY3lAb2xkLmV4YW1wbGUuY29tOjg0MDA=#%E6%97%A7%E5%BC%8F";
-        let nodes =
-            parse_subscription(&format!("{sip002}\n{legacy}")).expect("ss URI 应可解析");
+        let nodes = parse_subscription(&format!("{sip002}\n{legacy}")).expect("ss URI 应可解析");
         assert_eq!(nodes.len(), 2);
         assert_eq!(
             nodes[0],
-            yaml(r#"
+            yaml(
+                r#"
 name: 香港 SS
 type: ss
 server: hk.example.com
@@ -425,11 +450,13 @@ plugin: obfs
 plugin-opts:
   mode: http
   host: www.bing.com
-"#)
+"#
+            )
         );
         assert_eq!(
             nodes[1],
-            yaml(r#"
+            yaml(
+                r#"
 name: 旧式
 type: ss
 server: old.example.com
@@ -437,7 +464,8 @@ port: 8400
 cipher: rc4-md5
 password: legacy
 udp: true
-"#)
+"#
+            )
         );
     }
 
@@ -449,7 +477,8 @@ udp: true
         assert_eq!(nodes.len(), 1);
         assert_eq!(
             nodes[0],
-            yaml(r#"
+            yaml(
+                r#"
 name: 东京 VMess
 type: vmess
 server: jp.example.com
@@ -464,7 +493,8 @@ ws-opts:
   path: /ws
   headers:
     Host: jp.example.com
-"#)
+"#
+            )
         );
     }
 
@@ -475,7 +505,8 @@ ws-opts:
         assert_eq!(nodes.len(), 1);
         assert_eq!(
             nodes[0],
-            yaml(r#"
+            yaml(
+                r#"
 name: 美国 Trojan
 type: trojan
 server: us.example.com
@@ -484,7 +515,8 @@ password: secret123
 sni: cdn.example.com
 skip-cert-verify: true
 udp: true
-"#)
+"#
+            )
         );
     }
 
@@ -495,7 +527,8 @@ udp: true
         assert_eq!(nodes.len(), 1);
         assert_eq!(
             nodes[0],
-            yaml(r#"
+            yaml(
+                r#"
 name: HK VLESS
 type: vless
 server: hk.example.com
@@ -509,7 +542,8 @@ ws-opts:
   headers:
     Host: cdn.hk.example.com
 udp: true
-"#)
+"#
+            )
         );
     }
 }

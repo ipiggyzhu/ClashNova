@@ -159,6 +159,7 @@ fn main() {
             commands::open_app_dir,
             commands::open_url,
             commands::service_status,
+            commands::check_tun_adapter,
             commands::install_service,
             commands::start_service,
             commands::uninstall_service,

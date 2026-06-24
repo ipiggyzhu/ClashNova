@@ -23,9 +23,8 @@ pub fn apply_chain(base: &mut Value, items: &[EnhancerItem]) -> Result<(), CoreE
         match item {
             EnhancerItem::Merge(patch) => deep_merge(base, patch),
             EnhancerItem::Script(src) => {
-                *base = run_script(src, base).map_err(|e| {
-                    CoreError::Script(format!("增强链第 {} 项: {e}", idx + 1))
-                })?;
+                *base = run_script(src, base)
+                    .map_err(|e| CoreError::Script(format!("增强链第 {} 项: {e}", idx + 1)))?;
             }
         }
     }

@@ -844,7 +844,7 @@ dependencies = [
 
 [[package]]
 name = "clashnova"
-version = "2.4.2"
+version = "2.4.3"
 dependencies = [
  "deelevate",
  "dirs 6.0.0",

@@ -52,7 +52,11 @@ impl IpcClient {
         )
     }
 
-    fn parse_response<T: DeserializeOwned>(&self, response_data: &[u8], action: &str) -> Result<ServiceResponse<T>> {
+    fn parse_response<T: DeserializeOwned>(
+        &self,
+        response_data: &[u8],
+        action: &str,
+    ) -> Result<ServiceResponse<T>> {
         let response_data = Self::normalize_response(response_data);
         let raw = String::from_utf8_lossy(&response_data);
         if raw.trim().is_empty() {
@@ -65,11 +69,11 @@ impl IpcClient {
 
         let fallback: ServiceResponse<serde_json::Value> = serde_json::from_slice(&response_data)
             .with_context(|| {
-                format!(
-                    "解析{action}响应失败: {}",
-                    Self::response_debug(&response_data)
-                )
-            })?;
+            format!(
+                "解析{action}响应失败: {}",
+                Self::response_debug(&response_data)
+            )
+        })?;
 
         if fallback.code != 0 {
             anyhow::bail!("{}", fallback.message);
@@ -121,22 +125,13 @@ impl IpcClient {
         use std::io::ErrorKind;
 
         // 打开命名管道
-        let pipe = match File::options()
-            .read(true)
-            .write(true)
-            .open(IPC_PATH) {
+        let pipe = match File::options().read(true).write(true).open(IPC_PATH) {
             Ok(p) => p,
             Err(e) => {
                 return match e.kind() {
-                    ErrorKind::NotFound => {
-                        Err(anyhow::anyhow!("服务未运行（命名管道不存在）"))
-                    }
-                    ErrorKind::PermissionDenied => {
-                        Err(anyhow::anyhow!("权限不足，无法访问服务"))
-                    }
-                    _ => {
-                        Err(anyhow::anyhow!("无法连接到服务（命名管道打开失败）: {}", e))
-                    }
+                    ErrorKind::NotFound => Err(anyhow::anyhow!("服务未运行（命名管道不存在）")),
+                    ErrorKind::PermissionDenied => Err(anyhow::anyhow!("权限不足，无法访问服务")),
+                    _ => Err(anyhow::anyhow!("无法连接到服务（命名管道打开失败）: {}", e)),
                 };
             }
         };
@@ -148,13 +143,10 @@ impl IpcClient {
         let mut reader = BufReader::new(&pipe);
 
         // 序列化请求并发送
-        let request_json = serde_json::to_string(request)
-            .context("序列化请求失败")?;
+        let request_json = serde_json::to_string(request).context("序列化请求失败")?;
 
-        writeln!(writer, "{}", request_json)
-            .context("发送请求失败")?;
-        writer.flush()
-            .context("刷新管道失败")?;
+        writeln!(writer, "{}", request_json).context("发送请求失败")?;
+        writer.flush().context("刷新管道失败")?;
 
         // 读取响应（单行 JSON）。按原始字节读，避免非 UTF-8 或尾部 NUL 让 read_line(String) 提前失败。
         let mut response_line = Vec::new();
@@ -182,7 +174,8 @@ impl IpcClient {
         };
 
         let response_data = self.send_request(&request)?;
-        let response: ServiceResponse<serde_json::Value> = self.parse_response(&response_data, "连接")?;
+        let response: ServiceResponse<serde_json::Value> =
+            self.parse_response(&response_data, "连接")?;
 
         if response.code != 0 {
             anyhow::bail!("连接失败: {}", response.message);
@@ -193,8 +186,7 @@ impl IpcClient {
 
     /// 启动内核
     pub fn start_core(&self, config: &CoreConfig) -> Result<ServiceResponse<()>> {
-        let config_json = serde_json::to_string(config)
-            .context("序列化内核配置失败")?;
+        let config_json = serde_json::to_string(config).context("序列化内核配置失败")?;
 
         let request = ServiceRequest {
             command: "start".to_string(),
@@ -254,16 +246,16 @@ impl IpcClient {
         };
 
         let response_data = self.send_request(&request)?;
-        let response: ServiceResponse<ServiceVersion> = self.parse_response(&response_data, "版本")?;
+        let response: ServiceResponse<ServiceVersion> =
+            self.parse_response(&response_data, "版本")?;
 
         Ok(response)
     }
 }
 
 /// 全局客户端实例
-static CLIENT: once_cell::sync::Lazy<IpcClient> = once_cell::sync::Lazy::new(|| {
-    IpcClient::new(IpcConfig::default())
-});
+static CLIENT: once_cell::sync::Lazy<IpcClient> =
+    once_cell::sync::Lazy::new(|| IpcClient::new(IpcConfig::default()));
 
 /// 检查 IPC 管道是否存在
 #[cfg(windows)]

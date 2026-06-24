@@ -81,18 +81,14 @@ mod tests {
 
     #[test]
     fn 嵌套对象递归合并() {
-        let mut base = yaml(
-            "dns:\n  enable: false\n  listen: 0.0.0.0:53\n  nameserver:\n    - 1.1.1.1",
-        );
+        let mut base =
+            yaml("dns:\n  enable: false\n  listen: 0.0.0.0:53\n  nameserver:\n    - 1.1.1.1");
         let patch = yaml("dns:\n  enable: true\n  ipv6: false");
         deep_merge(&mut base, &patch);
         let dns = base.get("dns").expect("dns 应保留");
         assert_eq!(dns.get("enable"), Some(&Value::Bool(true)));
         assert_eq!(dns.get("ipv6"), Some(&Value::Bool(false)));
-        assert_eq!(
-            dns.get("listen"),
-            Some(&Value::String("0.0.0.0:53".into()))
-        );
+        assert_eq!(dns.get("listen"), Some(&Value::String("0.0.0.0:53".into())));
         assert_eq!(dns.get("nameserver"), Some(&yaml("- 1.1.1.1")));
     }
 

@@ -7,7 +7,7 @@ export const EN: Record<string, string> = {
   概览: 'Overview', 可视化: 'Visualize', 代理: 'Proxy', 配置: 'Config',
   仪表盘: 'Dashboard', 流量统计: 'Traffic', 连接: 'Connections', 日志: 'Logs',
   拓扑: 'Topology', 路由地图: 'Route Map', 节点: 'Proxies', 规则: 'Rules',
-  提供者: 'Providers', 测试: 'Test', 订阅: 'Profiles', 配置文件: 'Config File',
+  提供者: 'Providers', 测试: 'Test', 订阅: 'Profiles',
   设置: 'Settings',
   'Mihomo 运行中': 'Mihomo Running', 'Mihomo 已停止': 'Mihomo Stopped',
   内存: 'Mem',
@@ -34,6 +34,9 @@ export const EN: Record<string, string> = {
   静默启动: 'Silent Start', '启动时仅驻留托盘, 不显示主窗口':
     'Start minimized to tray without main window',
   已安装: 'Installed', 未安装: 'Not Installed', 安装: 'Install', 卸载: 'Uninstall',
+  运行中: 'Running', 已停止: 'Stopped', 需修复: 'Repair Required',
+  '处理中…': 'Processing…', '检测中…': 'Checking…', 检测不支持: 'Unsupported',
+  网卡就绪: 'Adapter Ready', 网卡未就绪: 'Adapter Not Ready',
   /* 设置-界面 */
   界面: 'Interface', 主题: 'Theme', 深色: 'Dark', 浅色: 'Light', 跟随系统: 'System',
   强调色: 'Accent Color', '自定义 CSS': 'Custom CSS',
