@@ -45,10 +45,26 @@ function subscribeWs<T>(
     }
   }
 
+  const reconnect = (): void => {
+    if (closed) return
+    if (timer !== null) {
+      clearTimeout(timer)
+      timer = null
+    }
+    if (ws) {
+      ws.onclose = null
+      ws.close()
+      ws = null
+    }
+    connect()
+  }
+
   connect()
+  window.addEventListener('clashnova-api-config-changed', reconnect)
   return () => {
     closed = true
     if (timer !== null) clearTimeout(timer)
+    window.removeEventListener('clashnova-api-config-changed', reconnect)
     ws?.close()
   }
 }

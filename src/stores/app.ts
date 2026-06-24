@@ -53,6 +53,7 @@ export interface AppStore {
 }
 
 let loadAllPromise: Promise<void> | null = null
+let settingsSaveQueue: Promise<void> = Promise.resolve()
 /** refreshCoreStatus 调用序号: REST 兜底 await 期间有更新的刷新时丢弃过期结果 */
 let coreRefreshSeq = 0
 
@@ -106,8 +107,13 @@ export const useAppStore = create<AppStore>((set, get) => ({
     set({ settings: next })
     if (patch.theme !== undefined) applyTheme(patch.theme)
     try {
-      await call('save_settings', { settings: next })
-      configureApi(next.externalController, next.secret)
+      const persistLatest = async (): Promise<void> => {
+        const latest = get().settings
+        await call('save_settings', { settings: latest })
+        configureApi(latest.externalController, latest.secret)
+      }
+      settingsSaveQueue = settingsSaveQueue.catch(() => undefined).then(persistLatest)
+      await settingsSaveQueue
     } catch (err) {
       // 持久化失败 → 回滚乐观更新
       set({ settings: prev })

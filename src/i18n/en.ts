@@ -34,6 +34,7 @@ export const EN: Record<string, string> = {
   静默启动: 'Silent Start', '启动时仅驻留托盘, 不显示主窗口':
     'Start minimized to tray without main window',
   已安装: 'Installed', 未安装: 'Not Installed', 安装: 'Install', 卸载: 'Uninstall',
+  显示: 'Show', 隐藏: 'Hide',
   运行中: 'Running', 已停止: 'Stopped', 需修复: 'Repair Required',
   '处理中…': 'Processing…', '检测中…': 'Checking…', 检测不支持: 'Unsupported',
   网卡就绪: 'Adapter Ready', 网卡未就绪: 'Adapter Not Ready',

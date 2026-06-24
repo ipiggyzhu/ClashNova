@@ -117,13 +117,13 @@ fn query_tun_adapter(enabled: bool) -> TunAdapterStatus {
 
     let script = r#"
 $ErrorActionPreference = 'SilentlyContinue'
-$specific = '(?i)(Mihomo|ClashNova|Clash[ -]?(Meta|Verge)|Clash)'
-$wintun = '(?i)Wintun Userspace Tunnel'
+$specific = '(?i)(Mihomo|ClashNova|Clash[ -]?(Meta|Verge)|Clash|SakuraiTunnel|Meta Tunnel)'
+$wintun = '(?i)(Wintun Userspace Tunnel|Meta Tunnel)'
 $adapters = @(Get-NetAdapter -IncludeHidden | Where-Object {
   $name = [string]$_.Name
   $desc = [string]$_.InterfaceDescription
   $matchesSpecific = ($name -match $specific) -or ($desc -match $specific)
-  $matchesWintun = ($desc -match $wintun) -and ($name -match '(?i)(Mihomo|Clash|Meta|ClashNova)')
+  $matchesWintun = ($desc -match $wintun) -and ($name -match '(?i)(Mihomo|Clash|Meta|ClashNova|SakuraiTunnel)')
   $matchesSpecific -or $matchesWintun
 } | Sort-Object @{Expression = { if ($_.Status -eq 'Up') { 0 } else { 1 } }}, Name)
 if ($adapters.Count -eq 0) {
@@ -241,6 +241,15 @@ async fn wait_tun_adapter(
             return Ok(last);
         }
         if !expected || last.adapter_present {
+            return Ok(last);
+        }
+
+        if expected && matches!(core::runtime_tun_enabled(app).await, Ok(true)) {
+            last.status = Some("runtime-enabled".into());
+            last.detail = Some(match last.detail {
+                Some(detail) => format!("{detail}; mihomo 已确认 tun.enable=true"),
+                None => "mihomo 已确认 tun.enable=true".into(),
+            });
             return Ok(last);
         }
 
@@ -820,7 +829,18 @@ pub async fn service_status() -> String {
 
 #[tauri::command]
 pub async fn check_tun_adapter(app: AppHandle) -> TunAdapterStatus {
-    query_tun_adapter_async(app.state::<AppState>().settings_snapshot().tun).await
+    let settings_tun = app.state::<AppState>().settings_snapshot().tun;
+    let mut status = query_tun_adapter_async(settings_tun).await;
+    if settings_tun && !status.adapter_present {
+        if matches!(core::runtime_tun_enabled(&app).await, Ok(true)) {
+            status.status = Some("runtime-enabled".into());
+            status.detail = Some(match status.detail {
+                Some(detail) => format!("{detail}; mihomo 已确认 tun.enable=true"),
+                None => "mihomo 已确认 tun.enable=true".into(),
+            });
+        }
+    }
+    status
 }
 
 #[tauri::command]
@@ -888,8 +908,10 @@ pub async fn start_service(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 pub async fn uninstall_service(app: AppHandle) -> Result<(), String> {
-    let was_core_running = core::is_running(&app).await;
     let had_tun = app.state::<AppState>().settings_snapshot().tun;
+    if core::is_sidecar_running(&app) {
+        core::stop_sidecar(&app)?;
+    }
 
     let manager = crate::service_manager::get_service_manager();
     manager
@@ -900,10 +922,6 @@ pub async fn uninstall_service(app: AppHandle) -> Result<(), String> {
         let mut settings = app.state::<AppState>().settings_snapshot();
         settings.tun = false;
         save_settings(app.clone(), settings).await?;
-    }
-
-    if was_core_running {
-        core::start(&app)?;
     }
 
     tray::sync_tray(&app);

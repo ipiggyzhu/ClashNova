@@ -18,6 +18,7 @@ export const TRAFFIC_CAPACITY = 60
 export const LOG_CAPACITY = 1024
 const TRAFFIC_STALE_MS = 2500
 const DUPLICATE_TRAFFIC_WINDOW_MS = 50
+const REAL_TRAFFIC_SAMPLE_MS = 1000
 
 const EMPTY_CONNECTIONS: ConnectionsPayload = {
   downloadTotal: 0,
@@ -26,15 +27,24 @@ const EMPTY_CONNECTIONS: ConnectionsPayload = {
 }
 
 let lastRealTrafficAt = 0
+let lastTrafficSampleAt = 0
 let lastTrafficSignature = ''
 let lastTrafficSignatureAt = 0
 let lastConnectionTotals: { upload: number; download: number; at: number } | null = null
+let pendingTraffic: TrafficPoint | null = null
+let pendingTrafficTimer: ReturnType<typeof setTimeout> | null = null
 
 function resetTrafficSamplingState(): void {
   lastRealTrafficAt = 0
+  lastTrafficSampleAt = 0
   lastTrafficSignature = ''
   lastTrafficSignatureAt = 0
   lastConnectionTotals = null
+  pendingTraffic = null
+  if (pendingTrafficTimer !== null) {
+    clearTimeout(pendingTrafficTimer)
+    pendingTrafficTimer = null
+  }
 }
 
 function numberOrZero(value: unknown): number {
@@ -195,15 +205,49 @@ export const useLiveStore = create<LiveStore>((set, get) => ({
   logs: [],
   logsPaused: false,
 
-  pushTraffic: (point) =>
+  pushTraffic: (point) => {
+    const safePoint = normalizeTraffic(point)
+    const isRealSample = safePoint.source === 'traffic' || safePoint.source === 'mock'
+
+    if (isRealSample) {
+      const now = Date.now()
+      const elapsed = now - lastTrafficSampleAt
+      if (lastTrafficSampleAt > 0 && elapsed < REAL_TRAFFIC_SAMPLE_MS) {
+        pendingTraffic = { ...safePoint, timestamp: now }
+        if (pendingTrafficTimer === null) {
+          pendingTrafficTimer = setTimeout(() => {
+            pendingTrafficTimer = null
+            const next = pendingTraffic
+            pendingTraffic = null
+            if (!next) return
+            lastTrafficSampleAt = Date.now()
+            set((s) => {
+              lastRealTrafficAt = Date.now()
+              if (shouldSkipDuplicateTraffic(next)) return s
+              return { traffic: [...s.traffic, next].slice(-TRAFFIC_CAPACITY) }
+            })
+          }, REAL_TRAFFIC_SAMPLE_MS - elapsed)
+        }
+        return
+      }
+      pendingTraffic = null
+      if (pendingTrafficTimer !== null) {
+        clearTimeout(pendingTrafficTimer)
+        pendingTrafficTimer = null
+      }
+      lastTrafficSampleAt = now
+    } else if (safePoint.source === 'disconnect') {
+      pendingTraffic = null
+    }
+
     set((s) => {
-      const safePoint = normalizeTraffic(point)
-      if (safePoint.source === 'traffic' || safePoint.source === 'mock') {
+      if (isRealSample) {
         lastRealTrafficAt = Date.now()
       }
       if (shouldSkipDuplicateTraffic(safePoint)) return s
       return { traffic: [...s.traffic, safePoint].slice(-TRAFFIC_CAPACITY) }
-    }),
+    })
+  },
 
   setConnections: (payload) =>
     set((s) => {

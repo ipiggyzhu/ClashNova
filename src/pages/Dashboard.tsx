@@ -52,6 +52,7 @@ function tunText(settingsTun: boolean, adapter: TunAdapterStatus | null): string
   if (!settingsTun) return '关闭'
   if (!adapter) return '检测中…'
   if (adapter.status === 'unsupported') return '已开启'
+  if (adapter.status === 'runtime-enabled') return '已接管'
   if (adapter.adapterPresent) return adapter.adapterName ? `已开启 · ${adapter.adapterName}` : '已开启'
   return '网卡未就绪'
 }

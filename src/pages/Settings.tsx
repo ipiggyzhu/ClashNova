@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import './Settings.css'
 import Badge from '../components/ui/Badge'
 import Button from '../components/ui/Button'
@@ -137,9 +137,15 @@ export default function Settings() {
   const [drawer, setDrawer] = useState<DrawerState | null>(null)
   const [service, setService] = useState<ServiceUiStatus>('unknown')
   const [tunAdapter, setTunAdapter] = useState<TunAdapterStatus | null>(null)
+  const [showSecret, setShowSecret] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
   const [confirmReset, setConfirmReset] = useState(false)
   const [showDnsSettings, setShowDnsSettings] = useState(false)
+  const draftRef = useRef(draft)
+  const settingsRef = useRef(settings)
+  const patchSettingsRef = useRef(patchSettings)
+  const notifyRef = useRef(notify)
+  const tRef = useRef(t)
   const coreVersionLabel = core.running
     ? core.version === '—'
       ? t('获取中…')
@@ -183,8 +189,88 @@ export default function Settings() {
     void refreshTunAdapter()
   }, [])
 
+  useEffect(() => {
+    draftRef.current = draft
+  }, [draft])
+
+  useEffect(() => {
+    settingsRef.current = settings
+  }, [settings])
+
+  useEffect(() => {
+    patchSettingsRef.current = patchSettings
+    notifyRef.current = notify
+    tRef.current = t
+  }, [notify, patchSettings, t])
+
+  const clearDraftKeys = (keys: (keyof AppSettings)[]): void => {
+    setDraft((current) => {
+      const next = { ...current }
+      for (const key of keys) delete next[key]
+      return next
+    })
+  }
+
+  const flushDraft = (): Promise<void> | undefined => {
+    const currentDraft = draftRef.current
+    const currentSettings = settingsRef.current
+    const patch: Partial<AppSettings> = {}
+    const keys: (keyof AppSettings)[] = []
+
+    const commitNumberDraft = (key: 'mixedPort' | 'guardIntervalSec'): void => {
+      const raw = currentDraft[key]
+      if (raw === undefined) return
+      keys.push(key)
+      const n = Number(raw)
+      if (Number.isFinite(n) && n > 0 && n < 65536) {
+        const value = Math.round(n)
+        if (value !== currentSettings[key]) patch[key] = value
+      }
+    }
+
+    const commitTextDraft = (key: 'externalController' | 'secret' | 'bypass'): void => {
+      const raw = currentDraft[key]
+      if (raw === undefined) return
+      keys.push(key)
+      const value = raw.trim()
+      if (!value && key === 'externalController') return
+      if (value !== currentSettings[key]) patch[key] = value
+    }
+
+    commitNumberDraft('mixedPort')
+    commitNumberDraft('guardIntervalSec')
+    commitTextDraft('externalController')
+    commitTextDraft('secret')
+    commitTextDraft('bypass')
+
+    if (keys.length) clearDraftKeys(keys)
+    if (!Object.keys(patch).length) return undefined
+
+    return patchSettingsRef.current(patch).catch((err) => {
+      notifyRef.current('error', tRef.current('保存设置失败'), errorMessage(err))
+    })
+  }
+
+  useEffect(() => () => {
+    void flushDraft()
+  }, [])
+
+  useEffect(() => {
+    const flushBeforeLeavingInputs = (event: PointerEvent): void => {
+      const target = event.target
+      if (!(target instanceof HTMLElement)) return
+      if (target.closest('input, textarea, select, .secret-control')) return
+      void flushDraft()
+    }
+    document.addEventListener('pointerdown', flushBeforeLeavingInputs, true)
+    return () => document.removeEventListener('pointerdown', flushBeforeLeavingInputs, true)
+  }, [])
+
   const patch = (p: Partial<AppSettings>): void => {
-    void patchSettings(p).catch((err) => {
+    void (async () => {
+      await flushDraft()
+      await patchSettings(p)
+    })().catch((err) => {
       notify('error', t('保存设置失败'), errorMessage(err))
     })
   }
@@ -193,21 +279,43 @@ export default function Settings() {
     (draft[key] as string | undefined) ?? fallback
 
   const commitNumber = (key: 'mixedPort' | 'guardIntervalSec'): void => {
-    const raw = draft[key]
+    const raw = draftRef.current[key]
     if (raw === undefined) return
     const n = Number(raw)
-    if (Number.isFinite(n) && n > 0 && n < 65536) patch({ [key]: Math.round(n) })
-    setDraft((d) => ({ ...d, [key]: undefined }))
+    clearDraftKeys([key])
+    if (Number.isFinite(n) && n > 0 && n < 65536) {
+      const value = Math.round(n)
+      if (value !== settingsRef.current[key]) {
+        void patchSettingsRef.current({ [key]: value }).catch((err) => {
+          notifyRef.current('error', tRef.current('保存设置失败'), errorMessage(err))
+        })
+      }
+    }
   }
 
   const commitText = (key: 'externalController' | 'secret' | 'bypass'): void => {
-    const raw = draft[key]
+    const raw = draftRef.current[key]
     if (raw === undefined) return
-    if (raw.trim()) patch({ [key]: raw.trim() })
-    setDraft((d) => ({ ...d, [key]: undefined }))
+    const value = raw.trim()
+    clearDraftKeys([key])
+    if (!value && key === 'externalController') return
+    if (value !== settingsRef.current[key]) {
+      void patchSettingsRef.current({ [key]: value }).catch((err) => {
+        notifyRef.current('error', tRef.current('保存设置失败'), errorMessage(err))
+      })
+    }
+  }
+
+  const commitTextOnEnter = (
+    e: React.KeyboardEvent<HTMLInputElement>,
+    _key: 'externalController' | 'secret' | 'bypass',
+  ): void => {
+    if (e.key !== 'Enter') return
+    e.currentTarget.blur()
   }
 
   const withBusy = async (key: string, fn: () => Promise<void>): Promise<void> => {
+    await flushDraft()
     setBusy(key)
     try {
       await fn()
@@ -280,7 +388,11 @@ export default function Settings() {
   }
 
   const openWebUi = (): void => {
-    void call('open_url', { url: `http://${settings.externalController}/ui/` }).catch(() => {})
+    const controller =
+      (draftRef.current.externalController ?? settingsRef.current.externalController).trim() ||
+      settingsRef.current.externalController
+    void flushDraft()
+    void call('open_url', { url: `http://${controller}/ui/` }).catch(() => {})
   }
 
   const saveDrawer = (): void => {
@@ -316,21 +428,29 @@ export default function Settings() {
     if (!settings.tun) return <Badge tone="gray">{t('未启用')}</Badge>
     if (!tunAdapter) return <Badge tone="gray">{t('检测中…')}</Badge>
     if (tunAdapter.status === 'unsupported') return <Badge tone="blue">{t('检测不支持')}</Badge>
+    if (tunAdapter.status === 'runtime-enabled') return <Badge tone="green">TUN 已接管</Badge>
     if (tunAdapter.adapterPresent) {
       return <Badge tone="green">{tunAdapter.adapterName ?? t('网卡就绪')}</Badge>
     }
     return <Badge tone="orange">{t('网卡未就绪')}</Badge>
   }
 
+  const flushDraftBeforeControl = (e: React.PointerEvent<HTMLDivElement>): void => {
+    const target = e.target
+    if (!(target instanceof HTMLElement)) return
+    if (target.closest('input, textarea, select, .secret-control')) return
+    void flushDraft()
+  }
+
   return (
-    <div className="pg-settings">
+    <div className="pg-settings" onPointerDownCapture={flushDraftBeforeControl}>
       <div className="col">
         {/* ---- 系统 ---- */}
         <Card icon={<Icon name="settings" />} iconColor="var(--accent)" title={t('系统')} flush>
           <Row title={t('系统代理')} desc={t('修改 Windows Internet 设置, 流量经由混合端口')}>
             <Toggle on={settings.sysProxy} onChange={(on) => patch({ sysProxy: on })} />
           </Row>
-          <Row title={t('守卫模式')} desc={`${settings.guardIntervalSec}s`}>
+          <Row title={t('守卫模式')} desc={`每 ${settings.guardIntervalSec}s 检查并恢复系统代理`}>
             <Input
               className="num"
               style={{ width: 64 }}
@@ -503,17 +623,30 @@ export default function Settings() {
               style={{ width: 150 }}
               value={draftValue('externalController', settings.externalController)}
               onChange={(e) => setDraft((d) => ({ ...d, externalController: e.target.value }))}
+              onKeyDown={(e) => commitTextOnEnter(e, 'externalController')}
               onBlur={() => commitText('externalController')}
             />
           </Row>
           <Row title={t('API 密钥')} desc={t('外部控制鉴权 secret')}>
-            <Input
-              type="password"
-              style={{ width: 150 }}
-              value={draftValue('secret', settings.secret)}
-              onChange={(e) => setDraft((d) => ({ ...d, secret: e.target.value }))}
-              onBlur={() => commitText('secret')}
-            />
+            <div className="secret-control">
+              <Input
+                type={showSecret ? 'text' : 'password'}
+                spellCheck={false}
+                value={draftValue('secret', settings.secret)}
+                onChange={(e) => setDraft((d) => ({ ...d, secret: e.target.value }))}
+                onKeyDown={(e) => commitTextOnEnter(e, 'secret')}
+                onBlur={() => commitText('secret')}
+              />
+              <button
+                type="button"
+                className="secret-eye"
+                title={showSecret ? t('隐藏') : t('显示')}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => setShowSecret((visible) => !visible)}
+              >
+                <Icon name={showSecret ? 'eye-off' : 'eye'} size={14} />
+              </button>
+            </div>
           </Row>
           <Row title={t('允许局域网')} desc={t('局域网设备可经本机代理')}>
             <Toggle on={settings.allowLan} onChange={(on) => patch({ allowLan: on })} />

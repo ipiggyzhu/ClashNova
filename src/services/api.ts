@@ -29,9 +29,13 @@ let configReady = isMock
 
 /** 设置页修改外部控制地址/密钥后调用, 同步 REST/WS 连接参数 */
 export function configureApi(externalController: string, secret: string): void {
+  const changed = config.baseUrl !== `http://${externalController}` || config.secret !== secret
   config.baseUrl = `http://${externalController}`
   config.secret = secret
   configReady = true
+  if (changed && typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('clashnova-api-config-changed'))
+  }
 }
 
 /** ws.ts 复用同一份连接参数 */

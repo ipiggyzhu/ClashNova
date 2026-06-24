@@ -716,6 +716,34 @@ pub async fn wait_runtime_tun(
     }
 }
 
+pub async fn runtime_tun_enabled(app: &AppHandle) -> Result<bool, String> {
+    let (controller, secret) = {
+        let state = app.state::<AppState>();
+        let settings = state.settings_snapshot();
+        (settings.external_controller, settings.secret)
+    };
+    let url = format!("http://{controller}/configs");
+    let resp = reqwest::Client::new()
+        .get(&url)
+        .bearer_auth(&secret)
+        .timeout(Duration::from_secs(2))
+        .send()
+        .await
+        .map_err(|err| format!("控制器未就绪: {err}"))?;
+    if !resp.status().is_success() {
+        return Err(format!("控制器返回 HTTP {}", resp.status()));
+    }
+    let json = resp
+        .json::<serde_json::Value>()
+        .await
+        .map_err(|err| format!("解析 /configs 响应失败: {err}"))?;
+    Ok(json
+        .get("tun")
+        .and_then(|tun| tun.get("enable"))
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false))
+}
+
 /// 通过服务启动 mihomo 内核
 fn start_core_via_service(app: &AppHandle) -> Result<(), String> {
     log::info!("通过 IPC 启动内核");

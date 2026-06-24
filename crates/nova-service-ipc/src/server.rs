@@ -1,7 +1,7 @@
 use crate::types::*;
 use anyhow::{Context, Result};
 use std::collections::VecDeque;
-use std::io::Read;
+use std::io::{BufRead, BufReader, Read};
 use std::process::{Child, ChildStderr, ChildStdout, Command, Stdio};
 #[cfg(windows)]
 use std::sync::mpsc;
@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[cfg(windows)]
-use std::io::{BufRead, BufReader, BufWriter, Write};
+use std::io::{BufWriter, Write};
 
 #[cfg(windows)]
 use windows::Win32::Security::{

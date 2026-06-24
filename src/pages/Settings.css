@@ -14,6 +14,12 @@
 .pg-settings .about-ver .v{font-size:15px;font-weight:700}
 .pg-settings .link{color:var(--accent);cursor:pointer;font-size:12px}
 .pg-settings .dir-btns{display:flex;gap:8px}
+.pg-settings .secret-control{position:relative;width:190px;flex:0 0 190px}
+.pg-settings .secret-control .input{width:100%;padding-right:34px;text-align:left;font-family:var(--mono)}
+.pg-settings .secret-eye{position:absolute;right:5px;top:50%;transform:translateY(-50%);
+  width:26px;height:26px;border:none;border-radius:6px;background:transparent;color:var(--text-3);
+  display:flex;align-items:center;justify-content:center;cursor:pointer}
+.pg-settings .secret-eye:hover{background:var(--card-3);color:var(--text)}
 
 /* ---- M2: 热键录制与编辑抽屉 ---- */
 .pg-settings .hotkey-set{display:flex;align-items:center;gap:6px}
