@@ -844,6 +844,27 @@ pub async fn check_tun_adapter(app: AppHandle) -> TunAdapterStatus {
 }
 
 #[tauri::command]
+pub async fn probe_url(url: String) -> Result<i64, String> {
+    if !url.starts_with("http://") && !url.starts_with("https://") {
+        return Err(format!("非法 URL: {url}"));
+    }
+
+    let started = Instant::now();
+    let result = reqwest::Client::new()
+        .get(&url)
+        .timeout(Duration::from_secs(5))
+        .send()
+        .await;
+    match result {
+        Ok(_) => Ok(started.elapsed().as_millis().min(i64::MAX as u128) as i64),
+        Err(err) => {
+            log::debug!("网络探测失败 {url}: {err}");
+            Ok(-1)
+        }
+    }
+}
+
+#[tauri::command]
 pub async fn install_service(app: AppHandle) -> Result<(), String> {
     let sidecar_was_running = core::is_sidecar_running(&app);
     if sidecar_was_running {

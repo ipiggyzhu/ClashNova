@@ -160,6 +160,7 @@ fn main() {
             commands::open_url,
             commands::service_status,
             commands::check_tun_adapter,
+            commands::probe_url,
             commands::install_service,
             commands::start_service,
             commands::uninstall_service,

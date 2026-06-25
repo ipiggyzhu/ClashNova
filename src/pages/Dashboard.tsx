@@ -25,13 +25,8 @@ async function probeMs(url: string): Promise<number> {
     await new Promise((r) => setTimeout(r, 150 + Math.random() * 250))
     return Math.round(20 + Math.random() * 220)
   }
-  const begin = performance.now()
   try {
-    const ctrl = new AbortController()
-    const timer = setTimeout(() => ctrl.abort(), 5000)
-    await fetch(url, { mode: 'no-cors', cache: 'no-store', signal: ctrl.signal })
-    clearTimeout(timer)
-    return Math.round(performance.now() - begin)
+    return await call('probe_url', { url })
   } catch {
     return -1
   }

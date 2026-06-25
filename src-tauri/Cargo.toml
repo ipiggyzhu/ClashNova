@@ -1,6 +1,6 @@
 [package]
 name = "clashnova"
-version = "2.4.4"
+version = "2.4.5"
 edition = "2021"
 description = "ClashNova v2 — 基于 mihomo 的 Windows 桌面代理客户端"
 license = "MIT"

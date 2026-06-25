@@ -617,10 +617,14 @@ pub async fn reload_runtime_with_auth(
             state.dirs.runtime_config().to_string_lossy().to_string(),
         )
     };
-    let running = sidecar_running
-        || tauri::async_runtime::spawn_blocking(is_service_core_running)
+    let service_running = if sidecar_running {
+        false
+    } else {
+        tauri::async_runtime::spawn_blocking(is_service_core_running)
             .await
-            .unwrap_or(false);
+            .unwrap_or(false)
+    };
+    let running = sidecar_running || service_running;
     if !running {
         return Ok(());
     }
@@ -640,10 +644,15 @@ pub async fn reload_runtime_with_auth(
             restart(app)?;
             return Ok(());
         }
+        Err(err) if service_running => {
+            log::warn!("服务模式热加载请求失败({err}), 改为重启服务托管内核");
+            restart(app)?;
+            return Ok(());
+        }
         Err(err) => return Err(format!("热加载请求失败: {err}")),
     };
     if !resp.status().is_success() {
-        if sidecar_running {
+        if sidecar_running || service_running {
             // 热加载失败 → 退回重启内核
             log::warn!("热加载返回 HTTP {}, 改为重启内核", resp.status());
             restart(app)?;
