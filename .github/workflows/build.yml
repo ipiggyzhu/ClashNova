@@ -158,17 +158,6 @@ jobs:
             "msi_exit_code=0" >> $env:GITHUB_OUTPUT
           }
 
-      - name: Upload MSI diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ClashNova-msi-diagnostics
-          path: |
-            build-msi.log
-            target/release/wix/**/*.wxs
-            target/release/wix/**/*.wxl
-          if-no-files-found: warn
-
       - name: Publish MSI diagnostic log
         if: steps.build_msi.outputs.msi_failed == 'true'
         shell: bash
@@ -193,7 +182,7 @@ jobs:
           gh release create buildlog msi-diagnostics.log --title "CI MSI diagnostic log" \
             --notes "Automatic upload of the MSI diagnostic log." --prerelease
 
-      - name: Sign Windows installer artifacts
+      - name: Sign Windows installers
         if: always()
         shell: pwsh
         env:
@@ -231,15 +220,6 @@ jobs:
           gh release delete buildlog -y --cleanup-tag 2>/dev/null || true
           gh release create buildlog build.log --title "CI build log (debug)" \
             --notes "Automatic upload of the failed build log." --prerelease
-
-      - name: Upload Windows installer artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: ClashNova-windows-installers
-          path: |
-            target/release/bundle/nsis/*.exe
-            target/release/bundle/msi/*.msi
-          if-no-files-found: error
 
       - name: Publish installers to GitHub Release
         shell: bash

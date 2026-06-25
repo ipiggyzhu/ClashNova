@@ -18,7 +18,7 @@ use windows_service::{
 
 #[cfg(windows)]
 fn expected_service_binary_path() -> Result<PathBuf, String> {
-    bundled_service_binary_from_current_exe()
+    Ok(crate::service_paths::managed_service_binary_path())
 }
 
 #[cfg(windows)]
@@ -471,17 +471,20 @@ pub fn install(config_dir: &Path) -> Result<(), String> {
             drop(service);
             wait_until_removed(&manager)?;
         } else {
-            if matches!(
+            if !matches!(
                 service.query_status().map(|s| s.current_state),
-                Ok(ServiceState::Running) | Ok(ServiceState::StartPending)
+                Ok(ServiceState::Stopped)
             ) {
-                start_existing_service(&service)?;
-                return Ok(());
+                let _ = service.stop();
+                let _ = wait_until_stopped(&service);
             }
+            crate::service_paths::prepare_managed_service_binary(&bundled_exe)?;
             start_existing_service(&service)?;
             return Ok(());
         }
     }
+
+    let service_exe = crate::service_paths::prepare_managed_service_binary(&bundled_exe)?;
 
     let service_info = ServiceInfo {
         name: OsString::from(SERVICE_NAME),
@@ -489,7 +492,7 @@ pub fn install(config_dir: &Path) -> Result<(), String> {
         service_type: ServiceType::OWN_PROCESS,
         start_type: ServiceStartType::AutoStart,
         error_control: ServiceErrorControl::Normal,
-        executable_path: bundled_exe,
+        executable_path: service_exe,
         launch_arguments: launch_args,
         dependencies: vec![],
         account_name: None,

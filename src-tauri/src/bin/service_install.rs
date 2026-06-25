@@ -68,13 +68,15 @@ fn split_launch_command(command: &Path) -> (String, String) {
 }
 
 #[cfg(windows)]
+fn expected_service_binary_path() -> PathBuf {
+    service_paths::managed_service_binary_path()
+}
+
+#[cfg(windows)]
 fn service_matches_expected(service: &windows_service::service::Service) -> bool {
     match service.query_config() {
         Ok(config) => {
-            let Ok(expected_path) = find_bundled_service_binary() else {
-                return false;
-            };
-            let expected = service_paths::normalized_path(&expected_path);
+            let expected = service_paths::normalized_path(&expected_service_binary_path());
             let (registered_exe, registered_args) = split_launch_command(&config.executable_path);
             registered_exe == expected && registered_args.contains("--dir")
         }
@@ -271,17 +273,20 @@ fn install_or_repair(config_dir: &Path) -> Result<(), String> {
             drop(service);
             wait_until_removed(&manager)?;
         } else {
-            if matches!(
+            if !matches!(
                 service.query_status().map(|s| s.current_state),
-                Ok(ServiceState::Running) | Ok(ServiceState::StartPending)
+                Ok(ServiceState::Stopped)
             ) {
-                start_existing_service(&service)?;
-                return Ok(());
+                let _ = service.stop();
+                let _ = wait_until_stopped(&service);
             }
+            service_paths::prepare_managed_service_binary(&bundled_exe)?;
             start_existing_service(&service)?;
             return Ok(());
         }
     }
+
+    let service_exe = service_paths::prepare_managed_service_binary(&bundled_exe)?;
 
     let service_info = ServiceInfo {
         name: OsString::from(SERVICE_NAME),
@@ -289,7 +294,7 @@ fn install_or_repair(config_dir: &Path) -> Result<(), String> {
         service_type: ServiceType::OWN_PROCESS,
         start_type: ServiceStartType::AutoStart,
         error_control: ServiceErrorControl::Normal,
-        executable_path: bundled_exe,
+        executable_path: service_exe,
         launch_arguments: launch_args,
         dependencies: vec![],
         account_name: None,
