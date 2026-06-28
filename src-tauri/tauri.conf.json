@@ -1,0 +1,65 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "ClashNova",
+  "version": "2.4.6",
+  "identifier": "io.clashnova.app",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:5173",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "ClashNova",
+        "width": 1120,
+        "height": 716,
+        "minWidth": 960,
+        "minHeight": 620,
+        "center": true,
+        "resizable": true,
+        "visible": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "nsis",
+      "msi"
+    ],
+    "externalBin": [
+      "binaries/mihomo"
+    ],
+    "resources": {
+      "resources/clashnova-service.exe": "helpers/clashnova-service.exe",
+      "resources/clashnova-service-install.exe": "helpers/clashnova-service-install.exe",
+      "resources/clashnova-service-uninstall.exe": "helpers/clashnova-service-uninstall.exe"
+    },
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper"
+      },
+      "nsis": {
+        "installMode": "perMachine",
+        "languages": [
+          "SimpChinese",
+          "English"
+        ],
+        "displayLanguageSelector": true,
+        "installerHooks": "nsis-hooks.nsh"
+      }
+    }
+  }
+}

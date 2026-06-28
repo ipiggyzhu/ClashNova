@@ -1,0 +1,1025 @@
+import { useCallback, useEffect, useRef, useState } from 'react'
+import './Profiles.css'
+import Badge from '../components/ui/Badge'
+import Button from '../components/ui/Button'
+import Card from '../components/ui/Card'
+import CodeEditor from '../components/ui/CodeEditor'
+import Icon from '../components/ui/Icon'
+import Input from '../components/ui/Input'
+import Toggle from '../components/ui/Toggle'
+import { getProxies } from '../services/api'
+import { call } from '../services/ipc'
+import { useNotificationStore } from '../stores/notifications'
+import type { EnhancerMeta, ProfileMeta } from '../types/clash'
+import { daysLeft, fmtBytes, fmtRelTime } from '../utils/format'
+
+/** 新建增强项的初始模板 */
+const ENH_TEMPLATES: Record<EnhancerMeta['kind'], string> = {
+  merge: '# YAML 深合并补丁(支持 prepend-X / append-X)\n# 例: 覆写 DNS\ndns:\n  enable: true\n',
+  script: '// 须定义 main(config) 并返回配置对象\nfunction main(config) {\n  return config;\n}\n',
+}
+
+const NEW_PROFILE_TEMPLATE = `mixed-port: 7897
+allow-lan: false
+mode: rule
+log-level: info
+
+proxies: []
+proxy-groups:
+  - name: PROXY
+    type: select
+    proxies:
+      - DIRECT
+rules:
+  - MATCH,DIRECT
+`
+
+interface EditorState {
+  profile: ProfileMeta
+  content: string
+  originalContent: string
+}
+
+interface RuntimeConfigViewerState {
+  content: string
+  loading: boolean
+  error: string
+}
+
+/** 增强项编辑抽屉状态(enh 为 null 表示新建) */
+interface EnhEditorState {
+  pid: string
+  enh: EnhancerMeta | null
+  kind: EnhancerMeta['kind']
+  name: string
+  content: string
+  originalName: string
+  originalContent: string
+}
+
+interface RuleEditorState {
+  profileId: string
+  profileName: string
+  type: string
+  value: string
+  target: string
+  position: 'prepend' | 'append'
+}
+
+interface ProfileMetaEditorState {
+  profile: ProfileMeta
+  name: string
+  url: string
+  autoUpdateMin: string
+}
+
+interface ProfileMenuState {
+  x: number
+  y: number
+  profile: ProfileMeta
+}
+
+const RULE_TYPES = [
+  { value: 'DOMAIN-SUFFIX', label: '域名后缀' },
+  { value: 'DOMAIN', label: '完整域名' },
+  { value: 'DOMAIN-KEYWORD', label: '域名关键词' },
+  { value: 'IP-CIDR', label: 'IP 段' },
+  { value: 'PROCESS-NAME', label: '进程名' },
+  { value: 'GEOIP', label: '国家/地区' },
+]
+
+const BASE_TARGETS = ['DIRECT', 'REJECT', 'REJECT-DROP', 'PASS', 'GLOBAL']
+const BUILTIN_ENHANCER_PREFIX = 'builtin-'
+
+const uniqTargets = (items: string[]): string[] => [
+  ...new Set(items.map((item) => item.trim()).filter(Boolean)),
+]
+
+export default function Profiles() {
+  const [profiles, setProfiles] = useState<ProfileMeta[]>([])
+  const [url, setUrl] = useState('')
+  const [newProfile, setNewProfile] = useState<{ name: string; content: string } | null>(null)
+  const [importing, setImporting] = useState(false)
+  const [fileImporting, setFileImporting] = useState(false)
+  const [busyId, setBusyId] = useState<string | null>(null)
+  const [editor, setEditor] = useState<EditorState | null>(null)
+  const [runtimeViewer, setRuntimeViewer] = useState<RuntimeConfigViewerState | null>(null)
+  const [confirmDel, setConfirmDel] = useState<ProfileMeta | null>(null)
+  const [enhEditor, setEnhEditor] = useState<EnhEditorState | null>(null)
+  const [ruleEditor, setRuleEditor] = useState<RuleEditorState | null>(null)
+  const [metaEditor, setMetaEditor] = useState<ProfileMetaEditorState | null>(null)
+  const [metaSaving, setMetaSaving] = useState(false)
+  const [ruleSaving, setRuleSaving] = useState(false)
+  const [ruleTargets, setRuleTargets] = useState<string[]>(BASE_TARGETS)
+  const [profileMenu, setProfileMenu] = useState<ProfileMenuState | null>(null)
+  const [confirmDelEnh, setConfirmDelEnh] = useState<string | null>(null)
+  const [draggedEnhIndex, setDraggedEnhIndex] = useState<number | null>(null)
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const notify = useNotificationStore((s) => s.add)
+
+  const refresh = useCallback(async () => {
+    setProfiles(await call('list_profiles'))
+  }, [])
+
+  useEffect(() => {
+    void refresh().catch(() => {})
+  }, [refresh])
+
+  useEffect(() => {
+    if (!profileMenu) return
+    const close = (): void => setProfileMenu(null)
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') close()
+    }
+    window.addEventListener('click', close)
+    window.addEventListener('contextmenu', close)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('click', close)
+      window.removeEventListener('contextmenu', close)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [profileMenu])
+
+  const doImport = async (): Promise<void> => {
+    const u = url.trim()
+    if (!u) return
+    setImporting(true)
+    try {
+      await call('import_profile', { url: u })
+      setUrl('')
+      await refresh()
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  const doImportFile = async (file: File): Promise<void> => {
+    setFileImporting(true)
+    try {
+      const content = await file.text()
+      await call('import_profile_file', { name: file.name, content })
+      await refresh()
+      notify('success', '导入成功', file.name)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      notify('error', '打开文件失败', message)
+    } finally {
+      setFileImporting(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+  }
+
+  const openNewProfile = (): void => {
+    setNewProfile({
+      name: `Local Profile ${new Date().toLocaleDateString().replaceAll('/', '-')}.yaml`,
+      content: NEW_PROFILE_TEMPLATE,
+    })
+  }
+
+  const saveNewProfile = async (): Promise<void> => {
+    if (!newProfile) return
+    const name = newProfile.name.trim() || 'Local Profile.yaml'
+    const content = newProfile.content
+    try {
+      await call('import_profile_file', { name, content })
+      await refresh()
+      setNewProfile(null)
+      notify('success', '已新建本地配置', name)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      notify('error', '新建本地配置失败', message)
+    }
+  }
+
+  const doUpdate = async (p: ProfileMeta): Promise<void> => {
+    setBusyId(p.id)
+    try {
+      await call('update_profile', { id: p.id })
+      await refresh()
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  const doSelect = async (p: ProfileMeta): Promise<void> => {
+    if (p.current) return
+    await call('select_profile', { id: p.id })
+    await refresh()
+  }
+
+  const doDelete = async (p: ProfileMeta): Promise<void> => {
+    await call('delete_profile', { id: p.id })
+    setConfirmDel(null)
+    await refresh()
+  }
+
+  const openEditor = async (p: ProfileMeta): Promise<void> => {
+    const content = await call('read_profile', { id: p.id })
+    setEditor({ profile: p, content, originalContent: content })
+  }
+
+  const saveEditor = async (): Promise<void> => {
+    if (!editor) return
+    if (editor.content === editor.originalContent) {
+      setEditor(null)
+      return
+    }
+    const current = editor
+    try {
+      await call('save_profile_content', { id: current.profile.id, content: current.content })
+      await refresh()
+      setEditor(null)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      notify('error', '保存配置失败', message)
+    }
+  }
+
+  const loadRuntimeConfig = async (): Promise<void> => {
+    setRuntimeViewer((prev) => ({
+      content: prev?.content ?? '',
+      loading: true,
+      error: '',
+    }))
+    try {
+      const content = await call('get_runtime_config')
+      setRuntimeViewer({ content, loading: false, error: '' })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      setRuntimeViewer((prev) => ({
+        content: prev?.content ?? '',
+        loading: false,
+        error: message,
+      }))
+    }
+  }
+
+  const openRuntimeViewer = (): void => {
+    setRuntimeViewer({ content: '', loading: true, error: '' })
+    void loadRuntimeConfig()
+  }
+
+  const copyRuntimeConfig = (): void => {
+    if (!runtimeViewer?.content) return
+    void navigator.clipboard.writeText(runtimeViewer.content).catch(() => {})
+  }
+
+  const openMetaEditor = (p: ProfileMeta): void => {
+    setMetaEditor({
+      profile: p,
+      name: p.name,
+      url: p.url ?? '',
+      autoUpdateMin: p.autoUpdateMin ? String(p.autoUpdateMin) : '',
+    })
+  }
+
+  const saveMetaEditor = async (): Promise<void> => {
+    if (!metaEditor || metaSaving) return
+    const name = metaEditor.name.trim()
+    const url = metaEditor.url.trim()
+    const intervalText = metaEditor.autoUpdateMin.trim()
+    const interval = intervalText ? Number(intervalText) : null
+    if (!name) {
+      notify('warning', '订阅信息未保存', '订阅名称不能为空')
+      return
+    }
+    if (metaEditor.profile.kind === 'remote' && !url) {
+      notify('warning', '订阅信息未保存', '远程订阅 URL 不能为空')
+      return
+    }
+    if (interval !== null && (!Number.isFinite(interval) || interval < 0)) {
+      notify('warning', '订阅信息未保存', '自动更新间隔需要是 0 或正数')
+      return
+    }
+    setMetaSaving(true)
+    try {
+      await call('update_profile_meta', {
+        id: metaEditor.profile.id,
+        name,
+        url: url || null,
+        autoUpdateMin: interval && interval > 0 ? Math.round(interval) : null,
+      })
+      await refresh()
+      setMetaEditor(null)
+      notify('success', '订阅信息已保存', name)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      notify('error', '保存订阅信息失败', message)
+    } finally {
+      setMetaSaving(false)
+    }
+  }
+
+  /* ---- 增强链 ---- */
+  const currentProfile = profiles.find((p) => p.current) ?? null
+  const enhancers = currentProfile?.enhancers ?? []
+
+  const openEnhEditor = async (
+    enh: EnhancerMeta | null,
+    kind: EnhancerMeta['kind'],
+    profile = currentProfile,
+  ): Promise<void> => {
+    if (!profile) return
+    const content = enh
+      ? await call('read_enhancer', { profileId: profile.id, enhancerId: enh.id })
+      : ENH_TEMPLATES[kind]
+    const name = enh?.name ?? (kind === 'merge' ? 'New Merge' : 'New Script')
+    setEnhEditor({
+      pid: profile.id,
+      enh,
+      kind: enh?.kind ?? kind,
+      name,
+      content,
+      originalName: name,
+      originalContent: content,
+    })
+  }
+
+  const openRuleEditor = async (profile = currentProfile): Promise<void> => {
+    if (!profile) return
+    setRuleEditor({
+      profileId: profile.id,
+      profileName: profile.name,
+      type: 'DOMAIN-SUFFIX',
+      value: '',
+      target: 'DIRECT',
+      position: 'prepend',
+    })
+    let targets = [...BASE_TARGETS]
+    setRuleTargets(targets)
+    try {
+      const profileTargets = await call('list_profile_rule_targets', { id: profile.id })
+      targets = uniqTargets([...targets, ...profileTargets])
+    } catch {
+      // Runtime targets below can still provide useful options.
+    }
+    try {
+      const payload = await getProxies()
+      const names = Object.keys(payload.proxies)
+        .sort((a, b) => a.localeCompare(b))
+      targets = uniqTargets([...targets, ...names])
+    } catch {
+      // Profile targets are enough when the core API is unavailable.
+    }
+    setRuleTargets(targets)
+  }
+
+  const saveRuleEditor = async (): Promise<void> => {
+    if (!ruleEditor) return
+    const value = ruleEditor.value.trim()
+    const target = ruleEditor.target.trim()
+    if (!value || !target) {
+      notify('warning', '规则未保存', '请填写匹配内容和目标策略')
+      return
+    }
+    const rule = `${ruleEditor.type},${value},${target}`
+    const content = `${ruleEditor.position}-rules:\n  - ${JSON.stringify(rule)}\n`
+    const profileId = ruleEditor.profileId
+    setRuleSaving(true)
+    try {
+      await call('save_enhancer', {
+        profileId,
+        enhancerId: null,
+        kind: 'merge',
+        name: `规则：${value} → ${target}`,
+        content,
+      })
+      await refresh()
+      setRuleEditor(null)
+      notify('success', '规则已添加', rule)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      notify('error', '添加规则失败', message)
+    } finally {
+      setRuleSaving(false)
+    }
+  }
+
+  const saveEnhEditor = async (): Promise<void> => {
+    if (!enhEditor) return
+    const name = enhEditor.name.trim() || 'Unnamed enhancer'
+    if (
+      enhEditor.enh &&
+      name === enhEditor.originalName &&
+      enhEditor.content === enhEditor.originalContent
+    ) {
+      setEnhEditor(null)
+      return
+    }
+    const current = enhEditor
+    try {
+      await call('save_enhancer', {
+        profileId: current.pid,
+        enhancerId: current.enh?.id ?? null,
+        kind: current.kind,
+        name,
+        content: current.content,
+      })
+      await refresh()
+      setEnhEditor(null)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      notify('error', '保存增强项失败', message)
+    }
+  }
+
+  const toggleEnh = async (enh: EnhancerMeta, enabled: boolean): Promise<void> => {
+    if (!currentProfile) return
+    await call('toggle_enhancer', { profileId: currentProfile.id, enhancerId: enh.id, enabled })
+    await refresh()
+  }
+
+  const deleteEnh = async (enh: EnhancerMeta): Promise<void> => {
+    if (!currentProfile) return
+    await call('delete_enhancer', { profileId: currentProfile.id, enhancerId: enh.id })
+    setConfirmDelEnh(null)
+    await refresh()
+  }
+
+  const reorderEnhancers = async (fromIndex: number, toIndex: number): Promise<void> => {
+    if (!currentProfile || fromIndex === toIndex) return
+    const newEnhancers = [...enhancers]
+    const [moved] = newEnhancers.splice(fromIndex, 1)
+    newEnhancers.splice(toIndex, 0, moved)
+
+    // 乐观更新 UI
+    setProfiles((prev) =>
+      prev.map((p) =>
+        p.id === currentProfile.id ? { ...p, enhancers: newEnhancers } : p
+      )
+    )
+
+    try {
+      // 调用后端 API 保存新顺序
+      await call('reorder_enhancers', {
+        profileId: currentProfile.id,
+        enhancerIds: newEnhancers.map(e => e.id)
+      })
+    } catch (err) {
+      // 失败时回滚
+      await refresh()
+      const message = err instanceof Error ? err.message : String(err)
+      notify('error', '重排序失败', message)
+    }
+  }
+
+  const handleEnhDragStart = (e: React.DragEvent, index: number): void => {
+    setDraggedEnhIndex(index)
+    e.dataTransfer.effectAllowed = 'move'
+  }
+
+  const handleEnhDragOver = (e: React.DragEvent, index: number): void => {
+    e.preventDefault()
+    if (draggedEnhIndex === null || draggedEnhIndex === index) return
+    e.dataTransfer.dropEffect = 'move'
+  }
+
+  const handleEnhDrop = (e: React.DragEvent, dropIndex: number): void => {
+    e.preventDefault()
+    if (draggedEnhIndex === null) return
+    void reorderEnhancers(draggedEnhIndex, dropIndex)
+    setDraggedEnhIndex(null)
+  }
+
+  const handleEnhDragEnd = (): void => {
+    setDraggedEnhIndex(null)
+  }
+
+  return (
+    <div className="pg-profiles">
+      {/* ---- 导入 ---- */}
+      <Card>
+        <div className="import-row">
+          <Input
+            placeholder="粘贴订阅链接 https://… 或 clash:// 协议地址"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') void doImport()
+            }}
+          />
+          <Button variant="primary" onClick={() => void doImport()} disabled={importing}>
+            <Icon name="download" size={13} />
+            {importing ? '导入中…' : '导入'}
+          </Button>
+          <Button onClick={openNewProfile}>
+            <Icon name="plus" size={13} />新建
+          </Button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".yaml,.yml,.txt,.conf,.config"
+            style={{ display: 'none' }}
+            onChange={(e) => {
+              const file = e.currentTarget.files?.[0]
+              if (file) void doImportFile(file)
+            }}
+          />
+          <Button onClick={() => fileInputRef.current?.click()} disabled={fileImporting}>
+            <Icon name="folder" size={13} />{fileImporting ? '导入中…' : '打开文件'}
+          </Button>
+          <Button onClick={openRuntimeViewer}>
+            <Icon name="settings" size={13} />查看运行配置
+          </Button>
+        </div>
+      </Card>
+
+      {/* ---- 订阅卡 ---- */}
+      <div className="cards">
+        {profiles.map((p) => {
+          const pct = p.quota && p.quota.total > 0 ? p.quota.used / p.quota.total : null
+          return (
+            <Card
+              key={p.id}
+              className={p.current ? 'pcard cur' : 'pcard'}
+              onContextMenu={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
+                setProfileMenu({ x: e.clientX, y: e.clientY, profile: p })
+              }}
+            >
+              {p.current && (
+                <span className="using">
+                  <Badge tone="blue">使用中</Badge>
+                </span>
+              )}
+              <div className="phead">
+                <span className="nm">{p.name}</span>
+                <span className="chip">{p.kind === 'remote' ? '远程' : '本地'}</span>
+              </div>
+              {p.url && <div className="purl">{p.url}</div>}
+
+              {pct !== null && p.quota ? (
+                <div className="quota">
+                  <div className="qrow">
+                    <span className="num">{fmtBytes(p.quota.used)}</span>
+                    <span className="total">/ {fmtBytes(p.quota.total)}</span>
+                    <span className="pct">{Math.round(pct * 100)}%</span>
+                  </div>
+                  <div className="track">
+                    <div className="fill" style={{ width: `${Math.min(100, pct * 100)}%` }} />
+                  </div>
+                </div>
+              ) : (
+                <div className="nolimit">∞ — 不限额</div>
+              )}
+
+              <div className="pinfo">
+                <span>到期 <b>{p.quota?.expireAt ? `${daysLeft(p.quota.expireAt)} 天` : '—'}</b></span>
+                <span>自动更新 <b>{p.autoUpdateMin ? `${p.autoUpdateMin} 分钟` : '—'}</b></span>
+                <span>更新于 <b>{fmtRelTime(p.updatedAt)}</b></span>
+                <span>大小 <b>{p.sizeBytes ? fmtBytes(p.sizeBytes) : '—'}</b></span>
+              </div>
+
+              <div className="pacts">
+                <div className="pact-main">
+                  <Button size="sm" onClick={() => void openEditor(p)}>
+                    <Icon name="edit" size={12} />编辑
+                  </Button>
+                  {p.kind === 'remote' && (
+                    <Button size="sm" onClick={() => void doUpdate(p)} disabled={busyId === p.id}>
+                      <Icon name="refresh" size={12} />
+                      {busyId === p.id ? '更新中…' : '更新'}
+                    </Button>
+                  )}
+                  {!p.current && (
+                    <Button size="sm" variant="primary" onClick={() => void doSelect(p)}>
+                      <Icon name="check" size={12} />启用
+                    </Button>
+                  )}
+                </div>
+                <div className="pact-danger">
+                  {confirmDel?.id === p.id ? (
+                    <span className="confirm">
+                      确认删除?
+                      <Button size="sm" variant="danger" onClick={() => void doDelete(p)}>删除</Button>
+                      <Button size="sm" onClick={() => setConfirmDel(null)}>取消</Button>
+                    </span>
+                  ) : (
+                    <Button size="sm" variant="danger" onClick={() => setConfirmDel(p)}>
+                      <Icon name="trash" size={12} />删除
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </Card>
+          )
+        })}
+      </div>
+
+      {/* ---- 配置增强链(作用于当前订阅) ---- */}
+      <Card
+        icon={<Icon name="profiles" />}
+        iconColor="var(--purple)"
+        title="配置增强链"
+        actions={
+          <span className="chip">
+            {currentProfile ? `作用于 ${currentProfile.name} · 自上而下` : '无可用订阅'}
+          </span>
+        }
+        flush
+      >
+        {enhancers.map((e, index) => (
+          <div
+            className={`enh-row ${draggedEnhIndex === index ? 'dragging' : ''}`}
+            key={e.id}
+            draggable
+            onDragStart={(ev) => handleEnhDragStart(ev, index)}
+            onDragOver={(ev) => handleEnhDragOver(ev, index)}
+            onDrop={(ev) => handleEnhDrop(ev, index)}
+            onDragEnd={handleEnhDragEnd}
+          >
+            <span className="grip" style={{ cursor: 'grab' }}>
+              <Icon name="rules" size={13} />
+            </span>
+            <span className={`ftype ${e.kind === 'merge' ? 'yaml' : 'js'}`}>
+              {e.kind === 'merge' ? 'YML' : 'JS'}
+            </span>
+            <span className="nm">{e.name}</span>
+            {e.id.startsWith(BUILTIN_ENHANCER_PREFIX) && <span className="chip builtin">内置</span>}
+            <span className="chip">{e.kind === 'merge' ? 'YAML' : 'JavaScript'}</span>
+            <span className="spacer" />
+            <Toggle on={e.enabled} onChange={(on) => void toggleEnh(e, on)} />
+            <Button size="sm" onClick={() => void openEnhEditor(e, e.kind)}>编辑</Button>
+            {confirmDelEnh === e.id ? (
+              <span className="confirm">
+                <Button size="sm" variant="danger" onClick={() => void deleteEnh(e)}>确认</Button>
+                <Button size="sm" onClick={() => setConfirmDelEnh(null)}>取消</Button>
+              </span>
+            ) : (
+              <Button size="sm" variant="danger" onClick={() => setConfirmDelEnh(e.id)}>
+                <Icon name="trash" size={12} />
+              </Button>
+            )}
+          </div>
+        ))}
+        {currentProfile && (
+          <div className="enh-add">
+            <Button size="sm" onClick={() => void openEnhEditor(null, 'merge')}>
+              <Icon name="plus" size={12} />新建 Merge
+            </Button>
+            <Button size="sm" onClick={() => void openEnhEditor(null, 'script')}>
+              <Icon name="plus" size={12} />新建 Script
+            </Button>
+          </div>
+        )}
+      </Card>
+
+      {newProfile && (
+        <div className="editor-mask" onClick={() => setNewProfile(null)}>
+          <div className="editor new-profile-editor" onClick={(e) => e.stopPropagation()}>
+            <div className="ehead">
+              <Icon name="plus" size={14} />
+              新建本地配置
+              <Input
+                className="enh-name"
+                value={newProfile.name}
+                onChange={(e) => setNewProfile({ ...newProfile, name: e.target.value })}
+                placeholder="Local Profile.yaml"
+              />
+              <span className="chip">YAML</span>
+              <span className="spacer" />
+              <button className="icon-btn" onClick={() => setNewProfile(null)}>
+                <Icon name="x" />
+              </button>
+            </div>
+            <div className="new-profile-hint">
+              默认模板会直连所有流量。可以先创建，再通过编辑规则或扩展覆写配置逐步添加代理节点和分流规则。
+            </div>
+            <CodeEditor
+              value={newProfile.content}
+              onChange={(content) => setNewProfile({ ...newProfile, content })}
+              lang="yaml"
+            />
+            <div className="efoot">
+              <Button onClick={() => setNewProfile(null)}>取消</Button>
+              <Button variant="primary" onClick={() => void saveNewProfile()}>
+                <Icon name="check" size={13} />创建
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* ---- 编辑器抽屉 ---- */}
+      {editor && (
+        <div className="editor-mask" onClick={() => setEditor(null)}>
+          <div className="editor" onClick={(e) => e.stopPropagation()}>
+            <div className="ehead">
+              <Icon name="edit" size={14} />
+              编辑 {editor.profile.name}
+              <span className="chip">YAML</span>
+              <span className="spacer" />
+              <button className="icon-btn" onClick={() => setEditor(null)}>
+                <Icon name="x" />
+              </button>
+            </div>
+            <CodeEditor
+              value={editor.content}
+              onChange={(content) => setEditor({ ...editor, content })}
+              lang="yaml"
+            />
+            <div className="efoot">
+              <Button onClick={() => setEditor(null)}>取消</Button>
+              <Button variant="primary" onClick={() => void saveEditor()}>
+                <Icon name="check" size={13} />保存
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+      {runtimeViewer && (
+        <div className="editor-mask" onClick={() => setRuntimeViewer(null)}>
+          <div className="editor runtime-editor" onClick={(e) => e.stopPropagation()}>
+            <div className="ehead">
+              <Icon name="settings" size={14} />
+              当前运行配置
+              <span className="chip">YAML</span>
+              <span className="spacer" />
+              {!runtimeViewer.loading && !runtimeViewer.error && (
+                <>
+                  <Button size="sm" onClick={copyRuntimeConfig}>
+                    <Icon name="download" size={13} />复制
+                  </Button>
+                  <Button size="sm" onClick={() => void loadRuntimeConfig()}>
+                    <Icon name="refresh" size={13} />刷新
+                  </Button>
+                </>
+              )}
+              <button className="icon-btn" onClick={() => setRuntimeViewer(null)}>
+                <Icon name="x" />
+              </button>
+            </div>
+            {runtimeViewer.loading && (
+              <div className="runtime-status">
+                <Icon name="refresh" size={24} />
+                <span>加载中…</span>
+              </div>
+            )}
+            {runtimeViewer.error && (
+              <div className="runtime-status error">
+                <Icon name="x" size={24} />
+                <span>{runtimeViewer.error}</span>
+                <Button size="sm" onClick={() => void loadRuntimeConfig()}>
+                  重试
+                </Button>
+              </div>
+            )}
+            {!runtimeViewer.loading && !runtimeViewer.error && (
+              <CodeEditor value={runtimeViewer.content} onChange={() => {}} lang="yaml" readOnly />
+            )}
+          </div>
+        </div>
+      )}
+      {profileMenu && (
+        <div
+          className="profile-menu"
+          style={{ left: profileMenu.x, top: profileMenu.y }}
+          onClick={(e) => e.stopPropagation()}
+          onContextMenu={(e) => e.preventDefault()}
+        >
+          <button
+            disabled={profileMenu.profile.current}
+            onClick={() => {
+              const p = profileMenu.profile
+              setProfileMenu(null)
+              void doSelect(p)
+            }}
+          >
+            <Icon name="check" size={13} />设为当前订阅
+          </button>
+          {profileMenu.profile.kind === 'remote' && (
+            <button
+              onClick={() => {
+                const p = profileMenu.profile
+                setProfileMenu(null)
+                void doUpdate(p)
+              }}
+            >
+              <Icon name="refresh" size={13} />更新订阅
+            </button>
+          )}
+          <button
+            onClick={() => {
+              const p = profileMenu.profile
+              setProfileMenu(null)
+              openMetaEditor(p)
+            }}
+          >
+            <Icon name="settings" size={13} />编辑订阅信息
+          </button>
+          <button
+            onClick={() => {
+              const p = profileMenu.profile
+              setProfileMenu(null)
+              void openEditor(p)
+            }}
+          >
+            <Icon name="edit" size={13} />编辑文件
+          </button>
+          <div className="sep" />
+          <button
+            onClick={() => {
+              const p = profileMenu.profile
+              setProfileMenu(null)
+              void openRuleEditor(p)
+            }}
+          >
+            <Icon name="rules" size={13} />添加分流规则
+          </button>
+          <button
+            onClick={() => {
+              const p = profileMenu.profile
+              setProfileMenu(null)
+              void openEnhEditor(null, 'merge', p)
+            }}
+          >
+            <Icon name="profiles" size={13} />新建 Merge 覆写
+          </button>
+          <button
+            onClick={() => {
+              const p = profileMenu.profile
+              setProfileMenu(null)
+              void openEnhEditor(null, 'script', p)
+            }}
+          >
+            <Icon name="zap" size={13} />新建 Script 脚本
+          </button>
+          <div className="sep" />
+          <button
+            className="danger"
+            onClick={() => {
+              setConfirmDel(profileMenu.profile)
+              setProfileMenu(null)
+            }}
+          >
+            <Icon name="trash" size={13} />删除
+          </button>
+        </div>
+      )}
+      {metaEditor && (
+        <div className="editor-mask" onClick={() => setMetaEditor(null)}>
+          <div className="meta-dialog" onClick={(e) => e.stopPropagation()}>
+            <div className="ehead">
+              <Icon name="settings" size={14} />
+              编辑订阅信息
+              <span className="chip">{metaEditor.profile.kind === 'remote' ? '远程' : '本地'}</span>
+              <span className="spacer" />
+              <button className="icon-btn" onClick={() => setMetaEditor(null)}>
+                <Icon name="x" />
+              </button>
+            </div>
+            <div className="meta-form">
+              <label>
+                <span>订阅名称</span>
+                <Input
+                  value={metaEditor.name}
+                  placeholder="订阅名称"
+                  onChange={(e) => setMetaEditor({ ...metaEditor, name: e.target.value })}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') void saveMetaEditor()
+                  }}
+                />
+              </label>
+              <label>
+                <span>{metaEditor.profile.kind === 'remote' ? '订阅 URL' : '来源 / 路径'}</span>
+                <Input
+                  value={metaEditor.url}
+                  placeholder={metaEditor.profile.kind === 'remote' ? 'https://… 或 clash://…' : '配置来源'}
+                  onChange={(e) => setMetaEditor({ ...metaEditor, url: e.target.value })}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') void saveMetaEditor()
+                  }}
+                />
+              </label>
+              <label>
+                <span>自动更新间隔(分钟)</span>
+                <Input
+                  type="number"
+                  min={0}
+                  step={1}
+                  value={metaEditor.autoUpdateMin}
+                  placeholder="0 表示关闭"
+                  onChange={(e) => setMetaEditor({ ...metaEditor, autoUpdateMin: e.target.value })}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') void saveMetaEditor()
+                  }}
+                />
+              </label>
+            </div>
+            <div className="efoot">
+              <Button onClick={() => setMetaEditor(null)}>取消</Button>
+              <Button variant="primary" onClick={() => void saveMetaEditor()} disabled={metaSaving}>
+                <Icon name="check" size={13} />{metaSaving ? '保存中…' : '保存'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* ---- 规则快捷添加 ---- */}
+      {ruleEditor && (
+        <div className="editor-mask" onClick={() => setRuleEditor(null)}>
+          <div className="rule-dialog" onClick={(e) => e.stopPropagation()}>
+            <div className="ehead">
+              <Icon name="rules" size={14} />
+              新建分流规则
+              <span className="chip">{ruleEditor.profileName}</span>
+              <span className="spacer" />
+              <button className="icon-btn" onClick={() => setRuleEditor(null)}>
+                <Icon name="x" />
+              </button>
+            </div>
+            <div className="rule-form">
+              <label>
+                <span>规则类型</span>
+                <select
+                  value={ruleEditor.type}
+                  onChange={(e) => setRuleEditor({ ...ruleEditor, type: e.target.value })}
+                >
+                  {RULE_TYPES.map((item) => (
+                    <option key={item.value} value={item.value}>{item.label}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span>匹配内容</span>
+                <Input
+                  value={ruleEditor.value}
+                  placeholder="example.com / 1.1.1.0/24 / Telegram.exe"
+                  onChange={(e) => setRuleEditor({ ...ruleEditor, value: e.target.value })}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') void saveRuleEditor()
+                  }}
+                />
+              </label>
+              <label>
+                <span>目标策略 / 节点</span>
+                <select
+                  value={ruleEditor.target}
+                  onChange={(e) => setRuleEditor({ ...ruleEditor, target: e.target.value })}
+                >
+                  {ruleTargets.map((target) => (
+                    <option key={target} value={target}>{target}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span>插入位置</span>
+                <select
+                  value={ruleEditor.position}
+                  onChange={(e) =>
+                    setRuleEditor({ ...ruleEditor, position: e.target.value as RuleEditorState['position'] })
+                  }
+                >
+                  <option value="prepend">规则最前，优先生效</option>
+                  <option value="append">规则最后，兜底生效</option>
+                </select>
+              </label>
+              <div className="rule-preview">
+                {`${ruleEditor.type},${ruleEditor.value.trim() || '<匹配内容>'},${ruleEditor.target.trim() || '<目标>'}`}
+              </div>
+            </div>
+            <div className="efoot">
+              <Button onClick={() => setRuleEditor(null)}>取消</Button>
+              <Button variant="primary" onClick={() => void saveRuleEditor()} disabled={ruleSaving}>
+                <Icon name="check" size={13} />{ruleSaving ? '保存中…' : '保存规则'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* ---- 增强项编辑抽屉 ---- */}
+      {enhEditor && (
+        <div className="editor-mask" onClick={() => setEnhEditor(null)}>
+          <div className="editor" onClick={(e) => e.stopPropagation()}>
+            <div className="ehead">
+              <Icon name="edit" size={14} />
+              <Input
+                className="enh-name"
+                value={enhEditor.name}
+                onChange={(e) => setEnhEditor({ ...enhEditor, name: e.target.value })}
+                placeholder="处理器名称"
+              />
+              <span className="chip">{enhEditor.kind === 'merge' ? 'YAML' : 'JavaScript'}</span>
+              <span className="spacer" />
+              <button className="icon-btn" onClick={() => setEnhEditor(null)}>
+                <Icon name="x" />
+              </button>
+            </div>
+            <CodeEditor
+              value={enhEditor.content}
+              onChange={(content) => setEnhEditor({ ...enhEditor, content })}
+              lang={enhEditor.kind === 'merge' ? 'yaml' : 'javascript'}
+            />
+            <div className="efoot">
+              <Button onClick={() => setEnhEditor(null)}>取消</Button>
+              <Button variant="primary" onClick={() => void saveEnhEditor()}>
+                <Icon name="check" size={13} />保存
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}

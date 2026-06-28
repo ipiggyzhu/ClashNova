@@ -1,0 +1,76 @@
+    </div><!-- /content -->
+  </div><!-- /main -->
+</div><!-- /app -->
+<script>
+/* ---- 页面切换 ---- */
+const items=document.querySelectorAll('.nav-item');
+const pages=document.querySelectorAll('.page');
+const title=document.getElementById('page-title');
+items.forEach(it=>it.addEventListener('click',()=>{
+  items.forEach(x=>x.classList.remove('on'));it.classList.add('on');
+  const key=it.dataset.page;
+  pages.forEach(p=>p.classList.toggle('on',p.id==='page-'+key));
+  const sec=document.getElementById('page-'+key);
+  if(sec)title.textContent=sec.dataset.title||it.textContent.trim();
+  document.getElementById('content').scrollTop=0;
+}));
+/* 初始页 */
+(()=>{const first=document.querySelector('.nav-item.on');
+  if(first){const sec=document.getElementById('page-'+first.dataset.page);
+  if(sec){sec.classList.add('on');title.textContent=sec.dataset.title||'';}}})();
+/* URL hash 直达页面 (截图/分享用): mockup.html#proxies ; ?theme=light 切浅色 */
+const q=new URLSearchParams(location.search);
+if(q.get('theme'))document.documentElement.dataset.theme=q.get('theme');
+if(location.hash){const k=location.hash.slice(1).replace(/^page-/,'');
+  const it=[...items].find(i=>i.dataset.page===k);
+  if(it)it.click();
+  else{const sec=document.getElementById('page-'+k);
+    if(sec){pages.forEach(p=>p.classList.remove('on'));sec.classList.add('on');
+      items.forEach(x=>x.classList.remove('on'));title.textContent=sec.dataset.title||'';}}}
+
+/* ---- 主题切换 ---- */
+document.getElementById('theme-btn').addEventListener('click',()=>{
+  const h=document.documentElement;
+  h.dataset.theme=h.dataset.theme==='dark'?'light':'dark';
+});
+
+/* ---- 分段控件通用交互（视觉演示） ---- */
+document.querySelectorAll('.seg').forEach(seg=>{
+  seg.querySelectorAll('.seg-item').forEach(b=>b.addEventListener('click',()=>{
+    seg.querySelectorAll('.seg-item').forEach(x=>x.classList.remove('on'));
+    b.classList.add('on');
+  }));
+});
+/* ---- 开关通用交互 ---- */
+document.querySelectorAll('.toggle').forEach(t=>t.addEventListener('click',()=>t.classList.toggle('on')));
+
+/* ---- 迷你曲线渲染器 ----
+   用法: <div class="spark" data-pts="3,5,2,8,4" data-color="#BF5AF2" data-h="56" data-fill="1" data-dot="1"></div> */
+let gid=0;
+document.querySelectorAll('.spark[data-pts]').forEach(el=>{
+  const pts=el.dataset.pts.split(',').map(Number);
+  const h=parseInt(el.dataset.h||'48',10), w=el.clientWidth||el.parentElement.clientWidth||280;
+  const c=el.dataset.color||'#0A84FF', fill=el.dataset.fill==='1', dot=el.dataset.dot==='1';
+  const max=Math.max(...pts)*1.15||1, min=0;
+  const stepX=w/(pts.length-1);
+  const xy=pts.map((p,i)=>[i*stepX,h-4-((p-min)/(max-min))*(h-10)]);
+  /* Catmull-Rom 平滑 */
+  let d=`M${xy[0][0]},${xy[0][1]}`;
+  for(let i=0;i<xy.length-1;i++){
+    const p0=xy[i-1]||xy[i],p1=xy[i],p2=xy[i+1],p3=xy[i+2]||p2;
+    d+=` C${p1[0]+(p2[0]-p0[0])/6},${p1[1]+(p2[1]-p0[1])/6} ${p2[0]-(p3[0]-p1[0])/6},${p2[1]-(p3[1]-p1[1])/6} ${p2[0]},${p2[1]}`;
+  }
+  const id='sg'+(gid++);
+  let svg=`<svg width="100%" height="${h}" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">`;
+  if(fill){svg+=`<defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="${c}" stop-opacity=".32"/><stop offset="1" stop-color="${c}" stop-opacity="0"/></linearGradient></defs>
+    <path d="${d} L${w},${h} L0,${h} Z" fill="url(#${id})" stroke="none"/>`;}
+  svg+=`<path d="${d}" fill="none" stroke="${c}" stroke-width="2" stroke-linecap="round"/>`;
+  if(dot){const last=xy[xy.length-1];
+    svg+=`<circle cx="${last[0]-2}" cy="${last[1]}" r="3.5" fill="${c}" stroke="rgba(255,255,255,.85)" stroke-width="1.5"/>`;}
+  svg+='</svg>';
+  el.innerHTML=svg;
+});
+</script>
+</body>
+</html>

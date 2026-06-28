@@ -1,0 +1,13 @@
+!macro CLASHNOVA_STOP_INSTALLED_PROCESSES
+  DetailPrint "Stopping running ClashNova processes..."
+  nsExec::ExecToLog `powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "& { $$ErrorActionPreference = 'SilentlyContinue'; $$installRoot = [System.IO.Path]::GetFullPath('$INSTDIR').TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar); $$installDir = $$installRoot + [System.IO.Path]::DirectorySeparatorChar; $$targetNames = @('ClashNova.exe', 'clashnova.exe', 'clashnova-service.exe', 'clashnova-service-install.exe', 'clashnova-service-uninstall.exe', 'mihomo.exe', 'mihomo-x86_64-pc-windows-msvc.exe'); $$lockTargets = @((Join-Path $$installRoot 'helpers\clashnova-service.exe'), (Join-Path $$installRoot 'helpers\mihomo.exe'), (Join-Path $$installRoot 'mihomo.exe'), (Join-Path $$installRoot 'mihomo-x86_64-pc-windows-msvc.exe'), (Join-Path $$installRoot 'clashnova.exe')); function Stop-Targets { $$svcInfo = Get-CimInstance Win32_Service -Filter ""Name='clashnova-core'""; if($$svcInfo) { if($$svcInfo.ProcessId -and $$svcInfo.ProcessId -ne 0) { & taskkill.exe /PID $$svcInfo.ProcessId /T /F | Out-Null }; & sc.exe stop clashnova-core | Out-Null; Stop-Service -Name 'clashnova-core' -Force -ErrorAction SilentlyContinue }; foreach($$name in $$targetNames) { & taskkill.exe /IM $$name /T /F | Out-Null }; $$all = @(Get-CimInstance Win32_Process); $$hits = @($$all | Where-Object { $$path = $$_.ExecutablePath; $$cmd = $$_.CommandLine; ($$path -and ([System.IO.Path]::GetFullPath($$path)).StartsWith($$installDir, [System.StringComparison]::OrdinalIgnoreCase)) -or ($$cmd -and $$cmd.IndexOf($$installDir, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) }); foreach($$p in $$hits) { & taskkill.exe /PID $$p.ProcessId /T /F | Out-Null } }; function Test-Unlocked($$path) { if(-not (Test-Path $$path)) { return $$true }; try { $$fs = [System.IO.File]::Open($$path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None); $$fs.Close(); return $$true } catch { return $$false } }; for($$i = 0; $$i -lt 120; $$i++) { Stop-Targets; $$locked = @($$lockTargets | Where-Object { -not (Test-Unlocked $$_) }); $$svc = Get-Service -Name 'clashnova-core' -ErrorAction SilentlyContinue; if($$locked.Count -eq 0 -and (-not $$svc -or $$svc.Status -eq 'Stopped')) { break }; Start-Sleep -Milliseconds 250 }; & sc.exe delete clashnova-core | Out-Null; Stop-Targets }"`
+  Sleep 1600
+!macroend
+
+!macro NSIS_HOOK_PREINSTALL
+  !insertmacro CLASHNOVA_STOP_INSTALLED_PROCESSES
+!macroend
+
+!macro NSIS_HOOK_PREUNINSTALL
+  !insertmacro CLASHNOVA_STOP_INSTALLED_PROCESSES
+!macroend

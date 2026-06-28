@@ -1,0 +1,121 @@
+mixed-port: 7897
+allow-lan: false
+mode: rule
+log-level: info
+unified-delay: true
+tcp-concurrent: true
+find-process-mode: strict
+
+proxy-providers:
+  mitce:
+    type: http
+    url: "REPLACE_WITH_MITCE_CLASH_YAML_URL"
+    path: ./providers/mitce.yaml
+    interval: 86400
+    exclude-filter: "(?i)(过期|到期|失效|剩余|流量|官网|套餐|订阅|网址|重置|用量|群组|频道|traffic|expire|subscription|remaining|reset|used|total)"
+    health-check:
+      enable: true
+      url: http://cp.cloudflare.com/generate_204
+      interval: 600
+  llg:
+    type: http
+    url: "REPLACE_WITH_LLG_CLASH_YAML_URL"
+    path: ./providers/llg.yaml
+    interval: 86400
+    exclude-filter: "(?i)(过期|到期|失效|剩余|流量|官网|套餐|订阅|网址|重置|用量|群组|频道|traffic|expire|subscription|remaining|reset|used|total)"
+    health-check:
+      enable: true
+      url: http://cp.cloudflare.com/generate_204
+      interval: 600
+  xingyun:
+    type: http
+    url: "REPLACE_WITH_XINGYUN_CLASH_YAML_URL"
+    path: ./providers/xingyun.yaml
+    interval: 86400
+    exclude-filter: "(?i)(过期|到期|失效|剩余|流量|官网|套餐|订阅|网址|重置|用量|群组|频道|traffic|expire|subscription|remaining|reset|used|total)"
+    health-check:
+      enable: true
+      url: http://cp.cloudflare.com/generate_204
+      interval: 600
+  zhuiyun:
+    type: http
+    url: "REPLACE_WITH_ZHUIYUN_CLASH_YAML_URL"
+    path: ./providers/zhuiyun.yaml
+    interval: 86400
+    exclude-filter: "(?i)(过期|到期|失效|剩余|流量|官网|套餐|订阅|网址|重置|用量|群组|频道|traffic|expire|subscription|remaining|reset|used|total)"
+    health-check:
+      enable: true
+      url: http://cp.cloudflare.com/generate_204
+      interval: 600
+  mojie:
+    type: http
+    url: "REPLACE_WITH_MOJIE_CLASH_YAML_URL"
+    path: ./providers/mojie.yaml
+    interval: 86400
+    exclude-filter: "(?i)(过期|到期|失效|剩余|流量|官网|套餐|订阅|网址|重置|用量|群组|频道|traffic|expire|subscription|remaining|reset|used|total)"
+    health-check:
+      enable: true
+      url: http://cp.cloudflare.com/generate_204
+      interval: 600
+
+proxies:
+  - name: "[落地]ldc月卡-US"
+    type: ss
+    server: REPLACE_WITH_LANDING_SERVER
+    port: 443
+    cipher: aes-128-gcm
+    password: "REPLACE_WITH_LANDING_PASSWORD"
+    udp: true
+    dialer-proxy: "🇯🇵 日本中转"
+
+proxy-groups:
+  - name: "🇯🇵 日本中转"
+    type: select
+    use: [mitce, llg, xingyun, zhuiyun, mojie]
+    exclude-filter: "(?i)(过期|到期|失效|剩余|流量|官网|套餐|订阅|网址|重置|用量|群组|频道|traffic|expire|subscription|remaining|reset|used|total)"
+    filter: "(?i)(JP|Japan|日本|SG|Singapore|新加坡|HK|Hong Kong|香港)"
+  - name: "🛬 落地节点"
+    type: select
+    proxies: ["[落地]ldc月卡-US"]
+  - name: "⚡ 自动选择"
+    type: url-test
+    use: [mitce, llg, xingyun, zhuiyun, mojie]
+    exclude-filter: "(?i)(过期|到期|失效|剩余|流量|官网|套餐|订阅|网址|重置|用量|群组|频道|traffic|expire|subscription|remaining|reset|used|total)"
+    url: http://cp.cloudflare.com/generate_204
+    interval: 600
+    tolerance: 80
+    lazy: true
+  - name: "🚀 节点选择"
+    type: select
+    proxies: ["⚡ 自动选择", DIRECT, REJECT]
+    use: [mitce, llg, xingyun, zhuiyun, mojie]
+    exclude-filter: "(?i)(过期|到期|失效|剩余|流量|官网|套餐|订阅|网址|重置|用量|群组|频道|traffic|expire|subscription|remaining|reset|used|total)"
+  - name: "🤖 AI 服务"
+    type: select
+    proxies: ["🛬 落地节点", "🚀 节点选择", "⚡ 自动选择", DIRECT, REJECT]
+    use: [mitce, llg, xingyun, zhuiyun, mojie]
+    exclude-filter: "(?i)(过期|到期|失效|剩余|流量|官网|套餐|订阅|网址|重置|用量|群组|频道|traffic|expire|subscription|remaining|reset|used|total)"
+  - name: "✨ Gemini"
+    type: select
+    proxies: ["🛬 落地节点", "🚀 节点选择", "⚡ 自动选择", DIRECT, REJECT]
+    use: [mitce, llg, xingyun, zhuiyun, mojie]
+    exclude-filter: "(?i)(过期|到期|失效|剩余|流量|官网|套餐|订阅|网址|重置|用量|群组|频道|traffic|expire|subscription|remaining|reset|used|total)"
+  - name: "🐟 漏网之鱼"
+    type: select
+    proxies: ["🛬 落地节点", "🚀 节点选择", "⚡ 自动选择", DIRECT, REJECT]
+    use: [mitce, llg, xingyun, zhuiyun, mojie]
+    exclude-filter: "(?i)(过期|到期|失效|剩余|流量|官网|套餐|订阅|网址|重置|用量|群组|频道|traffic|expire|subscription|remaining|reset|used|total)"
+
+rules:
+  - DOMAIN-SUFFIX,dnsleaktest.com,🛬 落地节点
+  - DOMAIN-SUFFIX,browserleaks.com,🛬 落地节点
+  - DOMAIN-SUFFIX,ipleak.net,🛬 落地节点
+  - DOMAIN-SUFFIX,ipinfo.io,🛬 落地节点
+  - DOMAIN-SUFFIX,icanhazip.com,🛬 落地节点
+  - GEOSITE,openai,🤖 AI 服务
+  - GEOSITE,google-gemini,✨ Gemini
+  - GEOSITE,youtube,🚀 节点选择
+  - GEOSITE,github,🚀 节点选择
+  - GEOSITE,geolocation-cn,DIRECT
+  - GEOIP,CN,DIRECT,no-resolve
+  - MATCH,🐟 漏网之鱼

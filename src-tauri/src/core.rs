@@ -1,0 +1,823 @@
+//! mihomo 内核生命周期:sidecar 启动/停止/崩溃自动重启、状态查询。
+
+use std::collections::VecDeque;
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+use serde::Deserialize;
+use tauri::{AppHandle, Manager};
+use tauri_plugin_shell::process::{CommandChild, CommandEvent};
+use tauri_plugin_shell::ShellExt;
+
+use crate::state::AppState;
+
+/// 崩溃重启退避窗口与上限:30 秒窗口内最多 3 次。
+const RESTART_WINDOW: Duration = Duration::from_secs(30);
+const RESTART_MAX: usize = 3;
+#[cfg(windows)]
+const MIHOMO_SIDECAR_EXE: &str = "mihomo.exe";
+#[cfg(windows)]
+const MIHOMO_TARGET_EXE: &str = "mihomo-x86_64-pc-windows-msvc.exe";
+static VERSION_REFRESH_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
+
+fn push_candidate(candidates: &mut Vec<PathBuf>, path: PathBuf) {
+    if !candidates.iter().any(|candidate| candidate == &path) {
+        candidates.push(path);
+    }
+}
+
+#[cfg(windows)]
+fn add_mihomo_candidates_from_dir(candidates: &mut Vec<PathBuf>, dir: &Path) {
+    push_candidate(candidates, dir.join(MIHOMO_SIDECAR_EXE));
+    push_candidate(candidates, dir.join(MIHOMO_TARGET_EXE));
+    push_candidate(candidates, dir.join("resources").join(MIHOMO_SIDECAR_EXE));
+    push_candidate(candidates, dir.join("resources").join(MIHOMO_TARGET_EXE));
+    push_candidate(
+        candidates,
+        dir.join("resources")
+            .join("binaries")
+            .join(MIHOMO_TARGET_EXE),
+    );
+    push_candidate(candidates, dir.join("binaries").join(MIHOMO_TARGET_EXE));
+}
+
+#[cfg(windows)]
+fn add_dev_target_mihomo_candidate(candidates: &mut Vec<PathBuf>, exe_dir: &Path) {
+    let Some(profile) = exe_dir.file_name() else {
+        return;
+    };
+    if profile != "debug" && profile != "release" {
+        return;
+    }
+
+    let Some(target_dir) = exe_dir.parent() else {
+        return;
+    };
+    push_candidate(
+        candidates,
+        target_dir
+            .join("x86_64-pc-windows-msvc")
+            .join(profile)
+            .join(MIHOMO_SIDECAR_EXE),
+    );
+}
+
+#[cfg(windows)]
+fn find_mihomo_binary(app: &AppHandle) -> Result<PathBuf, String> {
+    let exe = std::env::current_exe().map_err(|e| format!("获取当前可执行文件路径失败: {e}"))?;
+    let exe_dir = exe.parent().ok_or("无法获取当前可执行文件所在目录")?;
+    let mut candidates = Vec::new();
+
+    add_mihomo_candidates_from_dir(&mut candidates, exe_dir);
+    add_dev_target_mihomo_candidate(&mut candidates, exe_dir);
+
+    if let Ok(resource_dir) = app.path().resource_dir() {
+        add_mihomo_candidates_from_dir(&mut candidates, &resource_dir);
+    }
+
+    if let Ok(cwd) = std::env::current_dir() {
+        add_mihomo_candidates_from_dir(&mut candidates, &cwd);
+        push_candidate(
+            &mut candidates,
+            cwd.join("src-tauri")
+                .join("binaries")
+                .join(MIHOMO_TARGET_EXE),
+        );
+        push_candidate(
+            &mut candidates,
+            cwd.join("target")
+                .join("x86_64-pc-windows-msvc")
+                .join("debug")
+                .join(MIHOMO_SIDECAR_EXE),
+        );
+        push_candidate(
+            &mut candidates,
+            cwd.join("target")
+                .join("x86_64-pc-windows-msvc")
+                .join("release")
+                .join(MIHOMO_SIDECAR_EXE),
+        );
+    }
+
+    candidates
+        .iter()
+        .find(|path| path.exists())
+        .cloned()
+        .ok_or_else(|| {
+            let checked = candidates
+                .iter()
+                .map(|path| path.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("mihomo 可执行文件不存在，已检查: {checked}")
+        })
+}
+
+#[cfg(not(windows))]
+fn find_mihomo_binary(_app: &AppHandle) -> Result<PathBuf, String> {
+    Err("服务模式当前仅支持 Windows".into())
+}
+
+/// 内核句柄(挂在 `AppState.core` 的 Mutex 内, 只做短临界区读写)。
+#[derive(Default)]
+pub struct CoreHandle {
+    child: Option<CommandChild>,
+    started_at: Option<Instant>,
+    restarts: VecDeque<Instant>,
+    /// 手动停止标志:置位后事件循环不再自动重启。
+    manual_stop: bool,
+    /// GET /version 的缓存(运行中异步刷新)。
+    version: Option<String>,
+}
+
+/// 契约 A 的 `CoreStatus` 镜像。
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CoreStatus {
+    pub running: bool,
+    pub version: String,
+    pub uptime_sec: u64,
+    pub memory_bytes: u64,
+}
+
+pub(crate) fn is_sidecar_running(app: &AppHandle) -> bool {
+    let state = app.state::<AppState>();
+    state
+        .core
+        .lock()
+        .map(|g| g.child.is_some())
+        .unwrap_or(false)
+}
+
+pub(crate) async fn is_running(app: &AppHandle) -> bool {
+    if is_sidecar_running(app) {
+        true
+    } else {
+        tauri::async_runtime::spawn_blocking(is_service_core_running)
+            .await
+            .unwrap_or(false)
+    }
+}
+
+fn service_core_status() -> Option<nova_service_ipc::CoreStatus> {
+    if !crate::service::is_running() {
+        return None;
+    }
+
+    match nova_service_ipc::get_status() {
+        Ok(resp) if resp.code == 0 => resp.data,
+        Ok(resp) => {
+            log::warn!("获取服务托管内核状态失败: {}", resp.message);
+            None
+        }
+        Err(err) => {
+            log::warn!("IPC 查询服务托管内核状态失败: {err}");
+            None
+        }
+    }
+}
+
+fn is_service_core_running() -> bool {
+    service_core_status()
+        .map(|status| status.running)
+        .unwrap_or(false)
+}
+
+fn service_core_uptime_sec(start_time: Option<i64>) -> u64 {
+    let Some(start_time) = start_time.and_then(|value| u64::try_from(value).ok()) else {
+        return 0;
+    };
+
+    let Ok(now) = SystemTime::now().duration_since(UNIX_EPOCH) else {
+        return 0;
+    };
+
+    now.as_secs().saturating_sub(start_time)
+}
+
+/// 读取当前内核状态(锁内只读内存状态; 服务状态查询移到阻塞线程池)。
+pub async fn status(app: &AppHandle) -> CoreStatus {
+    let state = app.state::<AppState>();
+    let (sidecar_running, version, sidecar_uptime_sec) = {
+        let guard = state.core.lock().expect("core 锁中毒");
+        (
+            guard.child.is_some(),
+            guard.version.clone().unwrap_or_else(|| "—".into()),
+            guard.started_at.map(|t| t.elapsed().as_secs()).unwrap_or(0),
+        )
+    };
+    let service_status = if sidecar_running {
+        None
+    } else {
+        tauri::async_runtime::spawn_blocking(service_core_status)
+            .await
+            .unwrap_or(None)
+    };
+    let service_running = service_status
+        .as_ref()
+        .map(|status| status.running)
+        .unwrap_or(false);
+    let service_version = service_status
+        .as_ref()
+        .and_then(|status| status.version.clone())
+        .filter(|version| !version.trim().is_empty());
+    if !sidecar_running && service_running && version == "—" {
+        refresh_version_async(app.clone());
+    }
+    let version = if sidecar_running {
+        version
+    } else if version != "—" {
+        version
+    } else if let Some(version) = service_version {
+        version
+    } else {
+        "—".into()
+    };
+    CoreStatus {
+        running: sidecar_running || service_running,
+        version,
+        uptime_sec: if sidecar_running {
+            sidecar_uptime_sec
+        } else {
+            service_core_uptime_sec(service_status.and_then(|status| status.start_time))
+        },
+        // M1: 内存占用经 WS /memory 提供(M2 接入), 此处先返回 0
+        memory_bytes: 0,
+    }
+}
+
+/// 启动内核(已运行则幂等返回)。
+pub fn start(app: &AppHandle) -> Result<(), String> {
+    let state = app.state::<AppState>();
+    // 无运行时配置时先用当前 profile 生成(无 profile 则写最小配置)
+    if !state.dirs.runtime_config().exists() {
+        crate::profiles::regenerate_runtime(app)?;
+    }
+    let settings = state.settings_snapshot();
+    let sidecar_running = {
+        let guard = state.core.lock().expect("core 锁中毒");
+        guard.child.is_some()
+    };
+    if sidecar_running {
+        if settings.tun {
+            log::info!("TUN 模式已启用, 停止普通 sidecar 并切换到服务托管");
+            stop_sidecar(app)?;
+        } else {
+            return Ok(());
+        }
+    }
+    if settings.tun {
+        if crate::service::status() != "installed" {
+            return Err("TUN 模式需要服务模式支持，请先在设置中安装服务".into());
+        }
+        if !crate::service::is_running() {
+            stop_orphan_sidecars(app);
+            crate::service::start_or_elevate()
+                .map_err(|err| format!("TUN 模式需要服务运行，但服务启动失败: {err}"))?;
+        }
+        log::info!(
+            "TUN 模式由服务 {} 托管，通过 IPC 启动",
+            crate::service::SERVICE_NAME
+        );
+
+        wait_for_service_ipc_ready(Duration::from_secs(30), Duration::from_millis(250))?;
+        if nova_service_ipc::is_reinstall_needed() {
+            return Err("服务版本不匹配，需要重装".into());
+        }
+
+        // 通过 IPC 启动 mihomo
+        start_core_via_service(app)?;
+
+        refresh_version_async(app.clone());
+        return Ok(());
+    }
+    start_sidecar(app)?;
+    Ok(())
+}
+
+/// 显式以 Windows 服务托管内核。普通启动不会隐式走这里，避免服务故障污染非 TUN 模式。
+pub fn start_with_service(app: &AppHandle) -> Result<(), String> {
+    if crate::service::status() != "installed" {
+        return Err("服务未安装，请先安装服务模式".into());
+    }
+
+    stop_sidecar(app)?;
+    stop_orphan_sidecars(app);
+
+    if !crate::service::is_running() {
+        crate::service::start_or_elevate()?;
+    }
+
+    log::info!(
+        "内核由服务 {} 托管，通过 IPC 启动",
+        crate::service::SERVICE_NAME
+    );
+    wait_for_service_ipc_ready(Duration::from_secs(30), Duration::from_millis(250))?;
+    if nova_service_ipc::is_reinstall_needed() {
+        return Err("服务版本不匹配，需要重装".into());
+    }
+    start_core_via_service(app)?;
+    refresh_version_async(app.clone());
+    Ok(())
+}
+
+pub(crate) fn start_sidecar(app: &AppHandle) -> Result<(), String> {
+    spawn_core(app)?;
+    {
+        let state = app.state::<AppState>();
+        let mut guard = state.core.lock().expect("core 锁中毒");
+        guard.manual_stop = false;
+        guard.restarts.clear();
+    }
+    refresh_version_async(app.clone());
+    Ok(())
+}
+
+/// 停止 sidecar(置 manual_stop, 杀进程)。
+pub(crate) fn stop_sidecar(app: &AppHandle) -> Result<(), String> {
+    let state = app.state::<AppState>();
+    let mut guard = state.core.lock().expect("core 锁中毒");
+    guard.manual_stop = true;
+    guard.started_at = None;
+    guard.version = None;
+    if let Some(child) = guard.child.take() {
+        child.kill().map_err(|e| format!("停止内核失败: {e}"))?;
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+pub(crate) fn stop_orphan_sidecars(app: &AppHandle) {
+    use std::os::windows::process::CommandExt;
+
+    let state = app.state::<AppState>();
+    let config_dir = state.dirs.config.to_string_lossy().replace('\'', "''");
+    let runtime_config = state
+        .dirs
+        .runtime_config()
+        .to_string_lossy()
+        .replace('\'', "''");
+    let script = format!(
+        "$dir = '{config_dir}'; \
+         $runtime = '{runtime_config}'; \
+         $names = @('{MIHOMO_SIDECAR_EXE}', '{MIHOMO_TARGET_EXE}'); \
+         Get-CimInstance Win32_Process | \
+         Where-Object {{ $_.Name -in $names }} | \
+         Where-Object {{ $cmd = $_.CommandLine; $cmd -and ($cmd.Contains($dir) -or $cmd.Contains($runtime)) }} | \
+         ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force -ErrorAction Stop; Write-Output $_.ProcessId }}"
+    );
+    let mut cmd = std::process::Command::new("powershell.exe");
+    cmd.args([
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        &script,
+    ]);
+    cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    match cmd.output() {
+        Ok(output) if output.status.success() => {
+            let killed = String::from_utf8_lossy(&output.stdout);
+            if !killed.trim().is_empty() {
+                log::info!("已清理旧 mihomo sidecar 进程: {}", killed.trim());
+            }
+        }
+        Ok(output) => {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            log::warn!("清理旧 mihomo sidecar 进程失败: {}", stderr.trim());
+        }
+        Err(err) => log::warn!("清理旧 mihomo sidecar 进程失败: {err}"),
+    }
+}
+
+#[cfg(not(windows))]
+pub(crate) fn stop_orphan_sidecars(_app: &AppHandle) {}
+
+/// 停止内核(同时处理 sidecar 与服务模式)。
+pub fn stop(app: &AppHandle) -> Result<(), String> {
+    stop_sidecar(app)?;
+    if crate::service::is_running() {
+        stop_core_via_service()?;
+    }
+    Ok(())
+}
+
+/// 重启内核。
+pub fn restart(app: &AppHandle) -> Result<(), String> {
+    stop(app)?;
+    start(app)
+}
+
+/// 实际拉起 sidecar 进程并挂事件循环。
+fn spawn_core(app: &AppHandle) -> Result<(), String> {
+    let state = app.state::<AppState>();
+    let config_dir = state.dirs.config.to_string_lossy().to_string();
+    let runtime_config = state.dirs.runtime_config().to_string_lossy().to_string();
+    let (mut rx, child) = app
+        .shell()
+        .sidecar("mihomo")
+        .map_err(|e| format!("定位 mihomo sidecar 失败: {e}"))?
+        // mihomo resolves a relative -f against the process cwd, not -d.
+        // Installed builds therefore must pass the absolute runtime path.
+        .args(["-d", &config_dir, "-f", &runtime_config])
+        .spawn()
+        .map_err(|e| format!("启动 mihomo 失败: {e}"))?;
+
+    {
+        let mut guard = state.core.lock().expect("core 锁中毒");
+        guard.child = Some(child);
+        guard.started_at = Some(Instant::now());
+        guard.version = None;
+    }
+    log::info!("mihomo 已启动 (配置目录: {config_dir}, 配置文件: {runtime_config})");
+
+    // 事件循环:stdout/stderr 落日志文件; Terminated 时按退避策略自动重启
+    let app_handle = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let log_path = app_handle.state::<AppState>().dirs.core_log_file();
+        let mut log_file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_path)
+            .ok();
+        while let Some(event) = rx.recv().await {
+            match event {
+                CommandEvent::Stdout(line) | CommandEvent::Stderr(line) => {
+                    if let Some(f) = log_file.as_mut() {
+                        let _ = f.write_all(&line);
+                        let _ = f.write_all(b"\n");
+                    }
+                }
+                CommandEvent::Error(err) => log::error!("mihomo 进程错误: {err}"),
+                CommandEvent::Terminated(payload) => {
+                    on_terminated(&app_handle, payload.code);
+                    break;
+                }
+                _ => {}
+            }
+        }
+    });
+    Ok(())
+}
+
+/// 进程退出处理:非手动停止时在退避窗口内自动重启。
+fn on_terminated(app: &AppHandle, code: Option<i32>) {
+    let state = app.state::<AppState>();
+    let should_restart = {
+        let mut guard = state.core.lock().expect("core 锁中毒");
+        guard.child = None;
+        guard.started_at = None;
+        guard.version = None;
+        if guard.manual_stop {
+            false
+        } else {
+            let now = Instant::now();
+            while let Some(front) = guard.restarts.front() {
+                if now.duration_since(*front) > RESTART_WINDOW {
+                    guard.restarts.pop_front();
+                } else {
+                    break;
+                }
+            }
+            if guard.restarts.len() >= RESTART_MAX {
+                log::error!("mihomo 在 30 秒内崩溃超过 {RESTART_MAX} 次, 停止自动重启");
+                false
+            } else {
+                guard.restarts.push_back(now);
+                true
+            }
+        }
+    };
+    if should_restart {
+        log::warn!("mihomo 意外退出(code={code:?}), 自动重启…");
+        if let Err(e) = spawn_core(app) {
+            log::error!("自动重启失败: {e}");
+        } else {
+            refresh_version_async(app.clone());
+        }
+    } else {
+        log::info!("mihomo 已退出(code={code:?})");
+    }
+}
+
+#[derive(Deserialize)]
+struct VersionPayload {
+    version: String,
+}
+
+/// 异步刷新版本缓存(GET /version)。
+/// 内核冷启动耗时不定(首启建缓存可达数秒), 持续重试直到拿到版本(~2 分钟上限)。
+fn refresh_version_async(app: AppHandle) {
+    if VERSION_REFRESH_IN_FLIGHT
+        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+        .is_err()
+    {
+        return;
+    }
+
+    tauri::async_runtime::spawn(async move {
+        let _guard = VersionRefreshGuard;
+        let client = reqwest::Client::new();
+        for attempt in 0u32..30 {
+            let wait = if attempt == 0 { 800 } else { 4000 };
+            tokio::time::sleep(Duration::from_millis(wait)).await;
+            // 内核已被手动停止则不再轮询(sc.exe 查询是阻塞调用, 移到阻塞线程池)
+            let mut running = {
+                let state = app.state::<AppState>();
+                state
+                    .core
+                    .lock()
+                    .map(|g| g.child.is_some())
+                    .unwrap_or(false)
+            };
+            if !running {
+                running = tauri::async_runtime::spawn_blocking(is_service_core_running)
+                    .await
+                    .unwrap_or(false);
+            }
+            if !running {
+                return;
+            }
+            let (controller, secret) = {
+                let state = app.state::<AppState>();
+                let s = state.settings_snapshot();
+                (s.external_controller, s.secret)
+            };
+            let url = format!("http://{controller}/version");
+            let resp = client
+                .get(&url)
+                .bearer_auth(&secret)
+                .timeout(Duration::from_secs(3))
+                .send()
+                .await;
+            let Ok(resp) = resp else {
+                if attempt >= 3 {
+                    log::debug!(
+                        "第 {} 次获取内核版本失败: 请求 /version 超时或连接失败",
+                        attempt + 1
+                    );
+                }
+                continue;
+            };
+            let Ok(v) = resp.json::<VersionPayload>().await else {
+                if attempt >= 3 {
+                    log::debug!(
+                        "第 {} 次获取内核版本失败: /version 响应无法解析",
+                        attempt + 1
+                    );
+                }
+                continue;
+            };
+            let state = app.state::<AppState>();
+            if let Ok(mut guard) = state.core.lock() {
+                guard.version = Some(v.version);
+            };
+            return;
+        }
+        log::warn!("获取内核版本失败: 在 30 次重试内未从 /version 拿到有效响应");
+    });
+}
+
+struct VersionRefreshGuard;
+
+impl Drop for VersionRefreshGuard {
+    fn drop(&mut self) {
+        VERSION_REFRESH_IN_FLIGHT.store(false, Ordering::Release);
+    }
+}
+
+/// 通知 mihomo 热加载运行时配置(PUT /configs?force=true); 未运行时为 no-op。
+pub async fn reload_runtime(app: &AppHandle) -> Result<(), String> {
+    let (controller, secret) = {
+        let state = app.state::<AppState>();
+        let s = state.settings_snapshot();
+        (s.external_controller, s.secret)
+    };
+    reload_runtime_with_auth(app, controller, secret).await
+}
+
+pub async fn reload_runtime_with_auth(
+    app: &AppHandle,
+    controller: String,
+    secret: String,
+) -> Result<(), String> {
+    let (sidecar_running, controller, secret, path) = {
+        let state = app.state::<AppState>();
+        let sidecar_running = state
+            .core
+            .lock()
+            .map(|g| g.child.is_some())
+            .unwrap_or(false);
+        (
+            sidecar_running,
+            controller,
+            secret,
+            state.dirs.runtime_config().to_string_lossy().to_string(),
+        )
+    };
+    let service_running = if sidecar_running {
+        false
+    } else {
+        tauri::async_runtime::spawn_blocking(is_service_core_running)
+            .await
+            .unwrap_or(false)
+    };
+    let running = sidecar_running || service_running;
+    if !running {
+        return Ok(());
+    }
+    let url = format!("http://{controller}/configs?force=true");
+    let client = reqwest::Client::new();
+    let resp = client
+        .put(&url)
+        .bearer_auth(&secret)
+        .json(&serde_json::json!({ "path": path }))
+        .timeout(Duration::from_secs(5))
+        .send()
+        .await;
+    let resp = match resp {
+        Ok(resp) => resp,
+        Err(err) if sidecar_running => {
+            log::warn!("热加载请求失败({err}), 改为重启内核");
+            restart(app)?;
+            return Ok(());
+        }
+        Err(err) if service_running => {
+            log::warn!("服务模式热加载请求失败({err}), 改为重启服务托管内核");
+            restart(app)?;
+            return Ok(());
+        }
+        Err(err) => return Err(format!("热加载请求失败: {err}")),
+    };
+    if !resp.status().is_success() {
+        if sidecar_running || service_running {
+            // 热加载失败 → 退回重启内核
+            log::warn!("热加载返回 HTTP {}, 改为重启内核", resp.status());
+            restart(app)?;
+        } else {
+            return Err(format!("服务模式热加载失败: HTTP {}", resp.status()));
+        }
+    }
+    Ok(())
+}
+
+pub async fn wait_runtime_tun(
+    app: &AppHandle,
+    expected: bool,
+    timeout: Duration,
+) -> Result<(), String> {
+    let client = reqwest::Client::new();
+    let started = Instant::now();
+    let mut last: String;
+
+    loop {
+        let (controller, secret) = {
+            let state = app.state::<AppState>();
+            let settings = state.settings_snapshot();
+            (settings.external_controller, settings.secret)
+        };
+        let url = format!("http://{controller}/configs");
+        match client
+            .get(&url)
+            .bearer_auth(&secret)
+            .timeout(Duration::from_secs(2))
+            .send()
+            .await
+        {
+            Ok(resp) if resp.status().is_success() => {
+                match resp.json::<serde_json::Value>().await {
+                    Ok(json) => {
+                        let actual = json
+                            .get("tun")
+                            .and_then(|tun| tun.get("enable"))
+                            .and_then(serde_json::Value::as_bool)
+                            .unwrap_or(false);
+                        if actual == expected {
+                            return Ok(());
+                        }
+                        last = format!(
+                            "内核 TUN 实际状态为 {}",
+                            if actual { "开启" } else { "关闭" }
+                        );
+                    }
+                    Err(err) => {
+                        last = format!("解析 /configs 响应失败: {err}");
+                    }
+                }
+            }
+            Ok(resp) => {
+                last = format!("控制器返回 HTTP {}", resp.status());
+            }
+            Err(err) => {
+                last = format!("控制器未就绪: {err}");
+            }
+        }
+
+        if started.elapsed() >= timeout {
+            return Err(format!(
+                "等待内核应用 TUN={} 超时: {last}",
+                if expected { "true" } else { "false" }
+            ));
+        }
+        tokio::time::sleep(Duration::from_millis(300)).await;
+    }
+}
+
+pub async fn runtime_tun_enabled(app: &AppHandle) -> Result<bool, String> {
+    let (controller, secret) = {
+        let state = app.state::<AppState>();
+        let settings = state.settings_snapshot();
+        (settings.external_controller, settings.secret)
+    };
+    let url = format!("http://{controller}/configs");
+    let resp = reqwest::Client::new()
+        .get(&url)
+        .bearer_auth(&secret)
+        .timeout(Duration::from_secs(2))
+        .send()
+        .await
+        .map_err(|err| format!("控制器未就绪: {err}"))?;
+    if !resp.status().is_success() {
+        return Err(format!("控制器返回 HTTP {}", resp.status()));
+    }
+    let json = resp
+        .json::<serde_json::Value>()
+        .await
+        .map_err(|err| format!("解析 /configs 响应失败: {err}"))?;
+    Ok(json
+        .get("tun")
+        .and_then(|tun| tun.get("enable"))
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false))
+}
+
+/// 通过服务启动 mihomo 内核
+fn start_core_via_service(app: &AppHandle) -> Result<(), String> {
+    log::info!("通过 IPC 启动内核");
+
+    let state = app.state::<AppState>();
+    let config_dir = state.dirs.config.clone();
+    let runtime_config = state.dirs.runtime_config();
+    let settings = state.settings_snapshot();
+
+    let mihomo_path = find_mihomo_binary(app)?;
+
+    // 构建内核配置
+    let core_config = nova_service_ipc::CoreConfig {
+        core_path: mihomo_path.to_string_lossy().to_string(),
+        config_path: runtime_config.to_string_lossy().to_string(),
+        config_dir: config_dir.to_string_lossy().to_string(),
+        external_controller: settings.external_controller.clone(),
+    };
+
+    // 通过 IPC 启动内核
+    match nova_service_ipc::start_core(&core_config) {
+        Ok(resp) => {
+            if resp.code == 0 {
+                log::info!("内核启动成功");
+                Ok(())
+            } else {
+                Err(format!("启动内核失败: {}", resp.message))
+            }
+        }
+        Err(e) => Err(format!("IPC 调用失败: {}", e)),
+    }
+}
+
+fn stop_core_via_service() -> Result<(), String> {
+    log::info!("通过 IPC 停止服务托管内核");
+
+    match nova_service_ipc::stop_core() {
+        Ok(resp) => {
+            if resp.code == 0 {
+                log::info!("服务托管内核已停止");
+                Ok(())
+            } else {
+                Err(format!("停止内核失败: {}", resp.message))
+            }
+        }
+        Err(e) => Err(format!("IPC 调用失败: {}", e)),
+    }
+}
+
+fn wait_for_service_ipc_ready(timeout: Duration, retry_delay: Duration) -> Result<(), String> {
+    let deadline = Instant::now() + timeout;
+    let mut last_error = None;
+
+    while Instant::now() < deadline {
+        match nova_service_ipc::connect() {
+            Ok(_) => return Ok(()),
+            Err(e) => {
+                last_error = Some(e.to_string());
+                std::thread::sleep(retry_delay);
+            }
+        }
+    }
+
+    Err(format!(
+        "等待服务 IPC 就绪超时: {}",
+        last_error.unwrap_or_else(|| "未知错误".into())
+    ))
+}

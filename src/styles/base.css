@@ -1,0 +1,170 @@
+/* ============================================================
+   ClashNova v2 全局基础样式 + 组件类
+   来源: design/shell-head.html <style> (唯一视觉基准, 不得擅改)
+   差异说明: .page 在 React 路由下始终渲染单页, 故恒为 display:block
+   ============================================================ */
+
+/* ============ 基础 ============ */
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%}
+body{font-family:var(--sans);background:var(--bg-deep);color:var(--text);
+  font-size:13px;line-height:1.5;-webkit-font-smoothing:antialiased;overflow:hidden}
+::-webkit-scrollbar{width:8px;height:8px}
+::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:4px}
+::-webkit-scrollbar-track{background:transparent}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+svg{display:block}
+#root{height:100%}
+
+/* ============ 应用框架 ============ */
+.app{display:flex;height:100vh;background:var(--bg)}
+/* ---- 侧边栏 ---- */
+.sidebar{width:210px;flex-shrink:0;background:var(--bg-deep);border-right:1px solid var(--line);
+  display:flex;flex-direction:column;padding:14px 10px 12px}
+.brand{display:flex;align-items:center;gap:10px;padding:4px 8px 14px}
+.brand-logo{width:30px;height:30px;border-radius:9px;flex-shrink:0;display:block;object-fit:cover;
+  box-shadow:0 4px 14px rgba(10,132,255,.25)}
+.brand-name{font-size:15px;font-weight:700;letter-spacing:.2px}
+.brand-ver{font-size:10px;color:var(--text-3);font-family:var(--mono)}
+.nav{flex:1;overflow-y:auto}
+.nav-group{margin-bottom:6px}
+.nav-title{font-size:10px;font-weight:600;color:var(--text-3);text-transform:uppercase;
+  letter-spacing:.8px;padding:10px 10px 4px}
+.nav-item{display:flex;align-items:center;gap:9px;padding:7px 10px;border-radius:var(--radius-sm);
+  color:var(--text-2);cursor:pointer;user-select:none;font-weight:500;margin-bottom:1px;
+  text-decoration:none;transition:background .15s,color .15s}
+.nav-item svg{width:16px;height:16px;stroke:currentColor;stroke-width:1.8;fill:none;
+  stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
+.nav-item:hover{background:var(--card);color:var(--text)}
+.nav-item.on{background:var(--card-2);color:var(--accent)}
+.side-foot{border-top:1px solid var(--line);padding:10px 8px 2px;margin-top:8px}
+.kernel-chip{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:var(--radius-sm);
+  background:var(--card)}
+.kernel-chip .dot{width:7px;height:7px;border-radius:50%;background:var(--green);
+  box-shadow:0 0 6px var(--green);flex-shrink:0}
+.kernel-chip b{font-size:11.5px;font-weight:600}
+.kernel-chip span{font-size:10px;color:var(--text-3);font-family:var(--mono)}
+
+/* ---- 主区 ---- */
+.main{flex:1;display:flex;flex-direction:column;min-width:0}
+.topbar{height:52px;flex-shrink:0;display:flex;align-items:center;gap:14px;
+  padding:0 14px 0 20px;border-bottom:1px solid var(--line)}
+.topbar h1{font-size:15px;font-weight:700;flex-shrink:0}
+.topbar .spacer{flex:1}
+.icon-btn{width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;
+  color:var(--text-2);cursor:pointer;border:none;background:transparent;transition:background .15s}
+.icon-btn:hover{background:var(--card-2);color:var(--text)}
+.icon-btn svg{width:16px;height:16px;stroke:currentColor;stroke-width:1.8;fill:none;
+  stroke-linecap:round;stroke-linejoin:round}
+.win-ctrl{display:flex;margin-left:4px}
+.win-ctrl button{width:38px;height:30px;border:none;background:transparent;color:var(--text-3);
+  display:flex;align-items:center;justify-content:center;cursor:pointer;border-radius:6px}
+.win-ctrl button:hover{background:var(--card-2);color:var(--text)}
+.win-ctrl button.close:hover{background:var(--red);color:#fff}
+.win-ctrl svg{width:11px;height:11px;stroke:currentColor;stroke-width:1.6;fill:none;stroke-linecap:round}
+.content{flex:1;overflow-y:auto;padding:18px 20px 28px;scroll-behavior:smooth}
+.page{display:block;max-width:1180px;margin:0 auto;animation:pagein .25s ease}
+@keyframes pagein{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+/* ============ 通用组件 ============ */
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius)}
+.card-head{display:flex;align-items:center;gap:9px;padding:13px 16px;border-bottom:1px solid var(--line)}
+.card-head h3{font-size:13px;font-weight:600;flex-shrink:0}
+.card-head .card-actions{margin-left:auto;display:flex;align-items:center;gap:8px}
+.card-ic{width:24px;height:24px;border-radius:7px;display:flex;align-items:center;justify-content:center;
+  background:color-mix(in srgb,currentColor 14%,transparent);flex-shrink:0}
+.card-ic svg{width:14px;height:14px;stroke:currentColor;stroke-width:2;fill:none;
+  stroke-linecap:round;stroke-linejoin:round}
+.card-body{padding:16px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}
+
+.seg{display:inline-flex;background:var(--card-2);border:1px solid var(--line);
+  border-radius:9px;padding:2px;gap:2px}
+.seg-item{border:none;background:transparent;color:var(--text-2);font-size:12px;font-weight:500;
+  padding:4px 12px;border-radius:7px;cursor:pointer;font-family:var(--sans);transition:all .15s;white-space:nowrap}
+.seg-item:hover{color:var(--text)}
+.seg-item.on{background:var(--card-3);color:var(--text);box-shadow:0 1px 4px rgba(0,0,0,.25)}
+[data-theme="light"] .seg-item.on{background:#fff}
+
+.btn{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line-2);
+  background:var(--card-2);color:var(--text);font-size:12px;font-weight:500;font-family:var(--sans);
+  padding:5px 12px;border-radius:8px;cursor:pointer;transition:all .15s;white-space:nowrap}
+.btn:hover{background:var(--card-3)}
+.btn svg{width:13px;height:13px;stroke:currentColor;stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round}
+.btn-primary{background:var(--accent);border-color:transparent;color:#fff}
+.btn-primary:hover{background:#2b94ff}
+.btn-danger{color:var(--red)}
+.btn-sm{padding:3px 9px;font-size:11.5px}
+
+.badge{display:inline-flex;align-items:center;font-family:var(--mono);font-size:10.5px;font-weight:600;
+  padding:1.5px 7px;border-radius:20px;line-height:1.5}
+.b-green{color:var(--green);background:rgba(50,215,75,.13)}
+.b-yellow{color:var(--yellow);background:rgba(255,214,10,.13)}
+.b-orange{color:var(--orange);background:rgba(255,159,10,.13)}
+.b-red{color:var(--red);background:rgba(255,69,58,.13)}
+.b-gray{color:var(--text-3);background:var(--card-2)}
+.b-blue{color:var(--accent);background:var(--accent-dim)}
+.b-purple{color:var(--purple);background:rgba(191,90,242,.13)}
+.b-cyan{color:var(--cyan);background:rgba(100,210,255,.13)}
+.chip{display:inline-flex;align-items:center;font-size:10.5px;font-weight:600;padding:1.5px 8px;
+  border-radius:6px;background:var(--card-2);color:var(--text-2);border:1px solid var(--line)}
+
+.stat-num{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:22px;font-weight:700;line-height:1.2}
+.stat-label{font-size:11px;color:var(--text-2);display:flex;align-items:center;gap:5px}
+.stat-label svg{width:12px;height:12px;stroke:currentColor;stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round}
+
+.toggle{width:38px;height:22px;border-radius:11px;background:var(--card-3);position:relative;
+  cursor:pointer;transition:background .2s;flex-shrink:0;border:1px solid var(--line)}
+.toggle .knob{width:18px;height:18px;border-radius:50%;background:#fff;position:absolute;top:1px;left:1px;
+  transition:left .2s;box-shadow:0 1px 4px rgba(0,0,0,.3)}
+.toggle.on{background:var(--green);border-color:transparent}
+.toggle.on .knob{left:17px}
+
+.tbl{width:100%;border-collapse:collapse;font-size:12px}
+.tbl th{text-align:left;font-size:10.5px;font-weight:600;color:var(--text-3);text-transform:uppercase;
+  letter-spacing:.5px;padding:9px 12px;border-bottom:1px solid var(--line);white-space:nowrap}
+.tbl td{padding:9px 12px;border-bottom:1px solid var(--line);white-space:nowrap;vertical-align:middle}
+.tbl tr:last-child td{border-bottom:none}
+.tbl tbody tr{transition:background .12s}
+.tbl tbody tr:hover{background:var(--card-2)}
+
+.input{background:var(--card-2);border:1px solid var(--line);border-radius:8px;color:var(--text);
+  font-size:12.5px;font-family:var(--sans);padding:6px 11px;outline:none;transition:border .15s}
+.input:focus{border-color:var(--accent)}
+.input::placeholder{color:var(--text-3)}
+.select{background:var(--card-2);border:1px solid var(--line);border-radius:8px;color:var(--text);
+  font-size:12px;font-family:var(--sans);padding:5px 9px;outline:none;cursor:pointer}
+.search-wrap{position:relative;display:inline-flex;align-items:center}
+.search-wrap svg{position:absolute;left:9px;width:13px;height:13px;stroke:var(--text-3);
+  stroke-width:2;fill:none;stroke-linecap:round}
+.search-wrap .input{padding-left:28px}
+
+.set-row{display:flex;align-items:center;gap:14px;padding:12px 16px;border-bottom:1px solid var(--line)}
+.set-row:last-child{border-bottom:none}
+.set-row .set-info{flex:1;min-width:0}
+.set-row h4{font-size:12.5px;font-weight:600}
+.set-row p{font-size:11px;color:var(--text-3);margin-top:1px}
+
+.spark{position:relative}
+.bar-col{background:var(--card-3);border-radius:3px 3px 0 0;transition:background .15s}
+
+/* ============ M1 脚手架占位（阶段C 页面落地后即弃用） ============ */
+.page-stub{padding:64px 0;text-align:center;color:var(--text-3);font-size:13px}
+.placeholder-body{padding:52px 0;text-align:center;color:var(--text-2)}
+.placeholder-body .placeholder-big{font-size:18px;font-weight:700;color:var(--text);margin-bottom:6px}
+.placeholder-body p{font-size:12px;color:var(--text-3)}
+
+.route-error{min-height:100vh;background:var(--bg);padding:32px;display:flex;align-items:flex-start;justify-content:center}
+.route-error .card{width:min(760px,100%)}
+.route-error p{color:var(--text-2);font-size:12.5px;margin-bottom:12px}
+.route-error pre{max-height:220px;overflow:auto;background:var(--bg-deep);border:1px solid var(--line);
+  border-radius:var(--radius-sm);padding:12px;color:var(--text-2);font-family:var(--mono);font-size:11px;
+  white-space:pre-wrap;word-break:break-word}
+
+/* 通知徽章 */
+.icon-btn{position:relative}
+.icon-btn .badge{position:absolute;top:-2px;right:-2px;min-width:16px;height:16px;padding:0 4px;
+  background:var(--red);color:#fff;font-size:10px;font-weight:600;border-radius:8px;
+  display:flex;align-items:center;justify-content:center;line-height:1;
+  border:2px solid var(--bg)}

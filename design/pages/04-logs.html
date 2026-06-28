@@ -1,0 +1,121 @@
+<style>
+  #page-logs .logs-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 14px;
+    flex-wrap: wrap;
+  }
+  #page-logs .logs-toolbar .search-wrap {
+    width: 220px;
+  }
+  #page-logs .logs-toolbar .spacer {
+    flex: 1;
+  }
+  #page-logs .logs-toolbar .btn svg {
+    width: 14px;
+    height: 14px;
+    margin-right: 5px;
+    vertical-align: -2px;
+  }
+  #page-logs .console-card {
+    padding: 0;
+    overflow: hidden;
+  }
+  #page-logs .console {
+    padding: 12px 16px;
+    font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+    font-size: 11.5px;
+    line-height: 1.9;
+    overflow-x: auto;
+  }
+  #page-logs .log-line {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    white-space: nowrap;
+  }
+  #page-logs .log-line .ts {
+    color: var(--text-3);
+    flex: 0 0 auto;
+  }
+  #page-logs .log-line .badge {
+    flex: 0 0 auto;
+    width: 52px;
+    justify-content: center;
+    text-align: center;
+    font-family: inherit;
+    font-size: 10px;
+  }
+  #page-logs .log-line .msg {
+    color: var(--text-2);
+  }
+  #page-logs .log-line .hl-node { color: var(--cyan); }
+  #page-logs .log-line .hl-rule { color: var(--green); }
+  #page-logs .log-line .hl-host { color: var(--text); }
+  #page-logs .console-foot {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 9px 16px;
+    border-top: 1px solid var(--line);
+    font-size: 11px;
+    color: var(--text-3);
+  }
+  #page-logs .console-foot .dot-live {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--green);
+    box-shadow: 0 0 6px var(--green);
+    flex: 0 0 auto;
+  }
+</style>
+<section class="page" id="page-logs" data-title="日志">
+  <div class="logs-toolbar">
+    <div class="seg">
+      <span class="seg-item on">全部</span>
+      <span class="seg-item">信息</span>
+      <span class="seg-item">警告</span>
+      <span class="seg-item">错误</span>
+      <span class="seg-item">调试</span>
+    </div>
+    <div class="search-wrap">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+      <input class="input" type="text" placeholder="过滤关键字…">
+    </div>
+    <div class="spacer"></div>
+    <span class="chip">日志等级: info</span>
+    <button class="btn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>暂停
+    </button>
+    <button class="btn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>清空
+    </button>
+  </div>
+
+  <div class="card console-card">
+    <div class="console">
+      <div class="log-line"><span class="ts num">19:42:01.114</span><span class="badge b-blue">INFO</span><span class="msg">[TCP] connection 127.0.0.1:52311 → <span class="hl-host">mtalk.google.com</span>:5228 match <span class="hl-rule">RuleSet(Google)</span> using <span class="hl-node">US-OpenAI</span></span></div>
+      <div class="log-line"><span class="ts num">19:42:01.358</span><span class="badge b-blue">INFO</span><span class="msg">[TCP] connection 127.0.0.1:52316 → <span class="hl-host">youtube.com</span>:443 match <span class="hl-rule">RuleSet(Streaming)</span> using <span class="hl-node">HK-PCCW</span></span></div>
+      <div class="log-line"><span class="ts num">19:42:02.041</span><span class="badge b-gray">DEBUG</span><span class="msg">dns resolve cache hit <span class="hl-host">api.github.com</span> → 140.82.121.4 (ttl 287s)</span></div>
+      <div class="log-line"><span class="ts num">19:42:02.207</span><span class="badge b-blue">INFO</span><span class="msg">[UDP] <span class="hl-host">dns.alidns.com</span>:443 match <span class="hl-rule">GeoIP(CN)</span> using <span class="hl-node">DIRECT</span></span></div>
+      <div class="log-line"><span class="ts num">19:42:02.516</span><span class="badge b-orange">WARN</span><span class="msg">provider BigAirport health-check timeout: <span class="hl-node">HK-03</span> (3082ms)</span></div>
+      <div class="log-line"><span class="ts num">19:42:03.094</span><span class="badge b-blue">INFO</span><span class="msg">[TCP] connection 127.0.0.1:52320 → <span class="hl-host">api.telegram.org</span>:443 match <span class="hl-rule">RuleSet(Telegram)</span> using <span class="hl-node">SG-AWS</span></span></div>
+      <div class="log-line"><span class="ts num">19:42:03.412</span><span class="badge b-gray">DEBUG</span><span class="msg">match process <span class="hl-host">Telegram.exe</span> pid=18244 rule <span class="hl-rule">ProcessName(Telegram)</span> hit</span></div>
+      <div class="log-line"><span class="ts num">19:42:03.890</span><span class="badge b-red">ERROR</span><span class="msg">dial tcp 203.0.113.7:443: connect refused (proxy <span class="hl-node">DE-Server</span>)</span></div>
+      <div class="log-line"><span class="ts num">19:42:04.127</span><span class="badge b-blue">INFO</span><span class="msg">restart selector group <span class="hl-rule">Streaming</span> → fallback <span class="hl-node">JP-AbemaTV</span></span></div>
+      <div class="log-line"><span class="ts num">19:42:04.561</span><span class="badge b-blue">INFO</span><span class="msg">[TCP] connection 127.0.0.1:52331 → <span class="hl-host">steamcdn-a.akamaihd.net</span>:443 match <span class="hl-rule">RuleSet(SteamCDN)</span> using <span class="hl-node">DIRECT</span></span></div>
+      <div class="log-line"><span class="ts num">19:42:05.038</span><span class="badge b-gray">DEBUG</span><span class="msg">sniff tls sni <span class="hl-host">clients4.google.com</span> from <span class="hl-host">chrome.exe</span> (pid 6120)</span></div>
+      <div class="log-line"><span class="ts num">19:42:05.246</span><span class="badge b-orange">WARN</span><span class="msg">udp session 8.8.8.8:53 idle 120s, closing inbound 127.0.0.1:60214</span></div>
+      <div class="log-line"><span class="ts num">19:42:05.733</span><span class="badge b-blue">INFO</span><span class="msg">[TCP] connection 127.0.0.1:52340 → <span class="hl-host">chat.openai.com</span>:443 match <span class="hl-rule">RuleSet(OpenAI)</span> using <span class="hl-node">US-OpenAI</span></span></div>
+      <div class="log-line"><span class="ts num">19:42:06.302</span><span class="badge b-blue">INFO</span><span class="msg">provider BigAirport updated: 86 nodes, 2 unavailable, traffic 412.6 GB / 1024 GB</span></div>
+      <div class="log-line"><span class="ts num">19:42:06.879</span><span class="badge b-gray">DEBUG</span><span class="msg">dns resolve <span class="hl-host">raw.githubusercontent.com</span> → 185.199.108.133 via <span class="hl-host">dns.google</span>:853 (DoT) 42ms</span></div>
+      <div class="log-line"><span class="ts num">19:42:07.448</span><span class="badge b-red">ERROR</span><span class="msg">rule-set <span class="hl-rule">Telegram</span> download failed: context deadline exceeded, retry in 60s</span></div>
+    </div>
+    <div class="console-foot">
+      <span class="dot-live"></span>
+      <span>已缓冲 <span class="num">1,024</span> 行 · WebSocket 已连接</span>
+    </div>
+  </div>
+</section>

@@ -1,0 +1,247 @@
+<style>
+#page-settings .grid2{align-items:start}
+#page-settings .set-col{display:flex;flex-direction:column;gap:14px;min-width:0}
+#page-settings .set-row .ctl{display:flex;align-items:center;gap:8px;flex-shrink:0}
+#page-settings .mono-val{font-family:var(--mono)}
+#page-settings .swatches{display:flex;align-items:center;gap:10px}
+#page-settings .swatch{width:22px;height:22px;border-radius:50%;border:none;padding:0;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;flex-shrink:0;
+  box-shadow:inset 0 0 0 1px var(--line-2);transition:transform .15s}
+#page-settings .swatch:hover{transform:scale(1.12)}
+#page-settings .swatch svg{width:12px;height:12px;stroke:#fff;stroke-width:2.6;fill:none;
+  stroke-linecap:round;stroke-linejoin:round}
+#page-settings .swatch.on{box-shadow:0 0 0 2px var(--card),0 0 0 3.5px var(--accent)}
+#page-settings .keys{display:flex;align-items:center;gap:4px;flex-shrink:0}
+#page-settings .kbd{font-family:var(--mono);font-size:10.5px;font-weight:500;line-height:1.5;
+  padding:2px 6px;background:var(--card-2);border:1px solid var(--line);border-radius:5px;color:var(--text-2)}
+#page-settings .link{display:inline-flex;align-items:center;gap:4px;color:var(--accent);
+  font-size:12px;font-weight:500;cursor:pointer;white-space:nowrap}
+#page-settings .link:hover{text-decoration:underline}
+#page-settings .link svg{width:12px;height:12px;stroke:currentColor;stroke-width:2;fill:none;
+  stroke-linecap:round;stroke-linejoin:round}
+#page-settings .about-logo{width:34px;height:34px;border-radius:10px;flex-shrink:0;
+  background:linear-gradient(135deg,#0A84FF,#64D2FF);display:flex;align-items:center;justify-content:center;
+  box-shadow:0 4px 12px rgba(10,132,255,.32)}
+#page-settings .about-logo svg{width:18px;height:18px;stroke:#fff;stroke-width:2.4;fill:none;
+  stroke-linecap:round;stroke-linejoin:round}
+</style>
+<section class="page" id="page-settings" data-title="设置">
+  <div class="grid2">
+    <!-- ============ 左列 ============ -->
+    <div class="set-col">
+
+      <!-- ① 系统 -->
+      <div class="card">
+        <div class="card-head">
+          <span class="card-ic" style="color:var(--accent)"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg></span>
+          <h3>系统</h3>
+        </div>
+        <div class="set-row">
+          <div class="set-info"><h4>系统代理</h4><p>修改 Windows Internet 设置</p></div>
+          <div class="toggle on"><div class="knob"></div></div>
+        </div>
+        <div class="set-row">
+          <div class="set-info"><h4>守卫模式</h4><p>每 30 秒检查并恢复代理设置</p></div>
+          <div class="toggle on"><div class="knob"></div></div>
+        </div>
+        <div class="set-row">
+          <div class="set-info"><h4>代理绕过</h4><p class="mono-val">localhost;127.*;10.*;192.168.*</p></div>
+          <button class="btn btn-sm">编辑</button>
+        </div>
+        <div class="set-row">
+          <div class="set-info"><h4>TUN 模式</h4><p>虚拟网卡接管全部流量，需服务模式</p></div>
+          <div class="toggle"><div class="knob"></div></div>
+        </div>
+        <div class="set-row">
+          <div class="set-info"><h4>服务模式</h4><p>Mihomo Service 已注册并正常运行</p></div>
+          <div class="ctl"><span class="badge b-green">已安装</span><button class="btn btn-sm">卸载</button></div>
+        </div>
+        <div class="set-row">
+          <div class="set-info"><h4>开机自启</h4><p>随 Windows 登录自动启动</p></div>
+          <div class="toggle on"><div class="knob"></div></div>
+        </div>
+        <div class="set-row">
+          <div class="set-info"><h4>静默启动</h4><p>启动时仅驻留托盘</p></div>
+          <div class="toggle"><div class="knob"></div></div>
+        </div>
+      </div>
+
+      <!-- ③ 界面 -->
+      <div class="card">
+        <div class="card-head">
+          <span class="card-ic" style="color:var(--purple)"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2.5"/><path d="M3 9.5h18M9.5 21V9.5"/></svg></span>
+          <h3>界面</h3>
+        </div>
+        <div class="set-row">
+          <div class="set-info"><h4>主题</h4><p>窗口与托盘外观</p></div>
+          <div class="seg">
+            <button class="seg-item on">深色</button>
+            <button class="seg-item">浅色</button>
+            <button class="seg-item">跟随系统</button>
+          </div>
+        </div>
+        <div class="set-row">
+          <div class="set-info"><h4>强调色</h4><p>应用于高亮与交互元素</p></div>
+          <div class="swatches">
+            <button class="swatch on" style="background:var(--accent)" title="蓝"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></button>
+            <button class="swatch" style="background:var(--purple)" title="紫"></button>
+            <button class="swatch" style="background:var(--pink)" title="粉"></button>
+            <button class="swatch" style="background:var(--orange)" title="橙"></button>
+            <button class="swatch" style="background:var(--green)" title="绿"></button>
+            <button class="swatch" style="background:var(--cyan)" title="青"></button>
+          </div>
+        </div>
+        <div class="set-row">
+          <div class="set-info"><h4>自定义 CSS</h4><p>注入全局样式覆盖，保存后即时生效</p></div>
+          <button class="btn btn-sm">编辑</button>
+        </div>
+        <div class="set-row">
+          <div class="set-info"><h4>语言</h4><p>界面显示语言</p></div>
+          <select class="select">
+            <option selected>简体中文</option>
+            <option>繁體中文</option>
+            <option>English</option>
+            <option>日本語</option>
+          </select>
+        </div>
+        <div class="set-row">
+          <div class="set-info"><h4>启动页</h4><p>打开主窗口时默认显示的页面</p></div>
+          <select class="select">
+            <option selected>仪表盘</option>
+            <option>节点</option>
+            <option>连接</option>
+            <option>订阅</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- ⑤ 关于 -->
+      <div class="card">
+        <div class="card-head">
+          <span class="card-ic" style="color:var(--green)"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 7.5h.01"/></svg></span>
+          <h3>关于</h3>
+        </div>
+        <div class="set-row">
+          <div class="about-logo"><svg viewBox="0 0 24 24"><path d="M5 19V5l9 14h5V5"/></svg></div>
+          <div class="set-info"><h4>ClashNova <span class="num">v2.0.0</span></h4><p>Build 20260602 · Tauri 2.5 · Windows x64</p></div>
+          <div class="ctl"><span class="badge b-blue">已是最新</span><button class="btn btn-primary btn-sm">检查更新</button></div>
+        </div>
+        <div class="set-row">
+          <div class="set-info"><h4>开源协议</h4><p>基于 MIT License 发布</p></div>
+          <span class="link">github.com/clashnova/clashnova<svg viewBox="0 0 24 24"><path d="M14 4.5h5.5V10M19.5 4.5L11 13"/><path d="M19 13.5V18a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h4.5"/></svg></span>
+        </div>
+        <div class="set-row">
+          <div class="set-info"><h4>目录</h4><p>在资源管理器中打开应用目录</p></div>
+          <div class="ctl" style="gap:6px">
+            <button class="btn btn-sm"><svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg>配置目录</button>
+            <button class="btn btn-sm"><svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg>内核目录</button>
+            <button class="btn btn-sm"><svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg>日志目录</button>
+          </div>
+        </div>
+        <div class="set-row">
+          <div class="set-info"><h4>重置</h4><p>清除全部设置与缓存数据，不可撤销</p></div>
+          <button class="btn btn-sm btn-danger"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 2.6-6.3L3 8"/><path d="M3 3v5h5"/></svg>恢复默认设置</button>
+        </div>
+      </div>
+
+    </div>
+    <!-- ============ 右列 ============ -->
+    <div class="set-col">
+
+      <!-- ② 内核 -->
+      <div class="card">
+        <div class="card-head">
+          <span class="card-ic" style="color:var(--cyan)"><svg viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="2"/><rect x="9.5" y="9.5" width="5" height="5" rx="1"/><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"/></svg></span>
+          <h3>Clash 内核</h3>
+          <div class="card-actions"><span class="chip">mihomo v1.19.2</span></div>
+        </div>
+        <div class="set-row">
+          <div class="set-info"><h4>混合端口</h4><p>HTTP 与 SOCKS5 共用端口</p></div>
+          <input class="input num" value="7897" style="width:90px">
+        </div>
+        <div class="set-row">
+          <div class="set-info"><h4>外部控制</h4><p>RESTful API 监听地址</p></div>
+          <input class="input num" value="127.0.0.1:9097" style="width:150px">
+        </div>
+        <div class="set-row">
+          <div class="set-info"><h4>API 密钥</h4><p>外部控制访问令牌</p></div>
+          <input class="input num" type="password" value="7kQx2mZpR4" style="width:150px">
+        </div>
+        <div class="set-row">
+          <div class="set-info"><h4>允许局域网</h4><p>接受来自局域网设备的连接</p></div>
+          <div class="toggle"><div class="knob"></div></div>
+        </div>
+        <div class="set-row">
+          <div class="set-info"><h4>IPv6</h4><p>启用内核 IPv6 解析与出站</p></div>
+          <div class="toggle"><div class="knob"></div></div>
+        </div>
+        <div class="set-row">
+          <div class="set-info"><h4>日志等级</h4><p>内核运行日志详细程度</p></div>
+          <select class="select">
+            <option>silent</option>
+            <option>error</option>
+            <option>warning</option>
+            <option selected>info</option>
+            <option>debug</option>
+          </select>
+        </div>
+        <div class="set-row">
+          <div class="set-info"><h4>DNS 覆写</h4><p>使用内置 DNS 配置</p></div>
+          <div class="toggle on"><div class="knob"></div></div>
+        </div>
+        <div class="set-row">
+          <div class="set-info"><h4>内核版本</h4><p>当前通道 Stable · 2026-05-18</p></div>
+          <div class="ctl">
+            <div class="seg">
+              <button class="seg-item on">Stable</button>
+              <button class="seg-item">Alpha</button>
+            </div>
+            <button class="btn btn-sm">检查更新</button>
+          </div>
+        </div>
+        <div class="set-row">
+          <div class="set-info"><h4>GeoData</h4><p class="mono-val">geoip.dat · 更新于 3 天前</p></div>
+          <button class="btn btn-sm">立即更新</button>
+        </div>
+        <div class="set-row">
+          <div class="set-info"><h4>UWP 回环豁免</h4><p>解除 UWP 应用本地回环限制</p></div>
+          <button class="btn btn-sm">打开工具</button>
+        </div>
+        <div class="set-row">
+          <div class="set-info"><h4>Web UI</h4><p>在浏览器中打开 metacubexd 面板</p></div>
+          <button class="btn btn-sm">跳转面板</button>
+        </div>
+      </div>
+
+      <!-- ④ 热键 -->
+      <div class="card">
+        <div class="card-head">
+          <span class="card-ic" style="color:var(--orange)"><svg viewBox="0 0 24 24"><rect x="2.5" y="6" width="19" height="12" rx="2"/><path d="M6.5 10h.01M10 10h.01M13.5 10h.01M17 10h.01M6.5 14h.01M17 14h.01M9.5 14h5"/></svg></span>
+          <h3>热键</h3>
+          <div class="card-actions"><button class="btn btn-sm"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>添加</button></div>
+        </div>
+        <div class="set-row">
+          <div class="set-info"><h4>显示/隐藏主窗口</h4></div>
+          <div class="keys"><span class="kbd">Ctrl</span><span class="kbd">Shift</span><span class="kbd">D</span></div>
+        </div>
+        <div class="set-row">
+          <div class="set-info"><h4>切换系统代理</h4></div>
+          <div class="keys"><span class="kbd">Ctrl</span><span class="kbd">Shift</span><span class="kbd">P</span></div>
+        </div>
+        <div class="set-row">
+          <div class="set-info"><h4>切换 TUN</h4></div>
+          <div class="keys"><span class="kbd">Ctrl</span><span class="kbd">Shift</span><span class="kbd">T</span></div>
+        </div>
+        <div class="set-row">
+          <div class="set-info"><h4>出站模式轮换</h4></div>
+          <div class="keys"><span class="kbd">Ctrl</span><span class="kbd">Shift</span><span class="kbd">M</span></div>
+        </div>
+        <div class="set-row">
+          <div class="set-info"><h4>暂停全部代理</h4></div>
+          <div class="keys"><span class="kbd">Ctrl</span><span class="kbd">Shift</span><span class="kbd">Z</span></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>

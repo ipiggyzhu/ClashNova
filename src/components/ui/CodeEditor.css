@@ -1,0 +1,33 @@
+.code-editor-shell{
+  flex:1 1 auto;
+  min-height:0;
+  width:100%;
+  display:flex;
+  overflow:hidden;
+}
+
+.code-editor-shell .code-editor,
+.code-editor-shell .cm-editor{
+  flex:1 1 auto;
+  min-width:0;
+  min-height:0;
+  height:100%;
+  width:100%;
+}
+
+.code-editor-shell .cm-scroller{
+  height:100%;
+  overflow-y:scroll !important;
+  overflow-x:auto !important;
+  scrollbar-gutter:stable;
+  overscroll-behavior:contain;
+}
+
+.code-editor-shell .cm-content{
+  min-height:100%;
+}
+
+.code-editor-shell .cm-tooltip-autocomplete ul{
+  max-height:240px;
+  overflow-y:auto;
+}

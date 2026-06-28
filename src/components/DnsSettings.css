@@ -1,0 +1,192 @@
+.dns-mask {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  animation: fade-in 0.15s ease;
+}
+
+.dns-drawer {
+  background: var(--bg);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xl);
+  width: min(640px, calc(100vw - 64px));
+  max-height: calc(100vh - 64px);
+  display: flex;
+  flex-direction: column;
+  animation: slide-up 0.2s ease;
+}
+
+.dns-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--line);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-1);
+}
+
+.dns-head .spacer {
+  flex: 1;
+}
+
+.dns-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 20px;
+}
+
+.dns-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  background: var(--red-bg, rgba(239, 68, 68, 0.1));
+  border: 1px solid var(--red, #ef4444);
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  color: var(--red, #ef4444);
+  line-height: 1.4;
+}
+
+.dns-error svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.dns-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  background: var(--orange-bg, rgba(251, 146, 60, 0.1));
+  border: 1px solid var(--orange, #fb923c);
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  color: var(--orange, #fb923c);
+  line-height: 1.4;
+}
+
+.dns-warning svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.dns-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line-2);
+}
+
+.dns-row:last-child {
+  border-bottom: none;
+}
+
+.dns-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.dns-info h4 {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-1);
+  margin: 0 0 2px;
+}
+
+.dns-info p {
+  font-size: 12px;
+  color: var(--text-3);
+  margin: 0;
+}
+
+.dns-ctrl {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.dns-section-title {
+  margin: 18px 0 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.dns-field {
+  display: grid;
+  gap: 5px;
+  padding: 10px 0;
+}
+
+.dns-field label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.dns-field p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--text-3);
+}
+
+.dns-field textarea {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--card-2);
+  color: var(--text);
+  font: 12px/1.55 var(--mono);
+  padding: 9px 10px;
+  resize: vertical;
+  outline: none;
+}
+
+.dns-field textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-dim);
+}
+
+.dns-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 16px 20px;
+  border-top: 1px solid var(--line);
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slide-up {
+  from {
+    transform: translateY(20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}

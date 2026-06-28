@@ -1,0 +1,73 @@
+[package]
+name = "clashnova"
+version = "2.4.6"
+edition = "2021"
+description = "ClashNova v2 — 基于 mihomo 的 Windows 桌面代理客户端"
+license = "MIT"
+
+# 二进制名与 productName 对齐, 避免 NSIS/MSI 包内可执行文件名不一致
+[[bin]]
+name = "clashnova"
+path = "src/main.rs"
+
+# 服务安装程序（独立可执行文件）
+[[bin]]
+name = "clashnova-service-install"
+path = "src/bin/service_install.rs"
+
+# 服务卸载程序（独立可执行文件）
+[[bin]]
+name = "clashnova-service-uninstall"
+path = "src/bin/service_uninstall.rs"
+
+[[bin]]
+name = "clashnova-service"
+path = "src/bin/service_host.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[target.'cfg(windows)'.build-dependencies]
+winres = "0.1"
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-shell = "2"
+tauri-plugin-autostart = "2"
+tauri-plugin-single-instance = "2"
+tauri-plugin-process = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-log = "2"
+tauri-plugin-global-shortcut = "2"
+tokio = { version = "1", features = ["rt-multi-thread", "process", "time", "macros"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+nova-core = { path = "../crates/nova-core" }
+nova-service-ipc = { path = "../crates/nova-service-ipc", features = ["client", "server"] }
+sysproxy = "0.3"
+rusqlite = { version = "0.32", features = ["bundled"] }
+dirs = "6"
+thiserror = "2"
+once_cell = "1.21"
+# tauri-plugin-log 的日志门面(写运行日志必需, 为其传递依赖, 不引入新依赖树)
+log = "0.4"
+env_logger = "0.11"
+
+# Windows 专属依赖按需补充; 当前注册表代理读写由 sysproxy crate 内部封装,
+# 进程树终止由 tauri-plugin-shell 的 CommandChild::kill 覆盖, 暂无额外条目。
+
+[target.'cfg(windows)'.dependencies]
+windows-service = "0.7"
+runas = "1.2"
+deelevate = "0.2"
+winreg = "0.10"
+
+[target.'cfg(windows)'.dependencies.windows]
+version = "0.58"
+features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_System_Threading",
+]

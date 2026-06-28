@@ -1,0 +1,240 @@
+<style>
+#page-tray .board{display:flex;gap:40px;justify-content:center;align-items:flex-start;padding:30px 0;flex-wrap:wrap}
+#page-tray .col{display:flex;flex-direction:column;align-items:center;gap:14px}
+#page-tray .cap{font-size:13px;color:var(--text-3)}
+#page-tray .pop{width:340px;background:var(--card);border:1px solid var(--line-2);border-radius:14px;box-shadow:var(--shadow);overflow:hidden;font-size:12.5px;color:var(--text)}
+#page-tray .pop .sep{height:1px;background:var(--line)}
+#page-tray .pop .spacer{flex:1}
+#page-tray .pop svg{flex:none}
+#page-tray .p-head{display:flex;align-items:center;gap:9px;padding:12px 14px 10px}
+#page-tray .p-logo{width:22px;height:22px;border-radius:6px;background:linear-gradient(135deg,#0A84FF,#BF5AF2);display:flex;align-items:center;justify-content:center;color:#fff;box-shadow:0 2px 6px rgba(10,132,255,.35)}
+#page-tray .p-name{font-weight:600;font-size:13px}
+#page-tray .p-dot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 6px var(--green)}
+#page-tray .p-run{font-size:11px;color:var(--text-2)}
+#page-tray .rate{margin:0 10px 10px;background:var(--card-2);border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+#page-tray .rate-row{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text)}
+#page-tray .rate-row .rt{color:var(--text-2);font-size:11px}
+#page-tray .rate-ic{display:flex;align-items:center;color:var(--accent)}
+#page-tray .rate-ic.mem{color:var(--purple)}
+#page-tray .spark-wrap{position:relative;height:44px;margin:5px 0 4px}
+#page-tray .spark-wrap .spark{position:absolute;inset:0}
+#page-tray .quota{padding:10px 14px}
+#page-tray .quota-row{display:flex;align-items:center;gap:7px;font-size:11.5px}
+#page-tray .quota-row .qv{font-size:11px;color:var(--text-2)}
+#page-tray .quota-row .qv b{color:var(--green);font-weight:600}
+#page-tray .q-bar{height:4px;border-radius:2px;background:var(--card-3);margin-top:7px;overflow:hidden}
+#page-tray .q-bar i{display:block;height:100%;width:32.4%;border-radius:2px;background:linear-gradient(90deg,#32D74B,#30C843)}
+#page-tray .m-row{display:flex;align-items:center;gap:9px;padding:9px 14px}
+#page-tray .m-row .ric{display:flex;align-items:center;color:var(--text-2)}
+#page-tray .g-row{display:flex;align-items:center;gap:9px;padding:8px 14px;cursor:default}
+#page-tray .g-row:hover,#page-tray .m-row.hov:hover{background:var(--card-2)}
+#page-tray .g-dot{width:8px;height:8px;border-radius:50%;flex:none}
+#page-tray .g-cur{font-size:11px;color:var(--text-3)}
+#page-tray .chev{color:var(--text-3);display:flex;align-items:center}
+#page-tray .pop .seg-sm .seg-item{padding:3px 10px;font-size:11px}
+#page-tray .kbds{display:flex;gap:3px}
+#page-tray .kbd{font-size:10px;line-height:1;padding:3px 5px;border:1px solid var(--line-2);border-bottom-width:2px;border-radius:5px;background:var(--card-2);color:var(--text-2)}
+#page-tray .quit{color:var(--red)}
+#page-tray .quit .ric{color:var(--red)}
+</style>
+<section class="page" id="page-tray" data-title="托盘弹窗">
+  <div class="board">
+
+    <!-- ════ 深色版 ════ -->
+    <div class="col">
+      <div class="pop">
+        <!-- ① 头部 -->
+        <div class="p-head">
+          <span class="p-logo"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 18 6 6 18 18 18 6"/></svg></span>
+          <span class="p-name">ClashNova</span>
+          <span class="spacer"></span>
+          <span class="p-dot"></span><span class="p-run">运行中</span>
+        </div>
+        <!-- ② 速率卡 -->
+        <div class="rate">
+          <div class="rate-row">
+            <span class="rate-ic"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg></span>
+            <span class="num">51</span><span>连接</span>
+            <span class="spacer"></span>
+            <span class="rt num">0 KB/s · 467.8 KB</span>
+          </div>
+          <div class="spark-wrap">
+            <div class="spark" data-pts="2,3,2,6,22,5,2,3,2,15,4,2,2,8,30,7,3,2,5,12,3,2,18,6,2,3,9,2" data-color="#BF5AF2" data-h="44" data-fill="1"></div>
+            <div class="spark" data-pts="1,2,8,3,2,12,4,2,6,2,1,9,3,2,14,5,2,3,7,2,10,3,2,5,2,8,3,1" data-color="#64D2FF" data-h="44" data-dot="1"></div>
+          </div>
+          <div class="rate-row">
+            <span class="rate-ic mem"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="6" width="16" height="12" rx="2"/><path d="M8 18v2M12 18v2M16 18v2M8 4v2M12 4v2M16 4v2"/></svg></span>
+            <span class="num">64</span><span>MB</span>
+            <span class="spacer"></span>
+            <span class="rt num">0 KB/s · 15.3 MB</span>
+          </div>
+        </div>
+        <div class="sep"></div>
+        <!-- ③ 配额 -->
+        <div class="quota">
+          <div class="quota-row">
+            <span class="ric" style="color:var(--green);display:flex"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m8 11 4 4 4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg></span>
+            <span>订阅</span><span style="color:var(--text-2)">剩余 37 天</span>
+            <span class="spacer"></span>
+            <span class="qv num"><b>162 GB</b> / 500 GB</span>
+          </div>
+          <div class="q-bar"><i></i></div>
+        </div>
+        <div class="sep"></div>
+        <!-- ④ 开关组 -->
+        <div class="m-row">
+          <span class="ric"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a14 14 0 0 1 0 18 14 14 0 0 1 0-18"/></svg></span>
+          <span>系统代理</span><span class="spacer"></span>
+          <span class="toggle on"></span>
+        </div>
+        <div class="m-row">
+          <span class="ric"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 4 7v6c0 4.4 3.4 7.4 8 8 4.6-.6 8-3.6 8-8V7l-8-4Z"/></svg></span>
+          <span>TUN 模式</span><span class="spacer"></span>
+          <span class="toggle"></span>
+        </div>
+        <div class="sep"></div>
+        <!-- ⑤ 模式 -->
+        <div class="m-row">
+          <span class="ric"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h6l2-8 3 16 2-8h1"/></svg></span>
+          <span>出站模式</span><span class="spacer"></span>
+          <span class="seg seg-sm"><span class="seg-item">直连</span><span class="seg-item on">规则</span><span class="seg-item">全局</span></span>
+        </div>
+        <div class="sep"></div>
+        <!-- ⑥ 组快速切换 -->
+        <div class="g-row"><span class="g-dot" style="background:var(--orange)"></span><span>Auto</span><span class="spacer"></span><span class="g-cur">Manual</span><span class="chev"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg></span></div>
+        <div class="g-row"><span class="g-dot" style="background:var(--purple)"></span><span>AI</span><span class="spacer"></span><span class="g-cur">US-Auto</span><span class="chev"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg></span></div>
+        <div class="g-row"><span class="g-dot" style="background:var(--accent)"></span><span>Social</span><span class="spacer"></span><span class="g-cur">Auto</span><span class="chev"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg></span></div>
+        <div class="g-row"><span class="g-dot" style="background:var(--pink)"></span><span>Streaming</span><span class="spacer"></span><span class="g-cur">Auto</span><span class="chev"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg></span></div>
+        <div class="g-row"><span class="g-dot" style="background:var(--cyan)"></span><span>Google</span><span class="spacer"></span><span class="g-cur">Auto</span><span class="chev"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg></span></div>
+        <div class="g-row"><span class="g-dot" style="background:var(--red)"></span><span>China</span><span class="spacer"></span><span class="g-cur">DIRECT</span><span class="chev"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg></span></div>
+        <div class="sep"></div>
+        <!-- ⑦ 配置 -->
+        <div class="m-row hov">
+          <span class="ric"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 9 5-9 5-9-5 9-5Z"/><path d="m3 13 9 5 9-5"/></svg></span>
+          <span>切换配置</span><span class="spacer"></span>
+          <span class="g-cur">full.en</span>
+          <span class="chev"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg></span>
+        </div>
+        <div class="sep"></div>
+        <!-- ⑧ 链接组 -->
+        <div class="m-row hov">
+          <span class="ric"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M8 4v5"/></svg></span>
+          <span>打开主面板</span><span class="spacer"></span>
+          <span class="kbds"><span class="kbd">Ctrl</span><span class="kbd">Shift</span><span class="kbd">D</span></span>
+        </div>
+        <div class="m-row hov">
+          <span class="ric"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a13 13 0 0 1 0 18 13 13 0 0 1 0-18"/></svg></span>
+          <span>Web Dashboard</span><span class="spacer"></span>
+          <span class="chev"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg></span>
+        </div>
+        <div class="sep"></div>
+        <!-- ⑨ 退出 -->
+        <div class="m-row hov quit">
+          <span class="ric"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v8"/><path d="M6.3 6.3a8 8 0 1 0 11.4 0"/></svg></span>
+          <span>退出 ClashNova</span>
+        </div>
+      </div>
+      <div class="cap">深色模式</div>
+    </div>
+
+    <!-- ════ 浅色版 ════ -->
+    <div class="col">
+      <div data-theme="light">
+        <div class="pop">
+          <!-- ① 头部 -->
+          <div class="p-head">
+            <span class="p-logo"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 18 6 6 18 18 18 6"/></svg></span>
+            <span class="p-name">ClashNova</span>
+            <span class="spacer"></span>
+            <span class="p-dot"></span><span class="p-run">运行中</span>
+          </div>
+          <!-- ② 速率卡 -->
+          <div class="rate">
+            <div class="rate-row">
+              <span class="rate-ic"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg></span>
+              <span class="num">51</span><span>连接</span>
+              <span class="spacer"></span>
+              <span class="rt num">0 KB/s · 467.8 KB</span>
+            </div>
+            <div class="spark-wrap">
+              <div class="spark" data-pts="2,3,2,6,22,5,2,3,2,15,4,2,2,8,30,7,3,2,5,12,3,2,18,6,2,3,9,2" data-color="#BF5AF2" data-h="44" data-fill="1"></div>
+              <div class="spark" data-pts="1,2,8,3,2,12,4,2,6,2,1,9,3,2,14,5,2,3,7,2,10,3,2,5,2,8,3,1" data-color="#64D2FF" data-h="44" data-dot="1"></div>
+            </div>
+            <div class="rate-row">
+              <span class="rate-ic mem"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="6" width="16" height="12" rx="2"/><path d="M8 18v2M12 18v2M16 18v2M8 4v2M12 4v2M16 4v2"/></svg></span>
+              <span class="num">64</span><span>MB</span>
+              <span class="spacer"></span>
+              <span class="rt num">0 KB/s · 15.3 MB</span>
+            </div>
+          </div>
+          <div class="sep"></div>
+          <!-- ③ 配额 -->
+          <div class="quota">
+            <div class="quota-row">
+              <span class="ric" style="color:var(--green);display:flex"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m8 11 4 4 4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg></span>
+              <span>订阅</span><span style="color:var(--text-2)">剩余 37 天</span>
+              <span class="spacer"></span>
+              <span class="qv num"><b>162 GB</b> / 500 GB</span>
+            </div>
+            <div class="q-bar"><i></i></div>
+          </div>
+          <div class="sep"></div>
+          <!-- ④ 开关组 -->
+          <div class="m-row">
+            <span class="ric"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a14 14 0 0 1 0 18 14 14 0 0 1 0-18"/></svg></span>
+            <span>系统代理</span><span class="spacer"></span>
+            <span class="toggle on"></span>
+          </div>
+          <div class="m-row">
+            <span class="ric"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 4 7v6c0 4.4 3.4 7.4 8 8 4.6-.6 8-3.6 8-8V7l-8-4Z"/></svg></span>
+            <span>TUN 模式</span><span class="spacer"></span>
+            <span class="toggle"></span>
+          </div>
+          <div class="sep"></div>
+          <!-- ⑤ 模式 -->
+          <div class="m-row">
+            <span class="ric"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h6l2-8 3 16 2-8h1"/></svg></span>
+            <span>出站模式</span><span class="spacer"></span>
+            <span class="seg seg-sm"><span class="seg-item">直连</span><span class="seg-item on">规则</span><span class="seg-item">全局</span></span>
+          </div>
+          <div class="sep"></div>
+          <!-- ⑥ 组快速切换 -->
+          <div class="g-row"><span class="g-dot" style="background:var(--orange)"></span><span>Auto</span><span class="spacer"></span><span class="g-cur">Manual</span><span class="chev"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg></span></div>
+          <div class="g-row"><span class="g-dot" style="background:var(--purple)"></span><span>AI</span><span class="spacer"></span><span class="g-cur">US-Auto</span><span class="chev"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg></span></div>
+          <div class="g-row"><span class="g-dot" style="background:var(--accent)"></span><span>Social</span><span class="spacer"></span><span class="g-cur">Auto</span><span class="chev"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg></span></div>
+          <div class="g-row"><span class="g-dot" style="background:var(--pink)"></span><span>Streaming</span><span class="spacer"></span><span class="g-cur">Auto</span><span class="chev"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg></span></div>
+          <div class="g-row"><span class="g-dot" style="background:var(--cyan)"></span><span>Google</span><span class="spacer"></span><span class="g-cur">Auto</span><span class="chev"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg></span></div>
+          <div class="g-row"><span class="g-dot" style="background:var(--red)"></span><span>China</span><span class="spacer"></span><span class="g-cur">DIRECT</span><span class="chev"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg></span></div>
+          <div class="sep"></div>
+          <!-- ⑦ 配置 -->
+          <div class="m-row hov">
+            <span class="ric"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 9 5-9 5-9-5 9-5Z"/><path d="m3 13 9 5 9-5"/></svg></span>
+            <span>切换配置</span><span class="spacer"></span>
+            <span class="g-cur">full.en</span>
+            <span class="chev"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg></span>
+          </div>
+          <div class="sep"></div>
+          <!-- ⑧ 链接组 -->
+          <div class="m-row hov">
+            <span class="ric"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M8 4v5"/></svg></span>
+            <span>打开主面板</span><span class="spacer"></span>
+            <span class="kbds"><span class="kbd">Ctrl</span><span class="kbd">Shift</span><span class="kbd">D</span></span>
+          </div>
+          <div class="m-row hov">
+            <span class="ric"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a13 13 0 0 1 0 18 13 13 0 0 1 0-18"/></svg></span>
+            <span>Web Dashboard</span><span class="spacer"></span>
+            <span class="chev"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg></span>
+          </div>
+          <div class="sep"></div>
+          <!-- ⑨ 退出 -->
+          <div class="m-row hov quit">
+            <span class="ric"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v8"/><path d="M6.3 6.3a8 8 0 1 0 11.4 0"/></svg></span>
+            <span>退出 ClashNova</span>
+          </div>
+        </div>
+      </div>
+      <div class="cap">浅色模式</div>
+    </div>
+
+  </div>
+</section>

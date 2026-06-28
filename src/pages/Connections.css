@@ -1,0 +1,36 @@
+.pg-connections{display:flex;flex-direction:column;gap:14px;min-width:0}
+.pg-connections .toolbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;min-width:0}
+.pg-connections .toolbar .search-wrap{width:260px;max-width:100%}
+.pg-connections .toolbar .search-wrap .input{width:100%}
+.pg-connections .toolbar .spacer{flex:1}
+.pg-connections .conn-card{width:100%;min-width:0;overflow-x:auto;overflow-y:hidden}
+.pg-connections .conn-card .tbl{min-width:1120px;table-layout:fixed}
+.pg-connections .tbl th,
+.pg-connections .tbl td{text-align:center}
+.pg-connections .tbl th:nth-child(1){width:22%}
+.pg-connections .tbl th:nth-child(2){width:13%}
+.pg-connections .tbl th:nth-child(3){width:15%}
+.pg-connections .tbl th:nth-child(4){width:20%}
+.pg-connections .tbl th:nth-child(5),
+.pg-connections .tbl th:nth-child(6),
+.pg-connections .tbl th:nth-child(7){width:8%}
+.pg-connections .tbl th:nth-child(8){width:5%}
+.pg-connections .tbl th:nth-child(9){width:3%}
+.pg-connections .host-cell .h{font-weight:600}
+.pg-connections .host-cell .h,
+.pg-connections .host-cell .ip,
+.pg-connections .chain{display:block;overflow:hidden;text-overflow:ellipsis;text-align:center;white-space:nowrap}
+.pg-connections .host-cell .h .port{color:var(--text-3);font-weight:400}
+.pg-connections .host-cell .ip{font-size:10.5px;color:var(--text-3);font-family:var(--mono)}
+.pg-connections .proc{display:inline-flex;align-items:center;gap:7px;min-width:0;max-width:100%}
+.pg-connections .proc span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pg-connections .proc i{width:7px;height:7px;border-radius:50%;flex:0 0 auto;
+  box-shadow:0 0 5px color-mix(in srgb,currentColor 70%,transparent)}
+.pg-connections .chain{color:var(--text-2);font-size:11.5px}
+.pg-connections .chain.reject{color:var(--red);font-weight:600}
+.pg-connections .chip.rj{color:var(--red);border-color:color-mix(in srgb,var(--red) 35%,transparent);
+  background:rgba(255,69,58,.10)}
+.pg-connections td.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.pg-connections .icon-btn{margin:0 auto}
+.pg-connections .dur{color:var(--text-3)}
+.pg-connections .empty{padding:40px;text-align:center;color:var(--text-3);font-size:12.5px}

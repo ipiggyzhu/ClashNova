@@ -1,0 +1,215 @@
+<style>
+  #page-routemap .rm-card{overflow:hidden}
+  #page-routemap .rm-map{position:relative;height:560px;background:#0d0d10}
+  #page-routemap .rm-map svg.globe{width:100%;height:100%}
+  #page-routemap .rm-overlay{position:absolute;top:14px;left:14px;background:rgba(22,22,26,.78);
+    border:1px solid rgba(255,255,255,.09);border-radius:10px;padding:10px 14px;backdrop-filter:blur(8px);min-width:180px}
+  #page-routemap .rm-overlay h5{font-size:11px;font-weight:600;color:#9b9ba3;margin-bottom:6px}
+  #page-routemap .rm-overlay .ov-row{display:flex;align-items:baseline;gap:18px;font-size:11px;
+    color:#9b9ba3;line-height:1.9}
+  #page-routemap .rm-overlay .ov-row b{font-family:var(--mono);font-variant-numeric:tabular-nums;
+    font-size:12.5px;color:#ececf0;font-weight:600;margin-left:auto}
+  #page-routemap .rm-stamp{position:absolute;right:16px;bottom:12px;font-size:10.5px;color:#6e6e76;
+    display:flex;align-items:center;gap:6px}
+  #page-routemap .rm-stamp .dot{width:6px;height:6px;border-radius:50%;background:var(--green)}
+  #page-routemap .rm-foot{display:flex;align-items:center;gap:18px;padding:11px 16px;
+    border-top:1px solid var(--line);font-size:11px;color:var(--text-2)}
+  #page-routemap .lg{display:flex;align-items:center;gap:6px}
+  #page-routemap .lg i{width:14px;height:3px;border-radius:2px;display:inline-block}
+  #page-routemap .lg b{font-family:var(--mono);font-weight:600;color:var(--text)}
+  #page-routemap .rm-hint{margin-left:auto;color:var(--text-3)}
+  #page-routemap .rm-hint kbd{font-family:var(--mono);font-size:10px;background:var(--card-2);
+    border:1px solid var(--line);border-radius:4px;padding:1px 5px}
+</style>
+<section class="page" id="page-routemap" data-title="路由地图">
+  <div class="card rm-card">
+    <div class="card-head">
+      <span class="card-ic" style="color:var(--orange)"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3.5 9.5h17M3.5 14.5h17M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg></span>
+      <h3>路由地图</h3>
+      <div class="card-actions">
+        <div class="seg"><button class="seg-item on">球面视图</button><button class="seg-item">平面视图</button></div>
+        <div class="seg"><button class="seg-item">实时</button><button class="seg-item">今日</button><button class="seg-item on">本月</button><button class="seg-item">上月</button></div>
+        <button class="icon-btn" title="展开为平面地图"><svg viewBox="0 0 24 24"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg></button>
+        <button class="icon-btn" title="刷新"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.6-6.3M21 4v5h-5"/></svg></button>
+      </div>
+    </div>
+    <div class="rm-map">
+      <svg class="globe" viewBox="0 0 1100 620" preserveAspectRatio="xMidYMid slice">
+        <defs>
+          <radialGradient id="rm-sphere" cx="41%" cy="33%" r="75%">
+            <stop offset="0%" stop-color="#26262e"/>
+            <stop offset="55%" stop-color="#1a1a20"/>
+            <stop offset="88%" stop-color="#121216"/>
+            <stop offset="100%" stop-color="#0e0e12"/>
+          </radialGradient>
+          <radialGradient id="rm-atmo" cx="50%" cy="50%" r="50%">
+            <stop offset="78%" stop-color="#0A84FF" stop-opacity="0"/>
+            <stop offset="92%" stop-color="#2b94ff" stop-opacity=".16"/>
+            <stop offset="98%" stop-color="#64D2FF" stop-opacity=".34"/>
+            <stop offset="100%" stop-color="#64D2FF" stop-opacity="0"/>
+          </radialGradient>
+          <linearGradient id="rm-rim" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stop-color="#64D2FF" stop-opacity=".25"/>
+            <stop offset="50%" stop-color="#64D2FF" stop-opacity=".04"/>
+            <stop offset="100%" stop-color="#0A84FF" stop-opacity=".18"/>
+          </linearGradient>
+          <filter id="rm-blur" x="-20%" y="-20%" width="140%" height="140%">
+            <feGaussianBlur stdDeviation="5"/>
+          </filter>
+          <clipPath id="rm-clip"><circle cx="550" cy="305" r="226"/></clipPath>
+          <path id="rm-plane" d="M0,-5.5 L1.4,-1.2 5.6,0.4 5.6,1.8 1.2,1 0.8,4.4 2.2,5.6 2.2,6.6 0,6 -2.2,6.6 -2.2,5.6 -0.8,4.4 -1.2,1 -5.6,1.8 -5.6,0.4 -1.4,-1.2 Z"/>
+        </defs>
+
+        <!-- 星空 -->
+        <g fill="#fff">
+          <circle cx="60" cy="60" r="1.1" opacity=".32"/><circle cx="150" cy="160" r=".8" opacity=".2"/>
+          <circle cx="95" cy="330" r="1" opacity=".26"/><circle cx="200" cy="480" r="1.2" opacity=".3"/>
+          <circle cx="70" cy="540" r=".7" opacity=".18"/><circle cx="260" cy="70" r=".9" opacity=".24"/>
+          <circle cx="320" cy="540" r=".8" opacity=".2"/><circle cx="180" cy="260" r=".7" opacity=".16"/>
+          <circle cx="880" cy="80" r="1.1" opacity=".3"/><circle cx="960" cy="200" r=".8" opacity=".22"/>
+          <circle cx="1040" cy="120" r="1" opacity=".28"/><circle cx="920" cy="420" r="1.1" opacity=".26"/>
+          <circle cx="1000" cy="520" r=".8" opacity=".2"/><circle cx="850" cy="560" r=".9" opacity=".22"/>
+          <circle cx="1060" cy="330" r=".7" opacity=".18"/><circle cx="420" cy="40" r=".9" opacity=".2"/>
+          <circle cx="660" cy="30" r=".8" opacity=".18"/><circle cx="540" cy="595" r=".9" opacity=".2"/>
+          <circle cx="760" cy="585" r=".7" opacity=".16"/><circle cx="350" cy="120" r=".6" opacity=".14"/>
+          <circle cx="240" cy="380" r="1.4" opacity=".22" fill="#64D2FF"/>
+          <circle cx="930" cy="300" r="1.3" opacity=".2" fill="#64D2FF"/>
+          <circle cx="120" cy="440" r="1.2" opacity=".16" fill="#BF5AF2"/>
+        </g>
+
+        <!-- 大气辉光 -->
+        <circle cx="550" cy="305" r="252" fill="url(#rm-atmo)"/>
+        <circle cx="550" cy="305" r="231" fill="none" stroke="#64D2FF" stroke-opacity=".2" stroke-width="1.5" filter="url(#rm-blur)"/>
+
+        <!-- 球体 -->
+        <circle cx="550" cy="305" r="226" fill="url(#rm-sphere)" stroke="rgba(255,255,255,.09)" stroke-width="1"/>
+        <circle cx="550" cy="305" r="226" fill="url(#rm-rim)" opacity=".5"/>
+
+        <g clip-path="url(#rm-clip)">
+          <!-- 经纬网 -->
+          <g fill="none" stroke="rgba(255,255,255,.055)" stroke-width="1">
+            <ellipse cx="550" cy="305" rx="226" ry="226"/>
+            <ellipse cx="550" cy="305" rx="168" ry="225"/>
+            <ellipse cx="550" cy="305" rx="105" ry="224"/>
+            <ellipse cx="550" cy="305" rx="38" ry="224"/>
+            <path d="M324,305 a226,28 0 0 0 452,0"/>
+            <path d="M324,305 a226,28 0 0 1 452,0"/>
+            <path d="M335,230 a215,26 0 0 1 430,0"/>
+            <path d="M335,380 a215,26 0 0 0 430,0"/>
+            <path d="M376,155 a180,22 0 0 1 348,0"/>
+            <path d="M376,455 a180,22 0 0 0 348,0"/>
+            <path d="M455,90 a118,15 0 0 1 190,0"/>
+            <path d="M455,520 a118,15 0 0 0 190,0"/>
+          </g>
+          <!-- 大陆（简化低多边形, 东亚为视觉中心） -->
+          <g fill="#27272e" stroke="rgba(255,255,255,.05)" stroke-width="1">
+            <!-- 欧亚大陆主体 -->
+            <path d="M340,150 L420,128 510,122 585,138 640,160 668,196 660,232 690,250 700,288
+                     668,302 648,338 600,352 568,338 532,352 488,344 470,372 432,360 404,318
+                     368,300 352,258 332,216 326,178 Z"/>
+            <!-- 朝鲜半岛 -->
+            <path d="M676,242 L692,252 690,278 678,292 668,276 670,254 Z"/>
+            <!-- 日本列岛 -->
+            <path d="M742,210 L762,222 776,246 770,262 752,252 738,232 Z"/>
+            <path d="M726,266 L744,276 738,294 720,286 Z"/>
+            <!-- 中南半岛 / 马来群岛 -->
+            <path d="M520,372 L552,366 572,392 562,428 538,446 522,420 512,392 Z"/>
+            <path d="M548,462 L588,452 622,462 600,480 562,478 Z"/>
+            <path d="M636,420 L660,408 676,428 658,446 640,440 Z"/>
+            <!-- 印度次大陆 -->
+            <path d="M398,330 L438,322 458,352 440,392 414,404 396,368 Z"/>
+            <!-- 澳洲(北缘) -->
+            <path d="M620,500 L688,486 730,502 716,528 656,534 622,520 Z"/>
+          </g>
+
+          <!-- 球面投影光斑 -->
+          <ellipse cx="468" cy="222" rx="150" ry="105" fill="#fff" opacity=".025"/>
+        </g>
+
+        <!-- ===== 航线 (起点: 上海) ===== -->
+        <!-- 上海 → Tokyo 橙色束 -->
+        <g fill="none" stroke="#FF9F0A" stroke-linecap="round">
+          <path d="M632,272 Q700,176 758,228" stroke-width="2" opacity=".9"/>
+          <path d="M632,272 Q706,170 760,230" stroke-width="1.6" opacity=".6"/>
+          <path d="M632,272 Q712,166 762,233" stroke-width="1.3" opacity=".42"/>
+          <path d="M632,272 Q718,162 764,236" stroke-width="1.1" opacity=".28"/>
+          <path d="M632,272 Q724,158 766,239" stroke-width="1" opacity=".16"/>
+        </g>
+        <!-- 上海 → Osaka 粉 -->
+        <g fill="none" stroke="#FF375F" stroke-linecap="round">
+          <path d="M632,272 Q690,216 732,276" stroke-width="1.8" opacity=".85"/>
+          <path d="M632,272 Q694,210 734,279" stroke-width="1.2" opacity=".4"/>
+        </g>
+        <!-- 上海 → Seoul 黄 -->
+        <path d="M632,272 Q654,216 682,250" fill="none" stroke="#FFD60A" stroke-width="1.6" opacity=".8" stroke-linecap="round"/>
+        <!-- 上海 → Hong Kong 紫 -->
+        <g fill="none" stroke="#BF5AF2" stroke-linecap="round">
+          <path d="M632,272 Q586,318 596,360" stroke-width="1.9" opacity=".9"/>
+          <path d="M632,272 Q580,314 593,362" stroke-width="1.2" opacity=".45"/>
+        </g>
+        <!-- 上海 → Singapore 青 长弧 -->
+        <g fill="none" stroke="#40C8E0" stroke-linecap="round">
+          <path d="M632,272 Q500,360 556,464" stroke-width="1.9" opacity=".85"/>
+          <path d="M632,272 Q492,356 553,466" stroke-width="1.1" opacity=".38"/>
+        </g>
+        <!-- 上海 → 越过地平线 (San Francisco) 蓝, 虚线渐出球缘 -->
+        <path d="M632,272 Q760,120 905,170" fill="none" stroke="#0A84FF" stroke-width="1.7" opacity=".55"
+              stroke-linecap="round" stroke-dasharray="3 5"/>
+
+        <!-- 飞机 -->
+        <g fill="#fff" stroke="#0d0d10" stroke-width=".7">
+          <use href="#rm-plane" transform="translate(706,205) rotate(64) scale(1.15)"/>
+          <use href="#rm-plane" transform="translate(737,219) rotate(78) scale(.95)"/>
+          <use href="#rm-plane" transform="translate(700,238) rotate(96) scale(.9)"/>
+          <use href="#rm-plane" transform="translate(660,238) rotate(40) scale(.85)"/>
+          <use href="#rm-plane" transform="translate(598,330) rotate(190) scale(1)"/>
+          <use href="#rm-plane" transform="translate(540,400) rotate(195) scale(1.05)"/>
+          <use href="#rm-plane" transform="translate(826,140) rotate(55) scale(.9)"/>
+        </g>
+
+        <!-- 城市 -->
+        <g>
+          <!-- 上海 起点光晕 -->
+          <circle cx="632" cy="272" r="26" fill="#32D74B" opacity=".07"/>
+          <circle cx="632" cy="272" r="15" fill="#32D74B" opacity=".14"/>
+          <circle cx="632" cy="272" r="7" fill="none" stroke="#32D74B" stroke-opacity=".55" stroke-width="1.2"/>
+          <circle cx="632" cy="272" r="3.2" fill="#32D74B"/>
+          <text x="648" y="290" font-size="14" font-weight="600" fill="#32D74B">Shanghai</text>
+          <!-- 落地城市 -->
+          <circle cx="758" cy="228" r="3" fill="#fff"/><text x="768" y="224" font-size="13" fill="#c9c9cf">Tokyo</text>
+          <circle cx="732" cy="276" r="2.6" fill="#fff"/><text x="742" y="292" font-size="12" fill="#9b9ba3">Osaka</text>
+          <circle cx="682" cy="250" r="2.6" fill="#fff"/><text x="640" y="240" font-size="12" fill="#9b9ba3">Seoul</text>
+          <circle cx="596" cy="360" r="2.8" fill="#fff"/><text x="606" y="376" font-size="13" fill="#c9c9cf">Hong Kong</text>
+          <circle cx="556" cy="464" r="2.8" fill="#fff"/><text x="566" y="480" font-size="13" fill="#c9c9cf">Singapore</text>
+          <text x="912" y="166" font-size="12" fill="#6e6e76">San Francisco ↗</text>
+        </g>
+
+        <!-- 国名弱标注 -->
+        <g fill="#5a5a62" font-size="13" letter-spacing="4" opacity=".75">
+          <text x="430" y="262" font-size="20" letter-spacing="8">CHINA</text>
+          <text x="744" y="318">JAPAN</text>
+          <text x="404" y="430">INDIA</text>
+          <text x="612" y="525" opacity=".7">AUSTRALIA</text>
+        </g>
+      </svg>
+
+      <div class="rm-overlay">
+        <h5>本月概览</h5>
+        <div class="ov-row"><span>出口流量</span><b>286.4 GB</b></div>
+        <div class="ov-row"><span>代理连接</span><b>382,415 次</b></div>
+        <div class="ov-row"><span>活跃航线</span><b>12 条 · 5 城</b></div>
+        <div class="ov-row"><span>平均延迟</span><b>64 ms</b></div>
+      </div>
+      <div class="rm-stamp"><span class="dot"></span>6月1日 – 6月10日 · 更新于 14:32:08</div>
+    </div>
+    <div class="rm-foot">
+      <span style="color:var(--text-3)">线色 = 代理组</span>
+      <span class="lg"><i style="background:#FF9F0A"></i>Streaming <b>142.6 GB</b></span>
+      <span class="lg"><i style="background:#BF5AF2"></i>AI <b>64.2 GB</b></span>
+      <span class="lg"><i style="background:#40C8E0"></i>Social <b>38.9 GB</b></span>
+      <span class="lg"><i style="background:#FF375F"></i>Google <b>27.3 GB</b></span>
+      <span class="lg"><i style="background:#FFD60A"></i>其他 <b>13.4 GB</b></span>
+      <span class="rm-hint">拖拽旋转 · 滚轮缩放 · <kbd>平面视图</kbd> 展开为世界地图</span>
+    </div>
+  </div>
+</section>

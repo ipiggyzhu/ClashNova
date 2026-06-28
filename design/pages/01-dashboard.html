@@ -1,0 +1,333 @@
+<style>
+  #page-dashboard.on{display:flex;flex-direction:column;gap:14px}
+
+  /* ---- 通用 stat 网格(上下两排 + 竖分隔) ---- */
+  #page-dashboard .stat-grid{display:grid;grid-template-columns:1fr 1fr 1fr}
+  #page-dashboard .stat-grid>div{padding:1px 14px;display:flex;flex-direction:column;gap:6px;min-width:0}
+  #page-dashboard .stat-grid>div:first-child{padding-left:0}
+  #page-dashboard .stat-grid>div+div{border-left:1px solid var(--line)}
+  #page-dashboard .stat-sub{border-top:1px solid var(--line);margin-top:13px;padding-top:13px}
+  #page-dashboard .sub-val{font-size:12.5px;font-weight:600;color:var(--text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #page-dashboard .unit{font-size:11px;font-weight:600;color:var(--text-3);margin-left:3px;font-family:var(--sans)}
+
+  /* ---- 运行状态: 呼吸圆点 ---- */
+  #page-dashboard .live-dot{width:10px;height:10px;border-radius:50%;background:var(--green);margin-right:2px;animation:pgdash-breath 2.2s ease-in-out infinite}
+  @keyframes pgdash-breath{0%{box-shadow:0 0 0 0 rgba(50,215,75,.45)}70%{box-shadow:0 0 0 7px rgba(50,215,75,0)}100%{box-shadow:0 0 0 0 rgba(50,215,75,0)}}
+
+  /* ---- 实时流量 ---- */
+  #page-dashboard .flow-grid{display:grid;grid-template-columns:1fr 1fr}
+  #page-dashboard .flow-half{padding-right:16px;display:flex;flex-direction:column;gap:7px;min-width:0}
+  #page-dashboard .flow-half+.flow-half{border-left:1px solid var(--line);padding-left:16px;padding-right:0}
+  #page-dashboard .spark-box{height:58px;margin-top:4px}
+  #page-dashboard .flow-foot{display:flex;align-items:center;gap:9px;margin-top:13px;padding-top:11px;border-top:1px solid var(--line);font-size:11px;color:var(--text-3)}
+  #page-dashboard .flow-foot b{font-weight:600;color:var(--text-2)}
+  #page-dashboard .flow-foot svg{width:11px;height:11px;stroke:currentColor;stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round}
+  #page-dashboard .flow-foot .sep{color:var(--text-3);opacity:.6}
+
+  /* ---- 7 天流量趋势 ---- */
+  #page-dashboard .trend-wrap{position:relative;height:168px;padding-top:4px}
+  #page-dashboard .trend-cols{display:flex;gap:14px;height:100%;align-items:flex-end}
+  #page-dashboard .tcol{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:7px;min-width:0}
+  #page-dashboard .tcol .bar{width:68%;max-width:34px;background:var(--card-3);border-radius:4px}
+  #page-dashboard .tcol.hi .bar{background:#5e5e66}
+  #page-dashboard .tcol.sat .bar{background:var(--orange);border-radius:3px}
+  #page-dashboard .tcol em{font-style:normal;font-size:10.5px;color:var(--text-3)}
+  #page-dashboard .tcol.hi em{color:var(--text-2)}
+  #page-dashboard .avg-line{position:absolute;left:0;right:0;bottom:90px;border-top:1.5px dashed var(--orange);opacity:.85}
+  #page-dashboard .avg-tag{position:absolute;left:2px;top:14px}
+  #page-dashboard .avg-tag .lab{font-size:11px;color:var(--text-2);margin-bottom:3px}
+  #page-dashboard .avg-tag .stat-num{font-size:21px}
+
+  /* ---- 流量汇总 ---- */
+  #page-dashboard .sum-grid{display:grid;grid-template-columns:auto 225px 1fr;gap:30px;align-items:center}
+  #page-dashboard .donut-wrap{position:relative;width:150px;height:150px;margin:2px 4px}
+  #page-dashboard .donut-center{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px}
+  #page-dashboard .donut-center .lab{font-size:11px;color:var(--text-3)}
+  #page-dashboard .donut-center .stat-num{font-size:19px}
+  #page-dashboard .legend{display:flex;flex-direction:column;gap:11px}
+  #page-dashboard .lg-row{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-2)}
+  #page-dashboard .lg-row svg{width:13px;height:13px;stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round;flex:none}
+  #page-dashboard .lg-row .lg-val{margin-left:auto;font-weight:600;color:var(--text)}
+  #page-dashboard .lg-dot{width:8px;height:8px;border-radius:50%;flex:none;margin:0 2.5px}
+  #page-dashboard .lg-bar{display:flex;height:6px;border-radius:3px;overflow:hidden;margin-top:2px}
+  #page-dashboard .rank-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:13px}
+  #page-dashboard .rank-title{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--text-2)}
+  #page-dashboard .rank-title svg{width:13px;height:13px;stroke:currentColor;stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round}
+  #page-dashboard .seg-mini .seg-item{padding:2.5px 9px;font-size:11px}
+  #page-dashboard .rank-rows{display:flex;flex-direction:column;gap:9.5px}
+  #page-dashboard .rank-row{display:grid;grid-template-columns:104px 1fr 58px;align-items:center;gap:10px}
+  #page-dashboard .rank-name{display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #page-dashboard .rank-name i{width:7px;height:7px;border-radius:2.5px;background:var(--purple);flex:none}
+  #page-dashboard .rank-row.direct .rank-name i{background:var(--green)}
+  #page-dashboard .rank-bar{height:7px;border-radius:4px;background:linear-gradient(90deg,#7d3ee0,#bf5af2);min-width:8px}
+  #page-dashboard .rank-row.direct .rank-bar{background:linear-gradient(90deg,#1fa33c,#32d74b)}
+  #page-dashboard .rank-val{text-align:right;font-size:11px;color:var(--text-2)}
+</style>
+<section class="page" id="page-dashboard" data-title="仪表盘">
+
+  <!-- ======== 第一行: 运行状态 / 网络状态 ======== -->
+  <div class="grid2">
+    <div class="card">
+      <div class="card-head">
+        <span class="card-ic" style="color:var(--accent)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/></svg>
+        </span>
+        <h3>运行状态</h3>
+        <div class="card-actions"><span class="live-dot"></span></div>
+      </div>
+      <div class="card-body">
+        <div class="stat-grid">
+          <div>
+            <span class="stat-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>在线时长</span>
+            <span class="stat-num">6:07</span>
+          </div>
+          <div>
+            <span class="stat-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 17H7A5 5 0 0 1 7 7h2"/><path d="M15 7h2a5 5 0 1 1 0 10h-2"/><path d="M8 12h8"/></svg>连接数</span>
+            <span class="stat-num" style="color:var(--orange)">51</span>
+          </div>
+          <div>
+            <span class="stat-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 2v2M15 2v2M9 20v2M15 20v2M2 9h2M2 15h2M20 9h2M20 15h2"/></svg>内核内存</span>
+            <span class="stat-num" style="color:var(--accent)">63<span class="unit">MB</span></span>
+          </div>
+        </div>
+        <div class="stat-grid stat-sub">
+          <div>
+            <span class="stat-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="4" width="14" height="11" rx="1.5"/><path d="M3 19h18"/></svg>系统</span>
+            <span class="sub-val">Windows 11 24H2</span>
+          </div>
+          <div>
+            <span class="stat-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2H2v10l9.3 9.3a1.7 1.7 0 0 0 2.4 0l7.6-7.6a1.7 1.7 0 0 0 0-2.4L12 2z"/><circle cx="7" cy="7" r="1.2"/></svg>版本</span>
+            <span class="sub-val num">v2.0.0</span>
+          </div>
+          <div>
+            <span class="stat-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8v8l-9 5-9-5V8l9-5 9 5z"/><path d="M3.3 8.3 12 13l8.7-4.7"/><path d="M12 22v-9"/></svg>内核</span>
+            <span class="sub-val num">mihomo v1.19.2-alpha</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <span class="card-ic" style="color:var(--cyan)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a13.5 13.5 0 0 1 0 18 13.5 13.5 0 0 1 0-18z"/></svg>
+        </span>
+        <h3>网络状态</h3>
+        <div class="card-actions">
+          <button class="icon-btn" title="重新检测"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36L21 8"/><path d="M21 3v5h-5"/></svg></button>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="stat-grid">
+          <div>
+            <span class="stat-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a13.5 13.5 0 0 1 0 18 13.5 13.5 0 0 1 0-18z"/></svg>互联网</span>
+            <span class="stat-num" style="color:var(--orange)">213<span class="unit">ms</span></span>
+          </div>
+          <div>
+            <span class="stat-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="7" rx="2"/><rect x="2" y="14" width="20" height="7" rx="2"/><path d="M6 6.5h.01"/><path d="M6 17.5h.01"/></svg>DNS</span>
+            <span class="stat-num" style="color:var(--green)">48<span class="unit">ms</span></span>
+          </div>
+          <div>
+            <span class="stat-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 11.5a10.5 10.5 0 0 1 15 0"/><path d="M8 15a6 6 0 0 1 8 0"/><circle cx="12" cy="18.5" r="1"/></svg>路由器</span>
+            <span class="stat-num" style="color:var(--cyan)">6<span class="unit">ms</span></span>
+          </div>
+        </div>
+        <div class="stat-grid stat-sub">
+          <div>
+            <span class="stat-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 9a15 15 0 0 1 20 0"/><path d="M5.5 12.8a10 10 0 0 1 13 0"/><path d="M9 16.4a5 5 0 0 1 6 0"/><circle cx="12" cy="19.5" r="1"/></svg>网络</span>
+            <span class="sub-val">Wi-Fi</span>
+          </div>
+          <div>
+            <span class="stat-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z"/><circle cx="12" cy="10" r="3"/></svg>本机 IP</span>
+            <span class="sub-val num">CN 海西…157.83</span>
+          </div>
+          <div>
+            <span class="stat-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 4 5v6c0 5.25 3.4 9.74 8 11 4.6-1.26 8-5.75 8-11V5l-8-3z"/></svg>代理 IP</span>
+            <span class="sub-val num">HK Hong…249.100.80</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ======== 第二行: 实时流量 / 7 天流量趋势 ======== -->
+  <div class="grid2">
+    <div class="card">
+      <div class="card-head">
+        <span class="card-ic" style="color:var(--green)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 8-6-16-3 8H2"/></svg>
+        </span>
+        <h3>实时流量</h3>
+      </div>
+      <div class="card-body">
+        <div class="flow-grid">
+          <div class="flow-half">
+            <span class="stat-label" style="color:var(--purple)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg><span style="color:var(--text-2)">上传速度</span></span>
+            <span class="stat-num" style="color:var(--purple)">0.0<span class="unit">KB/s</span></span>
+            <div class="spark-box">
+              <div class="spark" data-pts="2,3,2,4,6,11,15,12,16,13,8,5,9,14,10,6,4,3,2,3,4,3,2,3,2,2,3,2" data-color="#BF5AF2" data-h="58" data-fill="1" data-dot="1"></div>
+            </div>
+          </div>
+          <div class="flow-half">
+            <span class="stat-label" style="color:var(--cyan)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></svg><span style="color:var(--text-2)">下载速度</span></span>
+            <span class="stat-num" style="color:var(--cyan)">0.0<span class="unit">KB/s</span></span>
+            <div class="spark-box">
+              <div class="spark" data-pts="1,2,1,2,3,2,2,3,2,3,2,3,4,3,2,3,2,3,15,8,4,3,2,3,2,2,2,1" data-color="#64D2FF" data-h="58" data-fill="1" data-dot="1"></div>
+            </div>
+          </div>
+        </div>
+        <div class="flow-foot">
+          <svg viewBox="0 0 24 24"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg>
+          <span>总上传 <b class="num">436 KB</b></span>
+          <span class="sep">·</span>
+          <svg viewBox="0 0 24 24"><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></svg>
+          <span>总下载 <b class="num">15.3 MB</b></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <span class="card-ic" style="color:var(--orange)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 7-7.5 7.5-4-4L2 19"/><path d="M16 7h6v6"/></svg>
+        </span>
+        <h3>7 天流量趋势</h3>
+        <div class="card-actions">
+          <button class="icon-btn" title="刷新"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36L21 8"/><path d="M21 3v5h-5"/></svg></button>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="trend-wrap">
+          <div class="avg-line"></div>
+          <div class="avg-tag">
+            <div class="lab">日均</div>
+            <div class="stat-num">883.5 MB</div>
+          </div>
+          <div class="trend-cols">
+            <div class="tcol sat"><div class="bar" style="height:8px"></div><em>周六</em></div>
+            <div class="tcol"><div class="bar" style="height:36px"></div><em>周五</em></div>
+            <div class="tcol hi"><div class="bar" style="height:120px"></div><em>周四</em></div>
+            <div class="tcol hi"><div class="bar" style="height:108px"></div><em>周三</em></div>
+            <div class="tcol"><div class="bar" style="height:54px"></div><em>周二</em></div>
+            <div class="tcol"><div class="bar" style="height:26px"></div><em>周一</em></div>
+            <div class="tcol"><div class="bar" style="height:5px"></div><em>周日</em></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ======== 第三行: 流量汇总 ======== -->
+  <div class="card">
+    <div class="card-head">
+      <span class="card-ic" style="color:var(--pink)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.2 15.9A10 10 0 1 1 8 2.8"/><path d="M22 12A10 10 0 0 0 12 2v10z"/></svg>
+      </span>
+      <h3>流量汇总</h3>
+      <div class="card-actions">
+        <div class="seg">
+          <button class="seg-item on">今日</button>
+          <button class="seg-item">本月</button>
+          <button class="seg-item">上月</button>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="sum-grid">
+
+        <!-- 环形图 -->
+        <div class="donut-wrap">
+          <svg viewBox="0 0 150 150" width="150" height="150">
+            <g transform="rotate(-90 75 75)">
+              <circle cx="75" cy="75" r="62" fill="none" stroke="#0A84FF" stroke-width="13" stroke-dasharray="362 389.6" stroke-dashoffset="0"/>
+              <circle cx="75" cy="75" r="62" fill="none" stroke="#32D74B" stroke-width="13" stroke-dasharray="19 389.6" stroke-dashoffset="-366.5"/>
+            </g>
+          </svg>
+          <div class="donut-center">
+            <span class="lab">总计</span>
+            <span class="stat-num">49.3 MB</span>
+          </div>
+        </div>
+
+        <!-- 图例 -->
+        <div class="legend">
+          <div class="lg-row">
+            <svg viewBox="0 0 24 24" stroke="var(--accent)"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg>
+            <span>上传</span><span class="lg-val num">16.3 MB</span>
+          </div>
+          <div class="lg-row">
+            <svg viewBox="0 0 24 24" stroke="var(--cyan)"><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></svg>
+            <span>下载</span><span class="lg-val num">33.1 MB</span>
+          </div>
+          <div class="lg-row">
+            <span class="lg-dot" style="background:var(--green)"></span>
+            <span>直连</span><span class="lg-val num">2.5 MB</span>
+          </div>
+          <div class="lg-row">
+            <span class="lg-dot" style="background:var(--accent)"></span>
+            <span>代理</span><span class="lg-val num">46.8 MB</span>
+          </div>
+          <div class="lg-bar">
+            <span style="width:5%;background:#32D74B"></span>
+            <span style="width:95%;background:#0A84FF"></span>
+          </div>
+        </div>
+
+        <!-- 排行 -->
+        <div class="rank">
+          <div class="rank-head">
+            <span class="rank-title">
+              <svg viewBox="0 0 24 24"><path d="M3 5h12"/><path d="M3 12h18"/><path d="M3 19h8"/></svg>
+              排行
+            </span>
+            <div class="seg seg-mini">
+              <button class="seg-item on">代理</button>
+              <button class="seg-item">进程</button>
+              <button class="seg-item">接口</button>
+              <button class="seg-item">主机名</button>
+            </div>
+          </div>
+          <div class="rank-rows">
+            <div class="rank-row">
+              <span class="rank-name"><i></i>DE-Server</span>
+              <span class="rank-bar" style="width:100%"></span>
+              <span class="rank-val num">17.9 MB</span>
+            </div>
+            <div class="rank-row">
+              <span class="rank-name"><i></i>US-OpenAI</span>
+              <span class="rank-bar" style="width:83%"></span>
+              <span class="rank-val num">14.9 MB</span>
+            </div>
+            <div class="rank-row">
+              <span class="rank-name"><i></i>US-Streaming</span>
+              <span class="rank-bar" style="width:41%"></span>
+              <span class="rank-val num">7.3 MB</span>
+            </div>
+            <div class="rank-row">
+              <span class="rank-name"><i></i>SG-AWS</span>
+              <span class="rank-bar" style="width:14%"></span>
+              <span class="rank-val num">2.5 MB</span>
+            </div>
+            <div class="rank-row direct">
+              <span class="rank-name"><i></i>DIRECT</span>
+              <span class="rank-bar" style="width:14%"></span>
+              <span class="rank-val num">2.5 MB</span>
+            </div>
+            <div class="rank-row">
+              <span class="rank-name"><i></i>JP-GPT</span>
+              <span class="rank-bar" style="width:12%"></span>
+              <span class="rank-val num">2.2 MB</span>
+            </div>
+            <div class="rank-row">
+              <span class="rank-name"><i></i>US-Netflix</span>
+              <span class="rank-bar" style="width:8%"></span>
+              <span class="rank-val num">1.3 MB</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+</section>

@@ -1,0 +1,31 @@
+.pg-traffic{display:flex;flex-direction:column;gap:14px}
+.pg-traffic .rt-wrap{display:flex;gap:24px}
+.pg-traffic .rt-cell{flex:1;min-width:0}
+.pg-traffic .rt-label{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text-3)}
+.pg-traffic .rt-big{font-size:24px;font-weight:700;font-variant-numeric:tabular-nums;margin:2px 0 8px}
+.pg-traffic .rt-big .unit{font-size:13px;color:var(--text-3);font-weight:500;margin-left:3px}
+.pg-traffic .rt-peak{font-size:11px;color:var(--text-3);margin-top:6px}
+.pg-traffic .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.pg-traffic .t-mini .lbl{font-size:11px;color:var(--text-3);display:flex;gap:6px;align-items:center}
+.pg-traffic .t-mini .val{font-size:25px;font-weight:700;font-variant-numeric:tabular-nums;margin-top:4px}
+.pg-traffic .t-mini .val .unit{font-size:13px;color:var(--text-3);font-weight:500;margin-left:3px}
+.pg-traffic .t-mini .delta{font-size:11px;color:var(--text-3);margin-top:5px}
+.pg-traffic .trend{padding:4px 0 2px}
+.pg-traffic .q-list{display:flex;flex-direction:column}
+.pg-traffic .tbl .r{text-align:right}
+/* 多维统计表列宽按比例铺满整卡(宽窗口下不向左堆积) */
+.pg-traffic .tbl th:nth-child(1){width:27%}
+.pg-traffic .tbl th:nth-child(2),
+.pg-traffic .tbl th:nth-child(3),
+.pg-traffic .tbl th:nth-child(4){width:14%}
+.pg-traffic .tbl th:nth-child(5){width:31%}
+.pg-traffic .t-name{display:flex;align-items:center;gap:9px;font-weight:600;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pg-traffic .tdot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.pg-traffic .t-total{font-weight:600}
+.pg-traffic .pct{display:flex;align-items:center;gap:10px}
+.pg-traffic .pct .num{flex-shrink:0;min-width:32px;text-align:right;font-size:11px;
+  color:var(--text-3);font-variant-numeric:tabular-nums}
+.pg-traffic .q-bar{flex:1;min-width:90px;height:7px;border-radius:4px;background:var(--card-3);overflow:hidden}
+.pg-traffic .q-bar i{display:block;height:100%;border-radius:4px}
+.pg-traffic .empty{padding:26px;text-align:center;color:var(--text-3);font-size:12px}

@@ -1,0 +1,151 @@
+<style>
+#page-profiles.on{display:flex;flex-direction:column;gap:14px}
+#page-profiles .import-row{display:flex;align-items:center;gap:10px}
+#page-profiles .import-row .input{flex:1;min-width:0}
+#page-profiles .import-row .btn svg,
+#page-profiles .import-row .btn-primary svg{width:14px;height:14px;margin-right:5px;vertical-align:-2px}
+
+/* —— 订阅卡 —— */
+#page-profiles .cur{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+#page-profiles .p-head{display:flex;align-items:center;gap:8px;padding:14px 16px 0}
+#page-profiles .p-name{font-size:14px;font-weight:700;color:var(--text)}
+#page-profiles .p-head .badge{margin-left:auto}
+#page-profiles .p-url{padding:4px 16px 0;font-size:11px;color:var(--text-3)}
+#page-profiles .p-traffic{padding:12px 16px 0}
+#page-profiles .p-traffic-row{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:6px}
+#page-profiles .p-traffic-row .used{font-size:12px;color:var(--text-2)}
+#page-profiles .p-traffic-row .used b{color:var(--text);font-weight:600}
+#page-profiles .p-traffic-row .pct{font-size:11px;color:var(--green);font-weight:600}
+#page-profiles .p-bar{height:6px;border-radius:3px;background:var(--card-3);overflow:hidden}
+#page-profiles .p-bar i{display:block;height:100%;border-radius:3px;background:linear-gradient(90deg,#28B844,#32D74B)}
+#page-profiles .p-unlimited{display:flex;align-items:center;gap:8px;height:25px;font-size:12px;color:var(--text-3)}
+#page-profiles .p-meta{display:grid;grid-template-columns:1fr 1fr;gap:7px 12px;padding:12px 16px 13px}
+#page-profiles .p-meta div{display:flex;align-items:baseline;gap:6px;font-size:11px;color:var(--text-3)}
+#page-profiles .p-meta b{font-size:12px;font-weight:500;color:var(--text-2)}
+#page-profiles .p-foot{display:flex;align-items:center;gap:8px;padding:10px 16px;border-top:1px solid var(--line)}
+#page-profiles .p-foot .btn-danger{margin-left:auto}
+
+/* —— 配置增强链 —— */
+#page-profiles .chain-row{display:flex;align-items:center;gap:11px;padding:11px 16px;border-bottom:1px solid var(--line)}
+#page-profiles .chain-row .grip{display:flex;color:var(--text-3);cursor:grab;flex:none}
+#page-profiles .chain-row .grip svg{width:14px;height:14px}
+#page-profiles .proc-ic{flex:none;display:flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:7px;background:color-mix(in srgb,currentColor 14%,transparent)}
+#page-profiles .proc-ic svg{width:14px;height:14px}
+#page-profiles .chain-row .proc-name{font-size:13px;font-weight:500;color:var(--text)}
+#page-profiles .chain-row .spacer{flex:1}
+#page-profiles .chain-add{margin:10px 16px 14px;padding:10px;border:1px dashed var(--line-2);border-radius:var(--radius-sm);text-align:center;font-size:12px;color:var(--text-2);cursor:pointer}
+#page-profiles .chain-add:hover{border-color:var(--accent);color:var(--accent)}
+</style>
+<section class="page" id="page-profiles" data-title="订阅">
+
+  <!-- 导入 -->
+  <div class="card">
+    <div class="card-body">
+      <div class="import-row">
+        <input class="input" type="text" placeholder="粘贴订阅链接 https://… 或 clash:// 协议地址">
+        <button class="btn btn-primary"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></svg>导入</button>
+        <button class="btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>新建</button>
+        <button class="btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8.5l-2-3H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2Z"/></svg>打开文件</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 订阅列表 -->
+  <div class="grid2">
+
+    <div class="card cur">
+      <div class="p-head">
+        <span class="p-name">BigAirport</span>
+        <span class="chip">远程</span>
+        <span class="badge b-blue">使用中</span>
+      </div>
+      <div class="p-url num">sub.bigairport.io</div>
+      <div class="p-traffic">
+        <div class="p-traffic-row">
+          <span class="used num"><b>162.4 GB</b> / 500 GB</span>
+          <span class="pct num">32%</span>
+        </div>
+        <div class="p-bar"><i style="width:32%"></i></div>
+      </div>
+      <div class="p-meta">
+        <div>到期<b class="num">37 天</b></div>
+        <div>自动更新<b class="num">1440 分钟</b></div>
+        <div>更新于<b class="num">2 小时前</b></div>
+        <div>大小<b class="num">184 KB</b></div>
+      </div>
+      <div class="p-foot">
+        <button class="btn btn-sm">编辑</button>
+        <button class="btn btn-sm">更新</button>
+        <button class="btn btn-sm">打开规则</button>
+        <button class="btn btn-sm btn-danger">删除</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="p-head">
+        <span class="p-name">full.en</span>
+        <span class="chip">本地</span>
+      </div>
+      <div class="p-url num">C:\Users\piggy\.config\clash\full.en.yaml</div>
+      <div class="p-traffic">
+        <div class="p-unlimited">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px"><path d="M18.6 6.6a4.8 4.8 0 0 1 0 6.8c-2.6 2.6-5.1-1.4-6.6-2.8-1.5-1.4-4-5.4-6.6-2.8a4.8 4.8 0 0 0 0 6.8c2.6 2.6 5.1-1.4 6.6-2.8 1.5-1.4 4-5.4 6.6-2.8"/></svg>
+          — 不限额
+        </div>
+      </div>
+      <div class="p-meta">
+        <div>到期<b>—</b></div>
+        <div>自动更新<b>—</b></div>
+        <div>更新于<b class="num">2026-05-28</b></div>
+        <div>大小<b class="num">12.6 KB</b></div>
+      </div>
+      <div class="p-foot">
+        <button class="btn btn-sm">编辑</button>
+        <button class="btn btn-sm btn-danger">删除</button>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- 配置增强链 -->
+  <div class="card">
+    <div class="card-head">
+      <span class="card-ic" style="color:var(--purple)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m12 2 9 5-9 5-9-5 9-5Z"/><path d="m3 12 9 5 9-5"/><path d="m3 17 9 5 9-5"/></svg></span>
+      <h3>配置增强链</h3>
+      <div class="card-actions"><span class="chip">处理顺序自上而下</span></div>
+    </div>
+
+    <div class="chain-row">
+      <span class="grip"><svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="9" cy="5" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="9" cy="19" r="1.6"/><circle cx="15" cy="5" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="15" cy="19" r="1.6"/></svg></span>
+      <span class="proc-ic" style="color:var(--green)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H7a2 2 0 0 0-2 2v5a2 2 0 0 1-2 2 2 2 0 0 1 2 2v5a2 2 0 0 0 2 2h1"/><path d="M16 3h1a2 2 0 0 1 2 2v5a2 2 0 0 0 2 2 2 2 0 0 0-2 2v5a2 2 0 0 1-2 2h-1"/></svg></span>
+      <span class="proc-name">Merge: 覆写 DNS 与端口</span>
+      <span class="chip">YAML</span>
+      <span class="spacer"></span>
+      <span class="toggle on"></span>
+      <button class="btn btn-sm">编辑</button>
+    </div>
+
+    <div class="chain-row">
+      <span class="grip"><svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="9" cy="5" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="9" cy="19" r="1.6"/><circle cx="15" cy="5" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="15" cy="19" r="1.6"/></svg></span>
+      <span class="proc-ic" style="color:var(--yellow)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 18 6-6-6-6"/><path d="m8 6-6 6 6 6"/></svg></span>
+      <span class="proc-name">Script: 节点改名+地区分组</span>
+      <span class="chip">JavaScript</span>
+      <span class="spacer"></span>
+      <span class="toggle on"></span>
+      <button class="btn btn-sm">编辑</button>
+    </div>
+
+    <div class="chain-row" style="border-bottom:none">
+      <span class="grip"><svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="9" cy="5" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="9" cy="19" r="1.6"/><circle cx="15" cy="5" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="15" cy="19" r="1.6"/></svg></span>
+      <span class="proc-ic" style="color:var(--yellow)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 18 6-6-6-6"/><path d="m8 6-6 6 6 6"/></svg></span>
+      <span class="proc-name">Script: 去除无效节点</span>
+      <span class="chip">JavaScript</span>
+      <span class="spacer"></span>
+      <span class="toggle"></span>
+      <button class="btn btn-sm">编辑</button>
+    </div>
+
+    <div class="chain-add">+ 新建 Merge / Script 处理器</div>
+  </div>
+
+</section>
