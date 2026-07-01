@@ -55,6 +55,7 @@ function tunText(settingsTun: boolean, adapter: TunAdapterStatus | null): string
 export default function Dashboard() {
   const core = useAppStore((s) => s.coreStatus)
   const settings = useAppStore((s) => s.settings)
+  const runtimeMode = useAppStore((s) => s.runtimeMode)
   const refreshCoreStatus = useAppStore((s) => s.refreshCoreStatus)
   const traffic = useLiveStore((s) => s.traffic)
   const connections = useLiveStore((s) => s.connections)
@@ -234,7 +235,7 @@ export default function Dashboard() {
           <div className="stat-grid stat-sub">
             <div className="stat-cell">
               <div className="stat-label">出站模式</div>
-              <b>{{ rule: '规则', global: '全局', direct: '直连' }[settings.mode]}</b>
+              <b>{{ rule: '规则', global: '全局', direct: '直连' }[runtimeMode ?? settings.mode]}</b>
             </div>
             <div className="stat-cell">
               <div className="stat-label">系统代理</div>

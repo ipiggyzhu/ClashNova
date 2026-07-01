@@ -6,6 +6,10 @@ use serde_yaml::{Mapping, Value};
 use crate::merge::deep_merge;
 use crate::CoreError;
 
+const EXTERNAL_UI_DIR: &str = "ui";
+const EXTERNAL_UI_URL: &str =
+    "https://github.com/MetaCubeX/metacubexd/archive/refs/heads/gh-pages.zip";
+
 /// 运行时覆写项(锁定契约 D,字段不得擅改)。
 pub struct RuntimeOverrides {
     pub mixed_port: u16,
@@ -123,6 +127,8 @@ pub fn build_runtime_config(
     set("ipv6", Value::Bool(ov.ipv6));
     set("log-level", Value::String(ov.log_level.clone()));
     set("find-process-mode", Value::String("always".into()));
+    set("external-ui", Value::String(EXTERNAL_UI_DIR.into()));
+    set("external-ui-url", Value::String(EXTERNAL_UI_URL.into()));
 
     if ov.tun_enable {
         let patch: Value = serde_yaml::from_str(

@@ -5,7 +5,7 @@ const UNITS = ['B', 'KB', 'MB', 'GB', 'TB']
 /** 字节 → "162.4 GB" */
 export function fmtBytes(n: number, digits = 1): string {
   if (!Number.isFinite(n) || n <= 0) return '0 B'
-  const i = Math.min(UNITS.length - 1, Math.floor(Math.log(n) / Math.log(1024)))
+  const i = Math.max(0, Math.min(UNITS.length - 1, Math.floor(Math.log(n) / Math.log(1024))))
   const v = n / 1024 ** i
   return `${v.toFixed(v >= 100 || i === 0 ? 0 : digits)} ${UNITS[i]}`
 }

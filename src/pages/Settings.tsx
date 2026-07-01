@@ -388,11 +388,17 @@ export default function Settings() {
   }
 
   const openWebUi = (): void => {
-    const controller =
+    const rawController =
       (draftRef.current.externalController ?? settingsRef.current.externalController).trim() ||
       settingsRef.current.externalController
-    void flushDraft()
-    void call('open_url', { url: `http://${controller}/ui/` }).catch(() => {})
+    const base = /^https?:\/\//i.test(rawController)
+      ? rawController.replace(/\/+$/, '')
+      : `http://${rawController.replace(/\/+$/, '')}`
+    void Promise.resolve(flushDraft()).finally(() => {
+      void call('open_url', { url: `${base}/ui/` }).catch((err) => {
+        notify('error', t('打开链接失败'), errorMessage(err))
+      })
+    })
   }
 
   const saveDrawer = (): void => {
@@ -720,7 +726,7 @@ export default function Settings() {
               {t('立即豁免')}
             </Button>
           </Row>
-          <Row title={t('Web UI')} desc={t('在浏览器中打开外部控制面板')}>
+          <Row title={t('Web UI')} desc={t('Web UI 修改会立即影响 mihomo 运行态；ClashNova 仅跟随模式和代理选择，其他设置仍以本软件为准')}>
             <Button size="sm" onClick={openWebUi}>
               <Icon name="external" size={12} />{t('跳转面板')}
             </Button>

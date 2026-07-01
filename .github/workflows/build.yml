@@ -127,6 +127,23 @@ jobs:
           }
           Get-ChildItem src-tauri/resources/clashnova-service*.exe | Select-Object Name, Length
 
+      - name: Validate NSIS hook PowerShell
+        shell: pwsh
+        run: |
+          $content = Get-Content -LiteralPath src-tauri/nsis-hooks.nsh -Raw
+          $matches = [regex]::Matches(
+            $content,
+            '-Command "& \{ (?<script>.*?) \}"',
+            [System.Text.RegularExpressions.RegexOptions]::Singleline
+          )
+          if ($matches.Count -lt 2) {
+            throw "Expected at least 2 PowerShell hook commands, found $($matches.Count)."
+          }
+          foreach ($match in $matches) {
+            $script = $match.Groups['script'].Value.Replace('$$', '$')
+            [scriptblock]::Create($script) | Out-Null
+          }
+
       - name: Build Tauri NSIS installer
         shell: pwsh
         env:
@@ -137,53 +154,7 @@ jobs:
           npm run tauri build -- --bundles nsis 2>&1 | Tee-Object -FilePath build-nsis.log
           exit $LASTEXITCODE
 
-      - name: Build Tauri MSI installer
-        id: build_msi
-        shell: pwsh
-        env:
-          WINDOWS_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
-          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
-          WINDOWS_TIMESTAMP_URL: ${{ vars.WINDOWS_TIMESTAMP_URL }}
-        run: |
-          $env:RUST_BACKTRACE = "1"
-          $env:RUST_LOG = "tauri_bundler=trace,tauri_cli=debug"
-          npm run tauri build -- --bundles msi --verbose 2>&1 | Tee-Object -FilePath build-msi.log
-          $exitCode = $LASTEXITCODE
-          if ($exitCode -ne 0) {
-            "msi_failed=true" >> $env:GITHUB_OUTPUT
-            "msi_exit_code=$exitCode" >> $env:GITHUB_OUTPUT
-            Write-Warning "MSI build failed with exit code $exitCode; NSIS release will still be published."
-          } else {
-            "msi_failed=false" >> $env:GITHUB_OUTPUT
-            "msi_exit_code=0" >> $env:GITHUB_OUTPUT
-          }
-
-      - name: Publish MSI diagnostic log
-        if: steps.build_msi.outputs.msi_failed == 'true'
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          {
-            echo "MSI build failed for ${GITHUB_SHA}."
-            echo
-            cat build-msi.log
-            if [[ -d target/release/wix ]]; then
-              echo
-              echo "Generated WiX sources:"
-              find target/release/wix -type f \( -name '*.wxs' -o -name '*.wxl' \) -print -exec sh -c 'echo "----- $1 -----"; sed -n "1,260p" "$1"' sh {} \;
-            fi
-          } > msi-diagnostics.log
-
-          grep -E "LGHT|ICE|error|failed" -A 8 msi-diagnostics.log | head -160 | \
-            sed ':a;N;$!ba;s/\n/%0A/g' | cut -c1-3800 | \
-            xargs -0 -I{} echo "::warning::{}" || true
-          gh release delete buildlog -y --cleanup-tag 2>/dev/null || true
-          gh release create buildlog msi-diagnostics.log --title "CI MSI diagnostic log" \
-            --notes "Automatic upload of the MSI diagnostic log." --prerelease
-
       - name: Sign Windows installers
-        if: always()
         shell: pwsh
         env:
           WINDOWS_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
@@ -191,8 +162,7 @@ jobs:
           WINDOWS_TIMESTAMP_URL: ${{ vars.WINDOWS_TIMESTAMP_URL }}
         run: |
           $patterns = @(
-            'target/release/bundle/nsis/*.exe',
-            'target/release/bundle/msi/*.msi'
+            'target/release/bundle/nsis/*.exe'
           )
           foreach ($pattern in $patterns) {
             Get-ChildItem -Path $pattern -ErrorAction SilentlyContinue | ForEach-Object {
@@ -235,12 +205,12 @@ jobs:
 
           gh release create "$release_tag" \
             --title "ClashNova $release_tag" \
-            --notes "Windows installers produced by the latest release workflow." \
+            --notes "Windows NSIS installer produced by the latest release workflow." \
             --latest \
             2>/dev/null || true
 
           installers=()
-          for file in target/release/bundle/nsis/*.exe target/release/bundle/msi/*.msi; do
+          for file in target/release/bundle/nsis/*.exe; do
             if [[ -f "$file" ]]; then
               installers+=("$file")
             fi

@@ -78,6 +78,17 @@ export default function Proxies() {
 
   useEffect(() => {
     void refresh().catch(() => {})
+    const refreshWhenVisible = (): void => {
+      if (document.visibilityState === 'visible') void refresh().catch(() => {})
+    }
+    const timer = window.setInterval(refreshWhenVisible, 5000)
+    window.addEventListener('clashnova-api-config-changed', refreshWhenVisible)
+    document.addEventListener('visibilitychange', refreshWhenVisible)
+    return () => {
+      window.clearInterval(timer)
+      window.removeEventListener('clashnova-api-config-changed', refreshWhenVisible)
+      document.removeEventListener('visibilitychange', refreshWhenVisible)
+    }
   }, [refresh])
 
   const groups: GroupView[] = useMemo(() => {

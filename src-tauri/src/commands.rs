@@ -1016,14 +1016,83 @@ pub async fn exempt_uwp_loopback() -> Result<(), String> {
     .map_err(|e| format!("任务失败: {e}"))?
 }
 
-/// GitHub Releases 最新版本号;比当前新则返回 Some(版本)。
-/// (自动安装升级依赖签名密钥与发布基建, 见 BUILD.md)
-#[tauri::command]
-pub async fn check_update() -> Result<Option<String>, String> {
-    const RELEASES_API: &str = "https://api.github.com/repos/ipiggyzhu/ClashNova/releases/latest";
-    let resp = reqwest::Client::new()
-        .get(RELEASES_API)
-        .header("User-Agent", "ClashNova/2.0")
+#[derive(Debug, serde::Deserialize)]
+struct GitHubRelease {
+    tag_name: String,
+    draft: bool,
+    prerelease: bool,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct GitHubTag {
+    name: String,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+struct ParsedVersion {
+    parts: Vec<u64>,
+}
+
+impl Ord for ParsedVersion {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        let len = self.parts.len().max(other.parts.len());
+        for i in 0..len {
+            let left = self.parts.get(i).copied().unwrap_or(0);
+            let right = other.parts.get(i).copied().unwrap_or(0);
+            match left.cmp(&right) {
+                std::cmp::Ordering::Equal => continue,
+                ordering => return ordering,
+            }
+        }
+        std::cmp::Ordering::Equal
+    }
+}
+
+impl PartialOrd for ParsedVersion {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+fn parse_stable_version(tag: &str) -> Option<(String, ParsedVersion)> {
+    let version = tag.trim().trim_start_matches(|c| c == 'v' || c == 'V');
+    if version.is_empty() || version.contains('-') {
+        return None;
+    }
+    let version = version.split('+').next().unwrap_or(version);
+    let parts = version
+        .split('.')
+        .map(str::parse::<u64>)
+        .collect::<Result<Vec<_>, _>>()
+        .ok()?;
+    if parts.is_empty() {
+        return None;
+    }
+    Some((version.to_string(), ParsedVersion { parts }))
+}
+
+fn newest_version<I>(tags: I) -> Option<String>
+where
+    I: IntoIterator,
+    I::Item: AsRef<str>,
+{
+    tags.into_iter()
+        .filter_map(|tag| parse_stable_version(tag.as_ref()))
+        .max_by(|(_, left), (_, right)| left.cmp(right))
+        .map(|(version, _)| version)
+}
+
+async fn get_github_json<T: serde::de::DeserializeOwned>(
+    client: &reqwest::Client,
+    url: &str,
+) -> Result<T, String> {
+    let resp = client
+        .get(url)
+        .header(
+            "User-Agent",
+            format!("ClashNova/{}", env!("CARGO_PKG_VERSION")),
+        )
+        .header("Accept", "application/vnd.github+json")
         .timeout(std::time::Duration::from_secs(10))
         .send()
         .await
@@ -1031,14 +1100,50 @@ pub async fn check_update() -> Result<Option<String>, String> {
     if !resp.status().is_success() {
         return Err(format!("检查更新失败: HTTP {}", resp.status()));
     }
-    let body: serde_json::Value = resp.json().await.map_err(|e| format!("解析失败: {e}"))?;
-    let latest = body["tag_name"]
-        .as_str()
-        .unwrap_or("")
-        .trim_start_matches('v')
-        .to_string();
-    let current = env!("CARGO_PKG_VERSION");
-    Ok((!latest.is_empty() && latest != current).then_some(latest))
+    resp.json().await.map_err(|e| format!("解析失败: {e}"))
+}
+
+async fn latest_release_version(client: &reqwest::Client) -> Result<Option<String>, String> {
+    const RELEASES_API: &str =
+        "https://api.github.com/repos/ipiggyzhu/ClashNova/releases?per_page=20";
+    let releases: Vec<GitHubRelease> = get_github_json(client, RELEASES_API).await?;
+    Ok(newest_version(
+        releases
+            .into_iter()
+            .filter(|release| !release.draft && !release.prerelease)
+            .map(|release| release.tag_name),
+    ))
+}
+
+async fn latest_tag_version(client: &reqwest::Client) -> Result<Option<String>, String> {
+    const TAGS_API: &str = "https://api.github.com/repos/ipiggyzhu/ClashNova/tags?per_page=50";
+    let tags: Vec<GitHubTag> = get_github_json(client, TAGS_API).await?;
+    Ok(newest_version(tags.into_iter().map(|tag| tag.name)))
+}
+
+/// GitHub 最新版本号;比当前稳定版本新则返回 Some(版本)。
+/// Release 列表优先, tags 兜底, 避免 latest release 缺失或标记异常导致误判。
+#[tauri::command]
+pub async fn check_update() -> Result<Option<String>, String> {
+    let client = reqwest::Client::new();
+    let latest = match latest_release_version(&client).await {
+        Ok(Some(version)) => Some(version),
+        Ok(None) => latest_tag_version(&client).await?,
+        Err(release_err) => match latest_tag_version(&client).await {
+            Ok(version) => version,
+            Err(tag_err) => return Err(format!("{release_err}; fallback tags failed: {tag_err}")),
+        },
+    };
+    let Some(latest) = latest else {
+        return Ok(None);
+    };
+    let Some((_, latest_parsed)) = parse_stable_version(&latest) else {
+        return Ok(None);
+    };
+    let Some((_, current_parsed)) = parse_stable_version(env!("CARGO_PKG_VERSION")) else {
+        return Ok(None);
+    };
+    Ok((latest_parsed > current_parsed).then_some(latest))
 }
 
 /// 流量统计: 总量时间序列(range: day|7d|30d)。

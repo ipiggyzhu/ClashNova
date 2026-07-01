@@ -55,6 +55,8 @@ export const EN: Record<string, string> = {
     'Exempt Store apps from loopback restriction',
   立即豁免: 'Exempt Now', 'Web UI': 'Web UI',
   在浏览器中打开外部控制面板: 'Open external controller dashboard in browser',
+  'Web UI 修改会立即影响 mihomo 运行态；ClashNova 仅跟随模式和代理选择，其他设置仍以本软件为准':
+    'Web UI changes affect mihomo runtime immediately; ClashNova only follows mode and proxy selection, while other settings remain owned by this app',
   跳转面板: 'Open Dashboard',
   /* 设置-热键 */
   热键: 'Hotkeys', '显示 / 隐藏主窗口': 'Show / Hide Window',

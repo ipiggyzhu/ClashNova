@@ -1,14 +1,13 @@
 # ClashNova v2 构建指南
 
-ClashNova 是 Tauri 2 + React 的 Windows 代理客户端。最终产物是 Windows 安装包
-(`.msi` 与 NSIS `-setup.exe`)。取得安装包有三种途径，按推荐顺序排列。
+ClashNova 是 Tauri 2 + React 的 Windows 代理客户端。最终产物是 Windows NSIS 安装包
+(`-setup.exe`)。取得安装包有三种途径，按推荐顺序排列。
 
 ## 途径一：GitHub Actions 工件（推荐，无需本机环境）
 
 1. 推送 tag（如 `v2.0.0`）或在 GitHub 仓库 **Actions → build → Run workflow** 手动触发。
 2. 等待 `test`（Ubuntu，前端构建 + nova-core 测试）与 `release`（Windows 打包）两个 job 跑绿。
 3. 在该次运行的 **Artifacts** 区下载：
-   - `ClashNova-msi` — Windows Installer 包（`.msi`）
    - `ClashNova-nsis-setup` — NSIS 安装程序（`ClashNova_2.0.0_x64-setup.exe`）
 
 CI 会自动执行图标生成（`scripts/gen-icons.mjs`）与 mihomo 内核拉取
@@ -37,7 +36,6 @@ npm run tauri build             # 编译并打包
 产物位置：
 
 ```
-src-tauri/target/release/bundle/msi/ClashNova_2.0.0_x64_zh-CN.msi
 src-tauri/target/release/bundle/nsis/ClashNova_2.0.0_x64-setup.exe
 ```
 

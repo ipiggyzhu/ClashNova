@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { useT } from '../../i18n'
 import { useAppStore } from '../../stores/app'
@@ -36,10 +36,14 @@ export default function Topbar() {
   const seg = pathname.replace(/^\/+/, '').split('/')[0] || 'dashboard'
   const title = t(PAGE_TITLES[seg] ?? 'ClashNova')
 
-  const mode = useAppStore((s) => s.settings.mode)
+  const settingsMode = useAppStore((s) => s.settings.mode)
+  const runtimeMode = useAppStore((s) => s.runtimeMode)
+  const coreRunning = useAppStore((s) => s.coreStatus.running)
   const theme = useAppStore((s) => s.settings.theme)
   const setMode = useAppStore((s) => s.setMode)
+  const syncRuntimeMode = useAppStore((s) => s.syncRuntimeMode)
   const setTheme = useAppStore((s) => s.setTheme)
+  const mode = runtimeMode ?? settingsMode
 
   const unreadCount = useNotificationStore((s) => s.unreadCount)
   const [showNotifications, setShowNotifications] = useState(false)
@@ -55,6 +59,15 @@ export default function Topbar() {
   const toggleTheme = () => {
     void setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')
   }
+
+  useEffect(() => {
+    if (!coreRunning) return undefined
+    void syncRuntimeMode()
+    const timer = window.setInterval(() => {
+      void syncRuntimeMode()
+    }, 3000)
+    return () => window.clearInterval(timer)
+  }, [coreRunning, syncRuntimeMode])
 
   return (
     <header className="topbar">

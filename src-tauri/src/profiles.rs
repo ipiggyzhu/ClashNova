@@ -133,10 +133,7 @@ fn ensure_builtin_prune_enhancers(app: &AppHandle, index: &mut [ProfileMeta]) ->
             .any(|e| e.id == BUILTIN_PRUNE_ENHANCER_ID)
         {
             let path = enhancer_file(&state, &profile.id, &builtin);
-            let needs_write = fs::read(&path)
-                .map(|content| content != BUILTIN_PRUNE_SCRIPT.as_bytes())
-                .unwrap_or(true);
-            if needs_write {
+            if !path.exists() {
                 if let Err(err) = atomic_write(&path, BUILTIN_PRUNE_SCRIPT.as_bytes()) {
                     log::warn!("写入内置增强脚本失败 {}: {err}", path.display());
                 }

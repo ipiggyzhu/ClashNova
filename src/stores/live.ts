@@ -51,8 +51,16 @@ function numberOrZero(value: unknown): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : 0
 }
 
+function numberOrUndefined(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
 function stringOrEmpty(value: unknown): string {
-  return typeof value === 'string' ? value : ''
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value)
+  if (typeof value !== 'string') return ''
+  const trimmed = value.trim()
+  if (!trimmed || trimmed === 'undefined' || trimmed === 'null') return ''
+  return trimmed
 }
 
 function normalizeTraffic(point: TrafficPoint | null | undefined): TrafficPoint {
@@ -89,10 +97,21 @@ function shouldSkipDuplicateTraffic(point: TrafficPoint): boolean {
 function normalizeConnection(value: unknown): ConnItem | null {
   if (!value || typeof value !== 'object') return null
   const item = value as Partial<ConnItem>
+  const raw = value as Record<string, unknown>
   const metadata =
     item.metadata && typeof item.metadata === 'object'
       ? (item.metadata as unknown as Record<string, unknown>)
       : {}
+  const process = stringOrEmpty(metadata.process)
+  const processPath = stringOrEmpty(metadata.processPath)
+  const curUp =
+    numberOrUndefined(raw.curUp) ??
+    numberOrUndefined(raw.curUpload) ??
+    numberOrUndefined(raw.uploadSpeed)
+  const curDown =
+    numberOrUndefined(raw.curDown) ??
+    numberOrUndefined(raw.curDownload) ??
+    numberOrUndefined(raw.downloadSpeed)
   return {
     id: stringOrEmpty(item.id),
     metadata: {
@@ -102,8 +121,8 @@ function normalizeConnection(value: unknown): ConnItem | null {
       sourceIP: stringOrEmpty(metadata.sourceIP),
       sourcePort: stringOrEmpty(metadata.sourcePort),
       network: metadata.network === 'udp' ? 'udp' : 'tcp',
-      ...(typeof metadata.process === 'string' ? { process: metadata.process } : {}),
-      ...(typeof metadata.processPath === 'string' ? { processPath: metadata.processPath } : {}),
+      ...(process ? { process } : {}),
+      ...(processPath ? { processPath } : {}),
     },
     rule: stringOrEmpty(item.rule),
     rulePayload: stringOrEmpty(item.rulePayload),
@@ -111,8 +130,8 @@ function normalizeConnection(value: unknown): ConnItem | null {
     upload: numberOrZero(item.upload),
     download: numberOrZero(item.download),
     start: stringOrEmpty(item.start) || new Date().toISOString(),
-    ...(typeof item.curUp === 'number' && Number.isFinite(item.curUp) ? { curUp: item.curUp } : {}),
-    ...(typeof item.curDown === 'number' && Number.isFinite(item.curDown) ? { curDown: item.curDown } : {}),
+    ...(curUp !== undefined ? { curUp } : {}),
+    ...(curDown !== undefined ? { curDown } : {}),
   }
 }
 

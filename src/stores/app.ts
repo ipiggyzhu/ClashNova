@@ -3,7 +3,7 @@
  * patchSettings 乐观更新 + ipc 持久化, 失败回滚。
  */
 import { create } from 'zustand'
-import { configureApi, getVersion } from '../services/api'
+import { configureApi, getRuntimeConfigs, getVersion } from '../services/api'
 import { call } from '../services/ipc'
 import { DEFAULT_SETTINGS } from '../services/mock'
 import type { AppSettings, CoreStatus, OutboundMode, Theme } from '../types/clash'
@@ -30,6 +30,8 @@ const INITIAL_CORE: CoreStatus = {
 
 export interface AppStore {
   settings: AppSettings
+  /** mihomo 当前运行态模式; null 表示未同步或内核未运行 */
+  runtimeMode: OutboundMode | null
   coreStatus: CoreStatus
   /** loadAll 是否已成功完成 */
   loaded: boolean
@@ -39,6 +41,8 @@ export interface AppStore {
   loadAll: () => Promise<void>
   /** 仅刷新内核状态(侧边栏 chip / 仪表盘 5s 轮询用) */
   refreshCoreStatus: () => Promise<void>
+  /** 从 mihomo /configs 同步低风险运行态字段, 不持久化本地设置 */
+  syncRuntimeMode: () => Promise<void>
   /** 乐观更新 + save_settings 持久化, 失败回滚 */
   patchSettings: (patch: Partial<AppSettings>) => Promise<void>
   /** 出站模式: set_mode(后端 PATCH /configs + 持久化) + mihomo REST 同步 */
@@ -70,6 +74,7 @@ async function hydrateCoreVersion(coreStatus: CoreStatus): Promise<CoreStatus> {
 
 export const useAppStore = create<AppStore>((set, get) => ({
   settings: { ...DEFAULT_SETTINGS },
+  runtimeMode: null,
   coreStatus: INITIAL_CORE,
   loaded: false,
   updateAvailable: undefined,
@@ -86,6 +91,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       const coreStatus = await hydrateCoreVersion(initialCoreStatus)
       applyTheme(settings.theme)
       set({ settings, coreStatus, loaded: true })
+      if (coreStatus.running) void get().syncRuntimeMode()
       // 启动后静默检查更新
       void get().checkUpdate()
     })().finally(() => {
@@ -98,7 +104,19 @@ export const useAppStore = create<AppStore>((set, get) => ({
     const seq = ++coreRefreshSeq
     const coreStatus = await hydrateCoreVersion(await call('core_status'))
     // await 期间出现了更新的刷新(如 stop/start 后的立即刷新) → 本次结果作废
-    if (seq === coreRefreshSeq) set({ coreStatus })
+    if (seq === coreRefreshSeq) {
+      set({ coreStatus, ...(coreStatus.running ? {} : { runtimeMode: null }) })
+      if (coreStatus.running) void get().syncRuntimeMode()
+    }
+  },
+
+  syncRuntimeMode: async () => {
+    try {
+      const { mode } = await getRuntimeConfigs()
+      if (mode) set({ runtimeMode: mode })
+    } catch {
+      set({ runtimeMode: null })
+    }
   },
 
   patchSettings: async (patch) => {
@@ -129,11 +147,12 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
   setMode: async (mode) => {
     const prev = get().settings
-    set({ settings: { ...prev, mode } })
+    const prevRuntimeMode = get().runtimeMode
+    set({ settings: { ...prev, mode }, runtimeMode: mode })
     try {
       await call('set_mode', { mode })
     } catch (err) {
-      set({ settings: { ...get().settings, mode: prev.mode } })
+      set({ settings: { ...get().settings, mode: prev.mode }, runtimeMode: prevRuntimeMode })
       try {
         await get().loadAll()
       } catch {
@@ -167,19 +186,23 @@ export const useAppStore = create<AppStore>((set, get) => ({
   startCore: async () => {
     await call('start_core')
     await get().refreshCoreStatus()
+    await get().syncRuntimeMode()
   },
 
   stopCore: async () => {
     await call('stop_core')
     await get().refreshCoreStatus()
+    set({ runtimeMode: null })
   },
 
   restartCore: async () => {
     await call('restart_core')
     await get().refreshCoreStatus()
+    await get().syncRuntimeMode()
   },
 
   checkUpdate: async () => {
+    set({ updateAvailable: undefined })
     try {
       const version = await call('check_update')
       set({ updateAvailable: version ?? null })

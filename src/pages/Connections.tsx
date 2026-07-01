@@ -13,9 +13,16 @@ import { fmtBytes, fmtDuration, fmtSpeed } from '../utils/format'
 
 const PROC_COLORS = ['#64D2FF', '#BF5AF2', '#FF9F0A', '#32D74B', '#FF375F', '#FFD60A', '#40C8E0']
 const CONNECTION_FRAME_MS = 100
+const CONNECTION_RATE_SAMPLE_MS = 1000
 const CONNECTION_RATE_SMOOTHING_MS = 380
 const CONNECTION_BYTES_SMOOTHING_MS = 260
 const CONNECTION_RATE_EMA = 0.58
+
+interface ConnRateSample {
+  upload: number
+  download: number
+  at: number
+}
 
 interface ConnVisualRow {
   upload: number
@@ -47,12 +54,12 @@ function blendRate(previous: number, raw: number): number {
 
 export default function Connections() {
   const payload = useLiveStore((s) => s.connections)
+  const traffic = useLiveStore((s) => s.traffic)
   const [visiblePayload, setVisiblePayload] = useState(payload)
   const [keyword, setKeyword] = useState('')
   const [network, setNetwork] = useState('all')
   const [proxyFilter, setProxyFilter] = useState('all')
-  const prevCountersRef = useRef<Map<string, { up: number; down: number }>>(new Map())
-  const prevSnapshotTimeRef = useRef<number>(performance.now())
+  const rateSamplesRef = useRef<Map<string, ConnRateSample>>(new Map())
   const targetRowsRef = useRef<Map<string, ConnVisualRow>>(new Map())
   const visualRowsRef = useRef<Map<string, ConnVisualRow>>(new Map())
   const orderRef = useRef<Map<string, number>>(new Map())
@@ -62,12 +69,11 @@ export default function Connections() {
   useEffect(() => startLiveStreams(), [])
 
   useEffect(() => {
-    const prev = prevCountersRef.current
+    const prevSamples = rateSamplesRef.current
     const previousTargets = targetRowsRef.current
     const now = performance.now()
-    const elapsedSec = Math.max(0.25, (now - prevSnapshotTimeRef.current) / 1000)
     const seen = new Set<string>()
-    const nextCounters = new Map<string, { up: number; down: number }>()
+    const nextSamples = new Map(prevSamples)
     const nextTargets = new Map<string, ConnVisualRow>()
     let visualChanged = false
 
@@ -78,11 +84,28 @@ export default function Connections() {
         orderSeqRef.current += 1
       }
 
-      nextCounters.set(c.id, { up: c.upload, down: c.download })
-      const p = prev.get(c.id)
-      const rawUp = c.curUp ?? (p ? Math.max(0, (c.upload - p.up) / elapsedSec) : 0)
-      const rawDown = c.curDown ?? (p ? Math.max(0, (c.download - p.down) / elapsedSec) : 0)
       const previousTarget = previousTargets.get(c.id)
+      const sample = prevSamples.get(c.id)
+      let rawUp = c.curUp ?? previousTarget?.up ?? 0
+      let rawDown = c.curDown ?? previousTarget?.down ?? 0
+
+      if (c.curUp === undefined || c.curDown === undefined) {
+        if (!sample) {
+          nextSamples.set(c.id, { upload: c.upload, download: c.download, at: now })
+        } else if (now - sample.at >= CONNECTION_RATE_SAMPLE_MS) {
+          const elapsedSec = Math.max(0.001, (now - sample.at) / 1000)
+          if (c.curUp === undefined) {
+            rawUp = Math.max(0, (c.upload - sample.upload) / elapsedSec)
+          }
+          if (c.curDown === undefined) {
+            rawDown = Math.max(0, (c.download - sample.download) / elapsedSec)
+          }
+          nextSamples.set(c.id, { upload: c.upload, download: c.download, at: now })
+        }
+      } else {
+        nextSamples.set(c.id, { upload: c.upload, download: c.download, at: now })
+      }
+
       const target = {
         upload: c.upload,
         download: c.download,
@@ -99,6 +122,9 @@ export default function Connections() {
     for (const id of orderRef.current.keys()) {
       if (!seen.has(id)) orderRef.current.delete(id)
     }
+    for (const id of nextSamples.keys()) {
+      if (!seen.has(id)) nextSamples.delete(id)
+    }
     for (const id of visualRowsRef.current.keys()) {
       if (!seen.has(id)) {
         visualRowsRef.current.delete(id)
@@ -106,9 +132,8 @@ export default function Connections() {
       }
     }
 
-    prevCountersRef.current = nextCounters
+    rateSamplesRef.current = nextSamples
     targetRowsRef.current = nextTargets
-    prevSnapshotTimeRef.current = now
 
     const ordered = [...payload.connections].sort(
       (a, b) => (orderRef.current.get(a.id) ?? 0) - (orderRef.current.get(b.id) ?? 0),
@@ -165,6 +190,14 @@ export default function Connections() {
     () => [...visualRows.values()].reduce((s, r) => s + r.down, 0),
     [visualRows],
   )
+  const lastTraffic = traffic[traffic.length - 1]
+  const trafficFresh = Boolean(
+    lastTraffic &&
+      lastTraffic.source !== 'disconnect' &&
+      (!lastTraffic.timestamp || Date.now() - lastTraffic.timestamp < 3500),
+  )
+  const topUpSpeed = trafficFresh ? lastTraffic!.up : upSpeed
+  const topDownSpeed = trafficFresh ? lastTraffic!.down : downSpeed
 
   const list = useMemo(() => {
     const kw = keyword.trim().toLowerCase()
@@ -178,12 +211,12 @@ export default function Connections() {
         if (proxyFilter === 'reject' && lastProxy !== 'REJECT') return false
       }
       if (!kw) return true
-      const hay = `${c.metadata.host} ${c.metadata.process ?? ''} ${c.rule} ${c.rulePayload} ${c.chains.join(' ')}`.toLowerCase()
+      const hay = `${c.metadata.host} ${c.metadata.destinationIP} ${c.metadata.process ?? ''} ${c.rule} ${c.rulePayload} ${c.chains.join(' ')}`.toLowerCase()
       return hay.includes(kw)
     })
   }, [visiblePayload, keyword, network, proxyFilter])
 
-  const chainText = (c: ConnItem): string => [...c.chains].reverse().join(' → ')
+  const chainText = (c: ConnItem): string => [...c.chains].reverse().join(' → ') || '—'
   const isReject = (c: ConnItem): boolean => c.chains.includes('REJECT')
 
   return (
@@ -202,8 +235,8 @@ export default function Connections() {
             ? `${visiblePayload.connections.length} 个连接`
             : `${list.length} / ${visiblePayload.connections.length} 个连接`}
         </span>
-        <Badge tone="purple">↑ {fmtSpeed(upSpeed)}</Badge>
-        <Badge tone="cyan">↓ {fmtSpeed(downSpeed)}</Badge>
+        <Badge tone="purple">↑ {fmtSpeed(topUpSpeed)}</Badge>
+        <Badge tone="cyan">↓ {fmtSpeed(topDownSpeed)}</Badge>
         <div className="spacer" />
         <Seg
           items={[
@@ -260,17 +293,25 @@ export default function Connections() {
                 const proc = c.metadata.process ||
                   (c.metadata.processPath ? c.metadata.processPath.split(/[/\\]/).filter(Boolean).pop() : null) ||
                   'System'
+                const host = c.metadata.host || c.metadata.destinationIP || c.metadata.sourceIP || '—'
+                const port = c.metadata.destinationPort ? `:${c.metadata.destinationPort}` : ''
+                const ipLine = c.metadata.destinationIP && c.metadata.destinationIP !== host
+                  ? c.metadata.destinationIP
+                  : ''
+                const ruleText = c.rule
+                  ? `${c.rule}${c.rulePayload ? `:${c.rulePayload}` : ''}`
+                  : '—'
                 return (
                   <tr key={c.id}>
                     <td className="host-cell">
                       <div className="h">
-                        {c.metadata.host || c.metadata.destinationIP}
-                        <span className="port">:{c.metadata.destinationPort}</span>
+                        {host}
+                        {port && <span className="port">{port}</span>}
                         {c.metadata.network === 'udp' && (
                           <span className="chip" style={{ marginLeft: 6 }}>UDP</span>
                         )}
                       </div>
-                      <div className="ip">{c.metadata.destinationIP}</div>
+                      {ipLine && <div className="ip">{ipLine}</div>}
                     </td>
                     <td>
                       <span className="proc" style={{ color: procColor(proc) }}>
@@ -280,7 +321,7 @@ export default function Connections() {
                     </td>
                     <td>
                       <span className={isReject(c) ? 'chip rj' : 'chip'}>
-                        {c.rule}{c.rulePayload ? `:${c.rulePayload}` : ''}
+                        {ruleText}
                       </span>
                     </td>
                     <td>

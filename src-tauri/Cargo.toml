@@ -1,11 +1,11 @@
 [package]
 name = "clashnova"
-version = "2.4.6"
+version = "2.4.7"
 edition = "2021"
 description = "ClashNova v2 — 基于 mihomo 的 Windows 桌面代理客户端"
 license = "MIT"
 
-# 二进制名与 productName 对齐, 避免 NSIS/MSI 包内可执行文件名不一致
+# 二进制名与 productName 对齐, 避免安装包内可执行文件名不一致
 [[bin]]
 name = "clashnova"
 path = "src/main.rs"

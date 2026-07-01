@@ -3,7 +3,13 @@
  * base = http://127.0.0.1:9097, header `Authorization: Bearer {secret}`。
  * mock 模式直接返回 mock.ts 造数。
  */
-import type { ProxiesPayload, ProxyProviderItem, RuleItem, RuleProviderItem } from '../types/clash'
+import type {
+  OutboundMode,
+  ProxiesPayload,
+  ProxyProviderItem,
+  RuleItem,
+  RuleProviderItem,
+} from '../types/clash'
 import { call, isMock } from './ipc'
 import {
   mockCloseAllConnections,
@@ -75,6 +81,10 @@ function recordOrEmpty<T>(value: unknown): Record<string, T> {
 
 function arrayOrEmpty<T>(value: unknown): T[] {
   return Array.isArray(value) ? (value as T[]) : []
+}
+
+function outboundModeOrUndefined(value: unknown): OutboundMode | undefined {
+  return value === 'rule' || value === 'global' || value === 'direct' ? value : undefined
 }
 
 const mockDelayMs = (): Promise<void> =>
@@ -165,6 +175,18 @@ export async function patchMode(mode: string): Promise<void> {
     return
   }
   await request('PATCH', '/configs', { mode })
+}
+
+/** GET /configs — 只暴露 ClashNova 需要跟随的低风险运行态字段 */
+export async function getRuntimeConfigs(): Promise<{ mode?: OutboundMode }> {
+  if (isMock) {
+    await mockDelayMs()
+    return { mode: mockSettings().mode }
+  }
+  const payload = await request<Record<string, unknown> | null>('GET', '/configs')
+  return {
+    mode: outboundModeOrUndefined(payload?.mode),
+  }
 }
 
 /** DELETE /connections/{id} — 关闭单个连接 */
