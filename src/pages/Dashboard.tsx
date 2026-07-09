@@ -139,14 +139,17 @@ export default function Dashboard() {
   /* 环形图: 直连 vs 代理 + 上下行 */
   const sumUp = sumSeries.reduce((acc, p) => acc + p.up, 0)
   const sumDown = sumSeries.reduce((acc, p) => acc + p.down, 0)
-  const directBytes = proxyRank
-    .filter((r) => r.key === 'DIRECT')
-    .reduce((acc, r) => acc + r.up + r.down, 0)
-  const proxyBytes = Math.max(
-    0,
-    proxyRank.filter((r) => r.key !== 'DIRECT').reduce((acc, r) => acc + r.up + r.down, 0),
+  // 总量以 sumSeries(dim=total, 全量) 为准; proxyRank 带 LIMIT 10, 只用来取 DIRECT 单键。
+  // 代理量 = 总量 - 直连, 避免代理目标超过 10 个时占比与中心总量对不上。
+  const grandTotal = sumUp + sumDown
+  const directBytes = Math.min(
+    grandTotal,
+    proxyRank
+      .filter((r) => r.key === 'DIRECT')
+      .reduce((acc, r) => acc + r.up + r.down, 0),
   )
-  const total = Math.max(1, directBytes + proxyBytes)
+  const proxyBytes = Math.max(0, grandTotal - directBytes)
+  const total = Math.max(1, grandTotal)
   const proxyRatio = proxyBytes / total
   const C = 2 * Math.PI * 64
   const rankMax = Math.max(1, ...ranking.map((r) => r.up + r.down))

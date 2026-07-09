@@ -14,9 +14,11 @@ import { fmtBytes, fmtDuration, fmtSpeed } from '../utils/format'
 const PROC_COLORS = ['#64D2FF', '#BF5AF2', '#FF9F0A', '#32D74B', '#FF375F', '#FFD60A', '#40C8E0']
 const CONNECTION_FRAME_MS = 100
 const CONNECTION_RATE_SAMPLE_MS = 1000
-const CONNECTION_RATE_SMOOTHING_MS = 380
+// 速率是每秒采样一次的量, 展示时缓慢滑动到目标值即可; 平滑窗口过短会让数字以 ~10fps 疯狂跳动,
+// 看上去像是"毫秒级"刷新。加长平滑窗口 + 降低 EMA 权重, 让速率以秒级的节奏平稳变化。
+const CONNECTION_RATE_SMOOTHING_MS = 900
 const CONNECTION_BYTES_SMOOTHING_MS = 260
-const CONNECTION_RATE_EMA = 0.58
+const CONNECTION_RATE_EMA = 0.4
 
 interface ConnRateSample {
   upload: number

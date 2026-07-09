@@ -48,6 +48,69 @@ fn normalize_dns_override(raw: &str) -> Result<Value, CoreError> {
     Ok(value)
 }
 
+/// 纯 IP 引导 DNS:用于解析下面 DoH 服务器自己的域名(避免先有鸡还是先有蛋)。
+/// 国内 IP 打底,保证内核启动即能引导。
+const DEFAULT_BOOTSTRAP_NAMESERVERS: &[&str] = &["223.5.5.5", "119.29.29.29", "1.1.1.1"];
+
+/// 主 nameserver:国内 DoH 打底(国内站点解析快、不绕路),
+/// 国际 DoH 兜底(墙外域名不被污染)。混合一套,兼顾速度与正确性。
+const DEFAULT_NAMESERVERS: &[&str] = &[
+    "https://dns.alidns.com/dns-query",
+    "https://doh.pub/dns-query",
+    "https://1.1.1.1/dns-query",
+    "https://dns.google/dns-query",
+];
+
+/// 代理节点域名的解析:强制走国内 DNS 直连解析,避免解析节点地址时死循环。
+const DEFAULT_PROXY_SERVER_NAMESERVERS: &[&str] =
+    &["https://dns.alidns.com/dns-query", "https://doh.pub/dns-query"];
+
+fn str_seq(items: &[&str]) -> Value {
+    Value::Sequence(items.iter().map(|s| Value::String((*s).into())).collect())
+}
+
+/// 判断 dns 段里某个键是否"已由用户/订阅提供"(存在且为非空数组)。
+fn has_nonempty_list(dns: &Mapping, key: &str) -> bool {
+    dns.get(Value::String(key.into()))
+        .and_then(Value::as_sequence)
+        .map(|seq| !seq.is_empty())
+        .unwrap_or(false)
+}
+
+/// DNS 开启但既无订阅自带、也无用户覆写的 nameserver 时,补一套合理默认值。
+///
+/// 只在字段缺失(或为空数组)时填充,因此优先级天然为:订阅自带 > 用户覆写 > 默认。
+/// 这是修复"上网慢/解析卡顿"的关键:mihomo 一旦接管 DNS 却无 nameserver,
+/// 会退化到极慢的解析路径,表现为每开一个网站都卡,但节点测速正常。
+fn ensure_default_nameservers(doc: &mut Value) {
+    let Some(dns) = doc
+        .as_mapping_mut()
+        .and_then(|m| m.get_mut("dns"))
+        .and_then(Value::as_mapping_mut)
+    else {
+        return;
+    };
+
+    if !has_nonempty_list(dns, "nameserver") {
+        dns.insert(
+            Value::String("nameserver".into()),
+            str_seq(DEFAULT_NAMESERVERS),
+        );
+    }
+    if !has_nonempty_list(dns, "default-nameserver") {
+        dns.insert(
+            Value::String("default-nameserver".into()),
+            str_seq(DEFAULT_BOOTSTRAP_NAMESERVERS),
+        );
+    }
+    if !has_nonempty_list(dns, "proxy-server-nameserver") {
+        dns.insert(
+            Value::String("proxy-server-nameserver".into()),
+            str_seq(DEFAULT_PROXY_SERVER_NAMESERVERS),
+        );
+    }
+}
+
 fn ensure_tun_dns(doc: &mut Value, ov: &RuntimeOverrides) {
     let Some(map) = doc.as_mapping_mut() else {
         return;
@@ -113,6 +176,9 @@ pub fn build_runtime_config(
     }
     let map = doc.as_mapping_mut().ok_or(CoreError::UnrecognizedFormat)?;
 
+    // profile 是否已显式设置 tcp-concurrent(闭包借用 map 前先取,避免借用冲突)
+    let has_tcp_concurrent = map.contains_key(Value::String("tcp-concurrent".into()));
+
     let mut set = |key: &str, val: Value| {
         map.insert(Value::String(key.to_string()), val);
     };
@@ -127,6 +193,11 @@ pub fn build_runtime_config(
     set("ipv6", Value::Bool(ov.ipv6));
     set("log-level", Value::String(ov.log_level.clone()));
     set("find-process-mode", Value::String("always".into()));
+    // 并发建连:对同一域名的多个 IP 同时握手,取最快的。显著降低访问网站的
+    // 首包延迟(Clash Verge 默认开启),profile 已显式设置时不覆盖。
+    if !has_tcp_concurrent {
+        set("tcp-concurrent", Value::Bool(true));
+    }
     set("external-ui", Value::String(EXTERNAL_UI_DIR.into()));
     set("external-ui-url", Value::String(EXTERNAL_UI_URL.into()));
 
@@ -220,6 +291,19 @@ pub fn build_runtime_config(
 
     if ov.tun_enable {
         ensure_tun_dns(&mut doc, ov);
+    }
+
+    // DNS 最终处于开启状态(高级开关 / TUN 强制 / 覆写显式开启任一)时,
+    // 若既无订阅自带也无用户覆写的 nameserver,补一套默认上游,避免解析退化变慢。
+    let dns_enabled = doc
+        .as_mapping()
+        .and_then(|m| m.get("dns"))
+        .and_then(Value::as_mapping)
+        .and_then(|dns| dns.get(Value::String("enable".into())))
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    if dns_enabled {
+        ensure_default_nameservers(&mut doc);
     }
 
     // hosts 覆写:`域名 IP` 行 → hosts: {域名: IP};非法行跳过
@@ -434,6 +518,112 @@ rules:
         assert!(dns.get("nameserver").is_some());
         assert!(dns.get("proxies").is_none());
         assert_eq!(doc.get("mixed-port"), Some(&Value::from(7897u64)));
+    }
+
+    #[test]
+    fn dns_开启且无_nameserver_时补默认值() {
+        // 默认设置(enable_dns=true, fake-ip),profile 不带任何 dns nameserver。
+        // 这是"每个新用户都会中招"的场景:DNS 接管但无上游 → 解析慢。
+        let mut ov = overrides(false);
+        ov.enable_dns = true;
+        let out = build_runtime_config("proxies: []\n", &ov).expect("生成应成功");
+        let doc = parse(&out);
+        let dns = doc.get("dns").expect("dns 段应存在");
+        // 主 nameserver / 引导 / 代理节点解析三者都应被补上
+        assert!(
+            dns.get("nameserver").and_then(Value::as_sequence).map(|s| !s.is_empty()).unwrap_or(false),
+            "应补默认 nameserver"
+        );
+        assert!(
+            dns.get("default-nameserver").and_then(Value::as_sequence).map(|s| !s.is_empty()).unwrap_or(false),
+            "应补默认 default-nameserver"
+        );
+        assert!(
+            dns.get("proxy-server-nameserver").and_then(Value::as_sequence).map(|s| !s.is_empty()).unwrap_or(false),
+            "应补默认 proxy-server-nameserver"
+        );
+        // default-nameserver 必须是纯 IP(否则无法引导 DoH 域名解析)
+        let boot = dns.get("default-nameserver").and_then(Value::as_sequence).unwrap();
+        for entry in boot {
+            let s = entry.as_str().unwrap();
+            assert!(
+                !s.contains("://") && !s.contains("/"),
+                "default-nameserver 必须是纯 IP,得到: {s}"
+            );
+        }
+    }
+
+    #[test]
+    fn dns_订阅自带_nameserver_时不被默认值覆盖() {
+        // 订阅已经写了 nameserver → 必须原样保留,不能被默认值顶掉。
+        let profile = "dns:\n  enable: true\n  nameserver:\n    - https://my.custom/dns-query\nproxies: []\n";
+        let mut ov = overrides(false);
+        ov.enable_dns = true;
+        let out = build_runtime_config(profile, &ov).expect("生成应成功");
+        let doc = parse(&out);
+        let ns = doc
+            .get("dns")
+            .and_then(|d| d.get("nameserver"))
+            .and_then(Value::as_sequence)
+            .expect("nameserver 应存在");
+        assert_eq!(ns.len(), 1, "订阅自带 nameserver 不应被追加/覆盖");
+        assert_eq!(ns[0], Value::String("https://my.custom/dns-query".into()));
+    }
+
+    #[test]
+    fn dns_用户覆写_nameserver_时不被默认值覆盖() {
+        // 用户在 dns_override 里写了 nameserver → 保留用户的。
+        let mut ov = overrides(false);
+        ov.enable_dns = true;
+        ov.dns_override = "nameserver:\n  - https://user.pick/dns-query\n".into();
+        let out = build_runtime_config("proxies: []\n", &ov).expect("生成应成功");
+        let doc = parse(&out);
+        let ns = doc
+            .get("dns")
+            .and_then(|d| d.get("nameserver"))
+            .and_then(Value::as_sequence)
+            .expect("nameserver 应存在");
+        assert_eq!(ns.len(), 1);
+        assert_eq!(ns[0], Value::String("https://user.pick/dns-query".into()));
+    }
+
+    #[test]
+    fn dns_关闭时不补_nameserver() {
+        // DNS 明确关闭 → 不应注入任何 nameserver。
+        let mut ov = overrides(false);
+        ov.enable_dns = false;
+        let out = build_runtime_config("proxies: []\n", &ov).expect("生成应成功");
+        let doc = parse(&out);
+        assert!(
+            doc.get("dns").and_then(|d| d.get("nameserver")).is_none(),
+            "DNS 关闭时不应有 nameserver"
+        );
+    }
+
+    #[test]
+    fn tun_开启时也补默认_nameserver() {
+        // TUN 会强制开启 DNS(ensure_tun_dns),此时同样需要 nameserver 兜底。
+        let mut ov = overrides(true);
+        ov.enable_dns = false; // 即使高级 DNS 关着,TUN 也会打开 dns
+        let out = build_runtime_config("proxies: []\n", &ov).expect("生成应成功");
+        let doc = parse(&out);
+        let dns = doc.get("dns").expect("TUN 应确保 dns 段存在");
+        assert_eq!(dns.get("enable"), Some(&Value::Bool(true)));
+        assert!(
+            dns.get("nameserver").and_then(Value::as_sequence).map(|s| !s.is_empty()).unwrap_or(false),
+            "TUN 开启时也应补默认 nameserver"
+        );
+    }
+
+    #[test]
+    fn tcp_concurrent_默认开启且不覆盖用户值() {
+        // 默认应补 tcp-concurrent: true
+        let out = build_runtime_config("proxies: []\n", &overrides(false)).expect("生成应成功");
+        assert_eq!(parse(&out).get("tcp-concurrent"), Some(&Value::Bool(true)));
+        // profile 显式设为 false → 保留用户值
+        let out2 = build_runtime_config("tcp-concurrent: false\nproxies: []\n", &overrides(false))
+            .expect("生成应成功");
+        assert_eq!(parse(&out2).get("tcp-concurrent"), Some(&Value::Bool(false)));
     }
 
     #[test]

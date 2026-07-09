@@ -1,7 +1,7 @@
 import { startTransition, useEffect, useMemo, useRef, useState } from 'react'
 import './RouteMap.css'
 import Globe from 'globe.gl'
-import { geoEquirectangular, geoInterpolate, geoPath } from 'd3-geo'
+import { geoEquirectangular, geoGraticule10, geoInterpolate, geoPath } from 'd3-geo'
 import * as THREE from 'three'
 import * as topojson from 'topojson-client'
 import type { Topology as TopoTopology, Objects } from 'topojson-specification'
@@ -14,6 +14,7 @@ import { useAppStore } from '../stores/app'
 import { startLiveStreams, useLiveStore } from '../stores/live'
 import type { ConnectionsPayload } from '../types/clash'
 import { fmtBytes } from '../utils/format'
+import { sunPosAt } from '../utils/solar'
 
 /* ---------------- 地理数据 ---------------- */
 
@@ -317,6 +318,75 @@ function pointTexture(color: string): THREE.CanvasTexture {
   return texture
 }
 
+/**
+ * 昼夜地球着色器: 把白昼贴图与夜晚贴图沿真实晨昏线混合。
+ * sunPosition 为太阳直下点(经纬度), globeRotation 为当前视角经纬度(补偿球体自转)。
+ * 昼面为 Blue Marble 自然色地表贴图, 夜面为 Black Marble 城市灯火贴图(均为 public/ 下 JPEG);
+ * 矢量贴图(buildVectorEarthTexture)仅在 JPEG 加载完成前/离线兜底时占位。
+ * 着色器仅沿真实晨昏线混合, 不做额外提亮/增辉。旋转/晨昏线数学取自 globe.gl 官方 day-night 示例。
+ */
+const DAY_NIGHT_VERTEX_SHADER = `
+  varying vec3 vNormal;
+  varying vec2 vUv;
+  void main() {
+    vNormal = normalize(normalMatrix * normal);
+    vUv = uv;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+`
+
+const DAY_NIGHT_FRAGMENT_SHADER = `
+  #define PI 3.141592653589793
+  uniform sampler2D dayTexture;
+  uniform sampler2D nightTexture;
+  uniform vec2 sunPosition;
+  uniform vec2 globeRotation;
+  varying vec3 vNormal;
+  varying vec2 vUv;
+
+  float toRad(in float a) {
+    return a * PI / 180.0;
+  }
+
+  vec3 Polar2Cartesian(in vec2 c) { // [lng, lat]
+    float theta = toRad(90.0 - c.x);
+    float phi = toRad(90.0 - c.y);
+    return vec3(
+      sin(phi) * cos(theta),
+      cos(phi),
+      sin(phi) * sin(theta)
+    );
+  }
+
+  void main() {
+    float invLon = toRad(globeRotation.x);
+    float invLat = -toRad(globeRotation.y);
+    mat3 rotX = mat3(
+      1, 0, 0,
+      0, cos(invLat), -sin(invLat),
+      0, sin(invLat), cos(invLat)
+    );
+    mat3 rotY = mat3(
+      cos(invLon), 0, sin(invLon),
+      0, 1, 0,
+      -sin(invLon), 0, cos(invLon)
+    );
+    vec3 rotatedSunDirection = rotX * rotY * Polar2Cartesian(sunPosition);
+    float intensity = dot(normalize(vNormal), normalize(rotatedSunDirection));
+
+    // 昼面 Blue Marble 自然色地表, 夜面 Black Marble 城市灯火(灯火已烘焙进贴图),
+    // 着色器只负责沿真实晨昏线混合两者, 不做额外提取/增辉(否则会把灯火过曝)。
+    vec3 dayColor = texture2D(dayTexture, vUv).rgb;
+    vec3 nightColor = texture2D(nightTexture, vUv).rgb;
+
+    // 晨昏线: smoothstep 过渡, 昼夜自然衔接又保持清晰分界
+    float blendFactor = smoothstep(-0.10, 0.10, intensity);
+
+    vec3 color = mix(nightColor, dayColor, blendFactor);
+    gl_FragColor = vec4(color, 1.0);
+  }
+`
+
 /** 球面主题配色: 浅色=蓝色海洋球, 深色=暗夜科技球 */
 const GLOBE_THEMES = {
   light: {
@@ -334,6 +404,109 @@ const GLOBE_THEMES = {
     point: '#64D2FF',
   },
 } as const
+
+/* ---------------- 高德夜间矢量地球贴图 ---------------- */
+
+const VECTOR_EARTH_W = 4096
+const VECTOR_EARTH_H = 2048
+
+/** 主要城市(经度, 纬度): 用于夜面城市点缀 */
+const MAJOR_CITIES: [number, number][] = [
+  [116.4, 39.9], [121.47, 31.23], [113.26, 23.13], [114.06, 22.54],
+  [104.07, 30.57], [108.94, 34.34], [120.15, 30.28], [126.63, 45.75],
+  [139.69, 35.68], [126.98, 37.57], [121.57, 25.03], [103.82, 1.35],
+  [100.5, 13.75], [106.7, 10.78], [77.21, 28.61], [72.88, 19.08],
+  [55.27, 25.2], [51.39, 35.69], [31.24, 30.04], [28.98, 41.01],
+  [37.62, 55.75], [2.35, 48.86], [-0.13, 51.51], [13.4, 52.52],
+  [12.5, 41.9], [4.9, 52.37], [-3.7, 40.42], [18.07, 59.33],
+  [-74.0, 40.71], [-87.65, 41.85], [-118.24, 34.05], [-122.42, 37.77],
+  [-99.13, 19.43], [-46.63, -23.55], [-58.38, -34.6], [-70.65, -33.45],
+  [151.21, -33.87], [144.96, -37.81], [174.76, -36.85], [18.42, -33.92],
+]
+
+/**
+ * 现画一张高德夜间矢量风格的地球贴图 (等距投影 = 球体 UV 展开图, 直接贴上经纬度即对齐)。
+ * 深色海洋底 + 陆地填充 + 青蓝发光海岸线 + 极淡经纬网 + 城市点缀。
+ * variant: 'night' 更暗、辉光更强; 'day' 稍亮。全离线, 用已装的 world-atlas 数据。
+ */
+function buildVectorEarthTexture(variant: 'day' | 'night'): THREE.CanvasTexture {
+  const W = VECTOR_EARTH_W
+  const H = VECTOR_EARTH_H
+  const canvas = document.createElement('canvas')
+  canvas.width = W
+  canvas.height = H
+  const ctx = canvas.getContext('2d')!
+  const night = variant === 'night'
+
+  // 海洋底: 近黑深蓝竖向渐变(高德夜间的暗底, 压得更暗让青色线条更跳)
+  const ocean = ctx.createLinearGradient(0, 0, 0, H)
+  if (night) {
+    ocean.addColorStop(0, '#03060c')
+    ocean.addColorStop(0.5, '#040a14')
+    ocean.addColorStop(1, '#03060c')
+  } else {
+    ocean.addColorStop(0, '#071120')
+    ocean.addColorStop(0.5, '#0a1a2d')
+    ocean.addColorStop(1, '#071120')
+  }
+  ctx.fillStyle = ocean
+  ctx.fillRect(0, 0, W, H)
+
+  // 全球等距投影: 经度 -180..180 → x 0..W, 纬度 90..-90 → y 0..H
+  const projection = geoEquirectangular()
+    .scale(W / (2 * Math.PI))
+    .translate([W / 2, H / 2])
+  const path = geoPath(projection, ctx)
+
+  // 经纬网: 极淡青色冷光网格
+  ctx.beginPath()
+  path(geoGraticule10())
+  ctx.strokeStyle = night ? 'rgba(52,150,168,0.10)' : 'rgba(70,165,185,0.13)'
+  ctx.lineWidth = 1
+  ctx.stroke()
+
+  // 陆地填充: 略带青调的深色, 与高德夜间陆块一致
+  ctx.beginPath()
+  for (const f of LAND.features) path(f)
+  ctx.fillStyle = night ? '#0b2230' : '#123043'
+  ctx.fill()
+
+  // 海岸线发光描边(高德夜间标志性青色辉光, 两层叠加增强)。
+  // 偏 teal/cyan 而非蓝, 更贴高德夜间路网/岸线的青色调。
+  ctx.save()
+  ctx.beginPath()
+  for (const f of LAND.features) path(f)
+  ctx.shadowColor = night ? 'rgba(38,190,205,0.95)' : 'rgba(60,195,210,0.82)'
+  ctx.shadowBlur = night ? 16 : 12
+  ctx.strokeStyle = night ? 'rgba(64,208,222,0.82)' : 'rgba(96,205,220,0.75)'
+  ctx.lineWidth = 2.4
+  ctx.stroke()
+  ctx.shadowBlur = night ? 6 : 4
+  ctx.strokeStyle = night ? 'rgba(158,232,240,0.94)' : 'rgba(178,236,242,0.88)'
+  ctx.lineWidth = 1.1
+  ctx.stroke()
+  ctx.restore()
+
+  // 城市标记: 高德夜间为干净的矢量线条图, 城市仅以极小的青色圆点点缀,
+  // 不做金色"太空灯火"辉光(那会破坏矢量地图的干净感)。
+  ctx.save()
+  for (const [lng, lat] of MAJOR_CITIES) {
+    const p = projection([lng, lat])
+    if (!p) continue
+    const [x, y] = p
+    ctx.fillStyle = night ? 'rgba(120,215,228,0.7)' : 'rgba(140,220,232,0.6)'
+    ctx.beginPath()
+    ctx.arc(x, y, night ? 1.4 : 1.2, 0, Math.PI * 2)
+    ctx.fill()
+  }
+  ctx.restore()
+
+  const texture = new THREE.CanvasTexture(canvas)
+  texture.colorSpace = THREE.NoColorSpace
+  texture.anisotropy = 8
+  texture.needsUpdate = true
+  return texture
+}
 
 export default function RouteMap() {
   const theme = useAppStore((s) => s.settings.theme)
@@ -421,28 +594,108 @@ export default function RouteMap() {
       .showAtmosphere(true)
       .atmosphereColor(GLOBE_THEMES[resolvedTheme].atmosphere)
       .atmosphereAltitude(0.16)
-      .hexPolygonsData(LAND.features)
-      .hexPolygonResolution(3)
-      .hexPolygonMargin(0.6)
-      .hexPolygonColor(() => GLOBE_THEMES[resolvedTheme].hex)
       .width(el.clientWidth)
       .height(el.clientHeight)
 
-    globe.globeMaterial().color.set(GLOBE_THEMES[resolvedTheme].globe)
-    globe.renderer?.().setPixelRatio(Math.min(1.5, window.devicePixelRatio || 1))
+    // 昼夜写实地球: 用自定义着色器混合白昼/夜晚贴图, 沿真实晨昏线切换。
+    // 仅替换地球贴图模型, 大气层/弧线/飞机/标签/尺寸/自转均保持不变。
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const ShaderMaterial = (THREE as any).ShaderMaterial
+    const dayNightMaterial = new ShaderMaterial({
+      uniforms: {
+        dayTexture: { value: null },
+        nightTexture: { value: null },
+        sunPosition: { value: new THREE.Vector2() },
+        globeRotation: { value: new THREE.Vector2() },
+      },
+      vertexShader: DAY_NIGHT_VERTEX_SHADER,
+      fragmentShader: DAY_NIGHT_FRAGMENT_SHADER,
+    })
+    globe.globeMaterial(dayNightMaterial)
+
+    // 写实卫星地球: 昼面用 Blue Marble(自然色地表), 夜面用 Black Marble(城市灯火)。
+    // 两张均为 public/ 下的 4096x2048 等距投影 JPEG, 着色器沿真实晨昏线混合。
+    // 矢量贴图(buildVectorEarthTexture)保留为占位/离线兜底: JPEG 异步加载完成前先显示,
+    // 加载失败(离线/文件缺失)时也不会出现白球。
+    const maxAniso = globe.renderer?.().capabilities.getMaxAnisotropy?.() ?? 8
+    const tuneTexture = (tex: THREE.Texture, srgb: boolean): void => {
+      tex.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace
+      tex.anisotropy = maxAniso
+      tex.minFilter = THREE.LinearMipmapLinearFilter
+      tex.magFilter = THREE.LinearFilter
+      tex.generateMipmaps = true
+      tex.needsUpdate = true
+    }
+
+    const fallbackDay = buildVectorEarthTexture('day')
+    const fallbackNight = buildVectorEarthTexture('night')
+    tuneTexture(fallbackDay, false)
+    tuneTexture(fallbackNight, false)
+    dayNightMaterial.uniforms.dayTexture.value = fallbackDay
+    dayNightMaterial.uniforms.nightTexture.value = fallbackNight
+    dayNightMaterial.needsUpdate = true
+
+    // 释放 GPU 显存: three.js 不会因材质 dispose 递归释放 uniform 持有的纹理, 需手动 dispose。
+    const disposeTexture = (tex: THREE.Texture | null | undefined): void => {
+      ;(tex as unknown as { dispose?: () => void } | null | undefined)?.dispose?.()
+    }
+
+    // 异步加载真实卫星照片, 就绪后热替换进 uniforms(仍在同一 globe 实例时才生效)。
+    const loader = new THREE.TextureLoader()
+    const swapTexture = (uniform: 'dayTexture' | 'nightTexture', url: string): void => {
+      loader
+        .loadAsync(url)
+        .then((tex) => {
+          if (globeRef.current !== globe) {
+            disposeTexture(tex)
+            return
+          }
+          tuneTexture(tex, true)
+          // 热替换成功: 释放被顶掉的兜底纹理, 避免它上传 GPU 后被丢弃仍占显存。
+          const prev = dayNightMaterial.uniforms[uniform].value as THREE.Texture | null
+          dayNightMaterial.uniforms[uniform].value = tex
+          dayNightMaterial.needsUpdate = true
+          if (prev !== tex) disposeTexture(prev)
+        })
+        .catch(() => {
+          /* 离线/文件缺失: 保留矢量兜底贴图 */
+        })
+    }
+    swapTexture('dayTexture', '/earth-day.jpg')
+    swapTexture('nightTexture', '/earth-night.jpg')
+
+    globe.renderer?.().setPixelRatio(Math.min(2, window.devicePixelRatio || 1))
     globe.controls().autoRotate = true
     globe.controls().autoRotateSpeed = 0.28
     globe.pointOfView({ lat: 24, lng: 110, altitude: 1.85 }, 0)
     globeRef.current = globe
+
+    // 每帧刷新太阳直下点(真实时区昼夜)与视角补偿, 让晨昏线固定在地理正确的位置。
+    let sunRaf = 0
+    const updateSun = (): void => {
+      if (globeRef.current !== globe) return
+      const [sunLng, sunLat] = sunPosAt(Date.now())
+      dayNightMaterial.uniforms.sunPosition.value.set(sunLng, sunLat)
+      const pov = globe.pointOfView()
+      dayNightMaterial.uniforms.globeRotation.value.set(pov.lng, pov.lat)
+      sunRaf = window.requestAnimationFrame(updateSun)
+    }
+    sunRaf = window.requestAnimationFrame(updateSun)
 
     const ro = new ResizeObserver(() => {
       globe.width(el.clientWidth).height(el.clientHeight)
     })
     ro.observe(el)
     return () => {
+      window.cancelAnimationFrame(sunRaf)
       ro.disconnect()
       globeRef.current = null
       globeObjectRef.current.clear()
+      // 释放昼夜地球的 GPU 资源: uniform 里当前持有的两张纹理(兜底或已热替换的 JPEG)+ 材质本身。
+      // _destructor() 不会递归 dispose 这些, 不手动释放会在每次 [view, resolvedTheme] 切换时泄漏显存。
+      disposeTexture(dayNightMaterial.uniforms.dayTexture.value as THREE.Texture | null)
+      disposeTexture(dayNightMaterial.uniforms.nightTexture.value as THREE.Texture | null)
+      ;(dayNightMaterial as unknown as { dispose?: () => void }).dispose?.()
       globe._destructor()
       el.innerHTML = ''
     }

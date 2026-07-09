@@ -80,14 +80,18 @@ function normalizeDnsRoot(raw: string): string {
   const dnsStart = lines.findIndex((line) => /^dns\s*:\s*(?:#.*)?$/.test(line))
   if (dnsStart === -1) return raw
   const out: string[] = []
+  let baseIndent: string | null = null
   for (let i = dnsStart + 1; i < lines.length; i += 1) {
     const line = lines[i]
     if (!line.trim()) {
       if (out.length) out.push('')
       continue
     }
-    if (/^\s+/.test(line)) {
-      out.push(line.replace(/^\s{2}/, ''))
+    const indent = line.match(/^\s+/)?.[0]
+    if (indent) {
+      // 按 dns: 段下首个子键的实际缩进量去缩进(兼容 2/4 空格、Tab)
+      if (baseIndent === null) baseIndent = indent
+      out.push(line.startsWith(baseIndent) ? line.slice(baseIndent.length) : line.replace(/^\s+/, ''))
       continue
     }
     break

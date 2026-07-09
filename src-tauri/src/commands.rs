@@ -860,6 +860,8 @@ pub async fn install_service(app: AppHandle) -> Result<(), String> {
     if sidecar_was_running {
         core::stop_sidecar(&app)?;
     }
+    // 清理残留 mihomo，避免旧进程占用文件导致安装失败
+    core::stop_orphan_sidecars(&app);
 
     let manager = crate::service_manager::get_service_manager();
     let result = manager
@@ -920,9 +922,11 @@ pub async fn start_service(app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 pub async fn uninstall_service(app: AppHandle) -> Result<(), String> {
     let had_tun = app.state::<AppState>().settings_snapshot().tun;
-    if core::is_sidecar_running(&app) {
-        core::stop_sidecar(&app)?;
-    }
+    // 卸载前彻底停止内核：先停 sidecar，再经 IPC 停止服务托管的 mihomo，
+    // 最后兜底清理任何命令行指向本应用配置目录的残留 mihomo 进程，
+    // 否则卸载后 mihomo 仍在运行会占用文件，导致后续安装失败。
+    let _ = core::stop(&app);
+    core::stop_orphan_sidecars(&app);
 
     let manager = crate::service_manager::get_service_manager();
     manager
@@ -945,6 +949,8 @@ pub async fn reinstall_service(app: AppHandle) -> Result<(), String> {
     if sidecar_was_running {
         core::stop_sidecar(&app)?;
     }
+    // 清理残留 mihomo，避免旧进程占用文件导致重装失败
+    core::stop_orphan_sidecars(&app);
 
     let manager = crate::service_manager::get_service_manager();
     let result = manager
@@ -969,6 +975,8 @@ pub async fn repair_service(app: AppHandle) -> Result<(), String> {
     if sidecar_was_running {
         core::stop_sidecar(&app)?;
     }
+    // 清理残留 mihomo，避免旧进程占用文件导致修复失败
+    core::stop_orphan_sidecars(&app);
 
     let manager = crate::service_manager::get_service_manager();
     let result = manager
