@@ -9,6 +9,13 @@ on:
 permissions:
   contents: write
 
+# 同时推送 main 与 tag(如发版时)会触发两个 release job, 都对同一个 vX.Y.Z release
+# 做 create/clobber, 互相使对方的 release ID 失效, 导致 asset 上传 404。
+# 用同一并发组把发布构建串行化; cancel-in-progress: false 保证正在上传的构建不被中途取消。
+concurrency:
+  group: release-build
+  cancel-in-progress: false
+
 jobs:
   test:
     runs-on: ubuntu-latest
