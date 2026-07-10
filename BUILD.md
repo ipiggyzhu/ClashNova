@@ -77,11 +77,14 @@ SOCKS/HTTP 代理。**TUN 模式仅 Windows 支持**(依赖 Windows 服务托管
 
 ```bash
 sudo apt-get update && sudo apt-get install -y \
-  pkg-config libwebkit2gtk-4.1-dev libdbus-1-dev librsvg2-dev
+  pkg-config build-essential curl wget file libssl-dev \
+  libwebkit2gtk-4.1-dev libdbus-1-dev librsvg2-dev \
+  libxdo-dev libayatana-appindicator3-dev
 ```
 
-`libwebkit2gtk-4.1-dev` 会自动带上 `libgtk-3-dev` / `libsoup-3.0-dev` /
-`libjavascriptcoregtk-4.1-dev`,覆盖 Tauri v2 的全部 Linux 依赖。
+这是 Tauri v2 官方 Linux 依赖全集。其中 `libxdo-dev` 供 `global-shortcut` 插件、
+`libayatana-appindicator3-dev` 供 `tray-icon` 特性 —— **缺这两个会在 cargo 链接期失败**。
+`libwebkit2gtk-4.1-dev` 会自动带上 `libgtk-3-dev` / `libsoup-3.0-dev` / `libjavascriptcoregtk-4.1-dev`。
 
 ### 2. 准备 mihomo Linux 内核
 

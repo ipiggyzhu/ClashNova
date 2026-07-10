@@ -252,13 +252,22 @@ jobs:
           cache-on-failure: true
 
       - name: Install Linux system dependencies
+        # Tauri v2 官方 Linux 依赖全集。缺 libxdo-dev(global-shortcut 插件)
+        # 或 libayatana-appindicator3-dev(tray-icon 特性)会在 cargo 链接期失败。
         run: |
           sudo apt-get update
           sudo apt-get install -y \
             pkg-config \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libssl-dev \
             libwebkit2gtk-4.1-dev \
             libdbus-1-dev \
-            librsvg2-dev
+            librsvg2-dev \
+            libxdo-dev \
+            libayatana-appindicator3-dev
 
       - name: Install frontend dependencies
         run: npm ci
@@ -277,6 +286,32 @@ jobs:
       - name: Build Tauri AppImage (best-effort)
         continue-on-error: true
         run: npm run tauri build -- --bundles appimage 2>&1 | tee build-linux-appimage.log
+
+      - name: Publish Linux build log on failure
+        if: failure()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cat build-linux-*.log > build-linux.log 2>/dev/null || true
+          if [[ ! -s build-linux.log ]]; then
+            {
+              echo "Linux build failed before bundle logs were produced."
+              echo "commit: ${GITHUB_SHA}"
+              echo "run: ${GITHUB_RUN_ID}"
+            } > build-linux.log
+          fi
+          # 追加系统探测,便于无 auth 排错
+          {
+            echo "=== tail of build-linux.log above; env probe below ==="
+            echo "webkit2gtk-4.1: $(pkg-config --modversion webkit2gtk-4.1 2>&1)"
+            echo "mihomo bin: $(ls -la src-tauri/binaries/mihomo-x86_64-unknown-linux-gnu 2>&1)"
+            echo "bundle dir:"; find src-tauri/target/release/bundle -maxdepth 2 2>&1 || true
+          } >> build-linux.log
+          gh release delete linux-buildlog -y --cleanup-tag 2>/dev/null || true
+          gh release create linux-buildlog build-linux.log \
+            --title "Linux CI build log (debug)" \
+            --notes "Auto-uploaded on Linux build failure." --prerelease
 
       - name: Publish Linux bundles to GitHub Release
         shell: bash
