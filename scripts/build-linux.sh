@@ -11,7 +11,7 @@
 # 说明:
 #   - Linux 版走跨平台 sidecar 直接拉起 mihomo(app.shell().sidecar),
 #     支持 mixed-port 的 SOCKS/HTTP 代理;TUN 模式仅 Windows 支持(依赖 Windows 服务)。
-#   - bundle 产物:.deb 与 .AppImage,位于 src-tauri/target/release/bundle/。
+#   - bundle 产物:.deb 与 .AppImage,位于 target/release/bundle/(workspace 根 target)。
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -52,4 +52,4 @@ echo "==> 构建(前端 + Tauri,deb/appimage)"
 npm run tauri build
 
 echo "==> 完成。产物:"
-find src-tauri/target/release/bundle -maxdepth 2 -type f \( -name '*.deb' -o -name '*.AppImage' \) -printf '  %p\n' || true
+find target/release/bundle -maxdepth 2 -type f \( -name '*.deb' -o -name '*.AppImage' \) -printf '  %p\n' || true

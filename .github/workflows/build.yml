@@ -306,7 +306,7 @@ jobs:
             echo "=== tail of build-linux.log above; env probe below ==="
             echo "webkit2gtk-4.1: $(pkg-config --modversion webkit2gtk-4.1 2>&1)"
             echo "mihomo bin: $(ls -la src-tauri/binaries/mihomo-x86_64-unknown-linux-gnu 2>&1)"
-            echo "bundle dir:"; find src-tauri/target/release/bundle -maxdepth 2 2>&1 || true
+            echo "bundle dir:"; find target/release/bundle -maxdepth 2 2>&1 || true
           } >> build-linux.log
           gh release delete linux-buildlog -y --cleanup-tag 2>/dev/null || true
           gh release create linux-buildlog build-linux.log \
@@ -328,7 +328,7 @@ jobs:
           bundles=()
           while IFS= read -r -d '' file; do
             bundles+=("$file")
-          done < <(find src-tauri/target/release/bundle -type f \
+          done < <(find target/release/bundle -type f \
             \( -name '*.deb' -o -name '*.AppImage' \) -print0)
 
           if [[ ${#bundles[@]} -eq 0 ]]; then
