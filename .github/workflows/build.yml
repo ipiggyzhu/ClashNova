@@ -281,14 +281,24 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build Tauri .deb (primary, must succeed)
-        run: npm run tauri build -- --bundles deb 2>&1 | tee build-linux-deb.log
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run tauri build -- --bundles deb 2>&1 | tee build-linux-deb.log
 
       - name: Build Tauri AppImage (best-effort)
         continue-on-error: true
-        run: npm run tauri build -- --bundles appimage 2>&1 | tee build-linux-appimage.log
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run tauri build -- --bundles appimage 2>&1 | tee build-linux-appimage.log
 
-      - name: Publish Linux build log on failure
-        if: failure()
+      # 无论成败都发布诊断日志 + 真实产物布局。历史上两次 publish 都在
+      # "找不到 bundle" 处失败, 却因 build 步骤(隐式 shell 无 pipefail)误判成功
+      # 而跳过了 if:failure() 日志, 导致无 auth 时无从排错。此步 always 运行,
+      # 打印全仓 .deb/.AppImage 与 target 树, 一次看清产物到底落在哪里。
+      - name: Publish Linux build log (always, for diagnosis)
+        if: always()
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -296,22 +306,26 @@ jobs:
           cat build-linux-*.log > build-linux.log 2>/dev/null || true
           if [[ ! -s build-linux.log ]]; then
             {
-              echo "Linux build failed before bundle logs were produced."
+              echo "Linux build produced no tee log."
               echo "commit: ${GITHUB_SHA}"
               echo "run: ${GITHUB_RUN_ID}"
             } > build-linux.log
           fi
-          # 追加系统探测,便于无 auth 排错
           {
-            echo "=== tail of build-linux.log above; env probe below ==="
+            echo "=== env probe ==="
             echo "webkit2gtk-4.1: $(pkg-config --modversion webkit2gtk-4.1 2>&1)"
             echo "mihomo bin: $(ls -la src-tauri/binaries/mihomo-x86_64-unknown-linux-gnu 2>&1)"
-            echo "bundle dir:"; find target/release/bundle -maxdepth 2 2>&1 || true
+            echo "=== all .deb/.AppImage in repo ==="
+            find . -type f \( -name '*.deb' -o -name '*.AppImage' \) 2>/dev/null || true
+            echo "=== target/**/bundle trees ==="
+            find . -type d -name bundle 2>/dev/null | while read -r d; do
+              echo "--- $d ---"; find "$d" -maxdepth 3 2>&1 || true
+            done
           } >> build-linux.log
           gh release delete linux-buildlog -y --cleanup-tag 2>/dev/null || true
           gh release create linux-buildlog build-linux.log \
             --title "Linux CI build log (debug)" \
-            --notes "Auto-uploaded on Linux build failure." --prerelease
+            --notes "Auto-uploaded for Linux build diagnosis." --prerelease
 
       - name: Publish Linux bundles to GitHub Release
         shell: bash
@@ -325,14 +339,18 @@ jobs:
             release_tag="v${version}"
           fi
 
+          # 从仓库根整树搜索, 不再赌 bundle 目录的确切位置
+          # (cargo workspace 的 target 位置随配置而变, 之前两次都赌错)。
           bundles=()
           while IFS= read -r -d '' file; do
             bundles+=("$file")
-          done < <(find target/release/bundle -type f \
+          done < <(find . -type f \
             \( -name '*.deb' -o -name '*.AppImage' \) -print0)
 
           if [[ ${#bundles[@]} -eq 0 ]]; then
             echo "No Linux bundles were produced." >&2
+            echo "target dirs present:" >&2
+            find . -type d -name bundle 2>/dev/null >&2 || true
             exit 1
           fi
 
