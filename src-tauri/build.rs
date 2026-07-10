@@ -11,6 +11,14 @@ const PLACEHOLDER_BYTES: &[u8] = b"CLASHNOVA_SERVICE_RESOURCE_PLACEHOLDER\n";
 fn ensure_service_resource_files() {
     println!("cargo:rerun-if-env-changed=CLASHNOVA_ALLOW_PLACEHOLDER_SERVICE_RESOURCES");
 
+    // 这些是 Windows 服务/TUN 助手的 .exe, 仅 Windows 包需要。
+    // tauri.linux.conf.json 已用 null 合并把它们从 Linux bundle 中删除,
+    // 故非 Windows 目标既没有也不需要这些文件, 不应因缺失而 panic。
+    let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+    if target_os != "windows" {
+        return;
+    }
+
     let allow_placeholder =
         std::env::var_os("CLASHNOVA_ALLOW_PLACEHOLDER_SERVICE_RESOURCES").is_some();
 
