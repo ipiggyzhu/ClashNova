@@ -229,3 +229,77 @@ jobs:
           fi
 
           gh release upload "$release_tag" "${installers[@]}" --clobber
+
+  release-linux:
+    runs-on: ubuntu-latest
+    # 依赖 Windows release 先建好 GitHub Release 对象, 避免两个 job 并行
+    # 各自 create/clobber 同一 tag 导致 release ID 互相失效、asset 上传 404。
+    needs: release
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          cache-on-failure: true
+
+      - name: Install Linux system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            pkg-config \
+            libwebkit2gtk-4.1-dev \
+            libdbus-1-dev \
+            librsvg2-dev
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Generate app icons
+        run: node scripts/gen-icons.mjs
+
+      - name: Fetch mihomo Linux core
+        run: node scripts/fetch-mihomo-linux.mjs
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build Tauri .deb (primary, must succeed)
+        run: npm run tauri build -- --bundles deb 2>&1 | tee build-linux-deb.log
+
+      - name: Build Tauri AppImage (best-effort)
+        continue-on-error: true
+        run: npm run tauri build -- --bundles appimage 2>&1 | tee build-linux-appimage.log
+
+      - name: Publish Linux bundles to GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            release_tag="$GITHUB_REF_NAME"
+          else
+            version="$(node -e "console.log(require('./src-tauri/tauri.conf.json').version)")"
+            release_tag="v${version}"
+          fi
+
+          bundles=()
+          while IFS= read -r -d '' file; do
+            bundles+=("$file")
+          done < <(find src-tauri/target/release/bundle -type f \
+            \( -name '*.deb' -o -name '*.AppImage' \) -print0)
+
+          if [[ ${#bundles[@]} -eq 0 ]]; then
+            echo "No Linux bundles were produced." >&2
+            exit 1
+          fi
+
+          printf 'Publishing: %s\n' "${bundles[@]}"
+          gh release upload "$release_tag" "${bundles[@]}" --clobber

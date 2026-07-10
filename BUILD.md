@@ -68,6 +68,45 @@ npm run mock        # 即 VITE_MOCK=1 vite
 IPC / REST / WebSocket 全部由 `src/services/mock.ts` 的模拟数据替代，
 页面表现与设计稿一致，适合 UI 走查与截图比对。
 
+## 途径四：Linux 构建(非 TUN / SOCKS·HTTP 代理模式)
+
+Linux 版通过跨平台 sidecar 直接拉起 mihomo(`app.shell().sidecar`),支持 mixed-port 的
+SOCKS/HTTP 代理。**TUN 模式仅 Windows 支持**(依赖 Windows 服务托管内核),Linux 构建自动禁用。
+
+### 1. 安装系统依赖(需 root,一次性)
+
+```bash
+sudo apt-get update && sudo apt-get install -y \
+  pkg-config libwebkit2gtk-4.1-dev libdbus-1-dev librsvg2-dev
+```
+
+`libwebkit2gtk-4.1-dev` 会自动带上 `libgtk-3-dev` / `libsoup-3.0-dev` /
+`libjavascriptcoregtk-4.1-dev`,覆盖 Tauri v2 的全部 Linux 依赖。
+
+### 2. 准备 mihomo Linux 内核
+
+Tauri sidecar 按 target-triple 后缀解析,文件名必须是
+`src-tauri/binaries/mihomo-x86_64-unknown-linux-gnu`(无扩展名、可执行):
+
+```bash
+curl -fL -o /tmp/m.gz \
+  https://github.com/MetaCubeX/mihomo/releases/latest/download/mihomo-linux-amd64-compatible-vX.Y.Z.gz
+gunzip -c /tmp/m.gz > src-tauri/binaries/mihomo-x86_64-unknown-linux-gnu
+chmod +x src-tauri/binaries/mihomo-x86_64-unknown-linux-gnu
+```
+
+### 3. 构建
+
+```bash
+scripts/build-linux.sh          # 一键:校验依赖 → npm ci → tauri build
+# 或手动:
+npm ci && npm run tauri build
+```
+
+产物:`src-tauri/target/release/bundle/` 下的 `.deb` 与 `.AppImage`。
+Linux 打包配置由 `src-tauri/tauri.linux.conf.json` 覆盖(deb/appimage,剔除 Windows 服务资源),
+该文件仅在 Linux 构建时被读取,不影响 Windows nsis 流程。
+
 ## WebView2 运行时说明
 
 Tauri 应用依赖 **Microsoft Edge WebView2 Runtime**：

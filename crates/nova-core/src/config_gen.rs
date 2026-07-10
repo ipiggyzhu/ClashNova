@@ -178,6 +178,8 @@ pub fn build_runtime_config(
 
     // profile 是否已显式设置 tcp-concurrent(闭包借用 map 前先取,避免借用冲突)
     let has_tcp_concurrent = map.contains_key(Value::String("tcp-concurrent".into()));
+    // profile 是否已显式设置 find-process-mode(同理,闭包借用前先取)
+    let has_find_process_mode = map.contains_key(Value::String("find-process-mode".into()));
 
     let mut set = |key: &str, val: Value| {
         map.insert(Value::String(key.to_string()), val);
@@ -192,7 +194,14 @@ pub fn build_runtime_config(
     set("allow-lan", Value::Bool(ov.allow_lan));
     set("ipv6", Value::Bool(ov.ipv6));
     set("log-level", Value::String(ov.log_level.clone()));
-    set("find-process-mode", Value::String("always".into()));
+    // find-process-mode:不再无条件写死 always。always 会强制对每条连接做
+    // socket→PID 归属查询(TUN/fake-ip 下更慢、且常失败刷屏 [Process] find
+    // process error),纯属开销。mihomo/Clash Verge 默认为 strict(仅当规则含
+    // PROCESS-NAME/PROCESS-PATH 时才查)。profile 未指定时用官方默认 strict,
+    // 指定则尊重 profile,不再霸道覆盖。
+    if !has_find_process_mode {
+        set("find-process-mode", Value::String("strict".into()));
+    }
     // 并发建连:对同一域名的多个 IP 同时握手,取最快的。显著降低访问网站的
     // 首包延迟(Clash Verge 默认开启),profile 已显式设置时不覆盖。
     if !has_tcp_concurrent {
@@ -202,9 +211,24 @@ pub fn build_runtime_config(
     set("external-ui-url", Value::String(EXTERNAL_UI_URL.into()));
 
     if ov.tun_enable {
-        let patch: Value = serde_yaml::from_str(
-            "tun:\n  enable: true\n  stack: gvisor\n  auto-route: true\n  auto-detect-interface: true\n",
-        )?;
+        // profile/订阅是否已指定 tun.stack。指定了就尊重(高级用户可选 system
+        // 栈换吞吐/低延迟),未指定才补 gvisor 作默认兜底(最稳、跨平台可用)。
+        // enable/auto-route/auto-detect-interface 是 TUN 生效必要项,始终强制。
+        let profile_has_stack = doc
+            .as_mapping()
+            .and_then(|m| m.get("tun"))
+            .and_then(Value::as_mapping)
+            .map(|tun| tun.contains_key(Value::String("stack".into())))
+            .unwrap_or(false);
+        let patch: Value = if profile_has_stack {
+            serde_yaml::from_str(
+                "tun:\n  enable: true\n  auto-route: true\n  auto-detect-interface: true\n",
+            )?
+        } else {
+            serde_yaml::from_str(
+                "tun:\n  enable: true\n  stack: gvisor\n  auto-route: true\n  auto-detect-interface: true\n",
+            )?
+        };
         deep_merge(&mut doc, &patch);
     } else if let Some(tun) = doc
         .as_mapping_mut()
@@ -392,9 +416,10 @@ proxies: []
         assert_eq!(doc.get("allow-lan"), Some(&Value::Bool(false)));
         assert_eq!(doc.get("ipv6"), Some(&Value::Bool(false)));
         assert_eq!(doc.get("log-level"), Some(&Value::String("info".into())));
+        // profile 显式写了 find-process-mode: strict → 必须尊重,不再被 always 顶掉
         assert_eq!(
             doc.get("find-process-mode"),
-            Some(&Value::String("always".into()))
+            Some(&Value::String("strict".into()))
         );
         // tun_enable=false 时,profile 私带的 tun.enable 必须被压成 false
         assert_eq!(
@@ -624,6 +649,63 @@ rules:
         let out2 = build_runtime_config("tcp-concurrent: false\nproxies: []\n", &overrides(false))
             .expect("生成应成功");
         assert_eq!(parse(&out2).get("tcp-concurrent"), Some(&Value::Bool(false)));
+    }
+
+    #[test]
+    fn find_process_mode_未指定时默认_strict() {
+        // profile 未写 find-process-mode → 补 mihomo 官方默认 strict(不是 always)。
+        let out = build_runtime_config("proxies: []\n", &overrides(false)).expect("生成应成功");
+        assert_eq!(
+            parse(&out).get("find-process-mode"),
+            Some(&Value::String("strict".into())),
+            "未指定时应默认 strict"
+        );
+    }
+
+    #[test]
+    fn find_process_mode_指定_always_时被尊重() {
+        // 用户/订阅显式要 always(比如想要按进程统计)→ 保留,不被降级。
+        let out = build_runtime_config("find-process-mode: always\nproxies: []\n", &overrides(false))
+            .expect("生成应成功");
+        assert_eq!(
+            parse(&out).get("find-process-mode"),
+            Some(&Value::String("always".into())),
+            "profile 指定 always 应被尊重"
+        );
+    }
+
+    #[test]
+    fn tun_stack_未指定时补_gvisor() {
+        // profile 的 tun 段没写 stack → 补默认 gvisor。
+        let out = build_runtime_config("mode: rule\nproxies: []\n", &overrides(true))
+            .expect("生成应成功");
+        let doc = parse(&out);
+        assert_eq!(
+            doc.get("tun").and_then(|t| t.get("stack")),
+            Some(&Value::String("gvisor".into())),
+            "未指定 stack 时应补 gvisor"
+        );
+    }
+
+    #[test]
+    fn tun_stack_指定_system_时被尊重() {
+        // profile 显式 stack: system → 必须保留,不被 gvisor 顶掉;
+        // 但 enable/auto-route 仍被强制补齐。
+        let profile = "tun:\n  stack: system\n  enable: false\nproxies: []\n";
+        let out = build_runtime_config(profile, &overrides(true)).expect("生成应成功");
+        let doc = parse(&out);
+        let tun = doc.get("tun").expect("tun 段应存在");
+        assert_eq!(
+            tun.get("stack"),
+            Some(&Value::String("system".into())),
+            "profile 指定的 stack: system 应被尊重"
+        );
+        assert_eq!(tun.get("enable"), Some(&Value::Bool(true)), "enable 仍强制为 true");
+        assert_eq!(
+            tun.get("auto-route"),
+            Some(&Value::Bool(true)),
+            "auto-route 仍强制补齐"
+        );
     }
 
     #[test]

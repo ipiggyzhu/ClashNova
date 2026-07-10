@@ -6,6 +6,9 @@ tsconfig.tsbuildinfo
 shots/
 .ace-tool/
 
+# Linux mihomo 内核由 CI/构建脚本按需拉取(scripts/fetch-mihomo-linux.mjs),不入库
+src-tauri/binaries/mihomo-x86_64-unknown-linux-gnu
+
 # 临时诊断/修复脚本与开发过程报告,不纳入版本库
 *_REPORT.md
 *_REPORT.txt
