@@ -293,12 +293,11 @@ jobs:
           set -o pipefail
           npm run tauri build -- --bundles appimage 2>&1 | tee build-linux-appimage.log
 
-      # 无论成败都发布诊断日志 + 真实产物布局。历史上两次 publish 都在
-      # "找不到 bundle" 处失败, 却因 build 步骤(隐式 shell 无 pipefail)误判成功
-      # 而跳过了 if:failure() 日志, 导致无 auth 时无从排错。此步 always 运行,
-      # 打印全仓 .deb/.AppImage 与 target 树, 一次看清产物到底落在哪里。
-      - name: Publish Linux build log (always, for diagnosis)
-        if: always()
+      # 失败时发布诊断日志 + 真实产物布局。build 步骤已加 set -o pipefail,
+      # 真实失败会正确触发本步(此前隐式 shell 无 pipefail 会误判成功而跳过)。
+      # 打印全仓 .deb/.AppImage 与所有 bundle 树, 无 auth 也能定位产物落点。
+      - name: Publish Linux build log on failure
+        if: failure()
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
