@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import './Providers.css'
 import Button from '../components/ui/Button'
 import Card from '../components/ui/Card'
@@ -12,6 +12,9 @@ import {
 } from '../services/api'
 import type { ProxyProviderItem, RuleProviderItem } from '../types/clash'
 import { fmtBytes, fmtRelTime } from '../utils/format'
+import { createTaskQueue } from '../utils/taskQueue'
+
+const queueProvider = createTaskQueue<void>(3)
 
 function fmtDate(ms?: number): string {
   if (!ms) return '—'
@@ -20,55 +23,95 @@ function fmtDate(ms?: number): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
 }
 
-/** 已用流量数值(GB 级展示, fmtBytes 带单位则取主数字) */
-function usedShort(bytes: number): string {
-  return fmtBytes(bytes).replace(/\s*[A-Z]+$/i, '')
-}
-
 export default function Providers() {
   const [proxyPv, setProxyPv] = useState<ProxyProviderItem[]>([])
   const [rulePv, setRulePv] = useState<RuleProviderItem[]>([])
   const [busy, setBusy] = useState<Set<string>>(new Set())
+  const busyRef = useRef(new Set<string>())
+  const [errors, setErrors] = useState<Record<string, string>>({})
+  const [result, setResult] = useState('')
+  const alive = useRef(true)
+  const refreshFlight = useRef<Promise<void> | null>(null)
 
   const refresh = useCallback(async () => {
-    const [pp, rp] = await Promise.all([getProxyProviders(), getRuleProviders()])
-    setProxyPv(pp)
-    setRulePv(rp)
+    if (refreshFlight.current) return refreshFlight.current
+    const task = Promise.allSettled([getProxyProviders(), getRuleProviders()]).then(([pp, rp]) => {
+      if (!alive.current) return
+      if (pp.status === 'fulfilled') setProxyPv(pp.value)
+      if (rp.status === 'fulfilled') setRulePv(rp.value)
+      setErrors((previous) => ({ ...previous,
+        'load:proxy': pp.status === 'rejected' ? `代理提供者加载失败：${String(pp.reason)}` : '',
+        'load:rule': rp.status === 'rejected' ? `规则提供者加载失败：${String(rp.reason)}` : '',
+      }))
+    }).finally(() => { refreshFlight.current = null })
+    refreshFlight.current = task
+    return task
   }, [])
 
   useEffect(() => {
-    void refresh().catch(() => {})
+    alive.current = true
+    const update = (): void => { if (alive.current && !document.hidden) void refresh() }
+    const reconfigure = (): void => { void (refreshFlight.current ?? Promise.resolve()).then(update) }
+    update()
+    const timer = window.setInterval(update, 30_000)
+    window.addEventListener('clashnova-api-config-changed', reconfigure)
+    document.addEventListener('visibilitychange', update)
+    return () => {
+      alive.current = false
+      window.clearInterval(timer)
+      window.removeEventListener('clashnova-api-config-changed', reconfigure)
+      document.removeEventListener('visibilitychange', update)
+    }
   }, [refresh])
 
-  const withBusy = async (key: string, fn: () => Promise<void>): Promise<void> => {
-    setBusy((prev) => new Set(prev).add(key))
+  const withBusy = async (key: string, fn: () => Promise<void>, refreshAfter = true): Promise<void> => {
+    if (busyRef.current.has(key)) return
+    busyRef.current.add(key)
+    setBusy(new Set(busyRef.current))
+    setErrors((previous) => ({ ...previous, [key]: '' }))
     try {
-      await fn()
-      await refresh()
+      await queueProvider(key, fn)
+      if (refreshAfter) {
+        await refreshFlight.current
+        await refresh()
+      }
+    } catch (error) {
+      if (alive.current) setErrors((previous) => ({ ...previous, [key]: `${key.slice(2)}：${String(error)}` }))
+      throw error
     } finally {
-      setBusy((prev) => {
-        const next = new Set(prev)
-        next.delete(key)
-        return next
-      })
+      busyRef.current.delete(key)
+      if (alive.current) setBusy(new Set(busyRef.current))
     }
   }
 
   const updateAll = async (): Promise<void> => {
-    await withBusy('__all__', async () => {
-      await Promise.allSettled([
-        ...proxyPv.map((p) => updateProxyProvider(p.name)),
-        ...rulePv.map((p) => updateRuleProvider(p.name)),
+    if (busyRef.current.size) return
+    busyRef.current.add('__all__')
+    setBusy(new Set(busyRef.current))
+    setResult('')
+    try {
+      const results = await Promise.allSettled([
+        ...proxyPv.map((p) => withBusy(`u:${p.name}`, () => updateProxyProvider(p.name), false)),
+        ...rulePv.map((p) => withBusy(`r:${p.name}`, () => updateRuleProvider(p.name), false)),
       ])
-    })
+      const failures = results.filter((item) => item.status === 'rejected').length
+      if (alive.current) setResult(`更新完成：${results.length - failures} 项成功，${failures} 项失败`)
+      await refreshFlight.current
+      await refresh()
+    } finally {
+      busyRef.current.delete('__all__')
+      if (alive.current) setBusy(new Set(busyRef.current))
+    }
   }
 
   return (
     <div className="pg-providers">
+      {Object.entries(errors).filter(([, message]) => message).map(([key, message]) => <div key={key} role="alert">{message}</div>)}
+      {result && <div role="status">{result}</div>}
       <div className="sec-head">
         代理提供者
         <span className="spacer" />
-        <Button size="sm" onClick={() => void updateAll()} disabled={busy.has('__all__')}>
+        <Button size="sm" onClick={() => void updateAll()} disabled={busy.size > 0 || proxyPv.length + rulePv.length === 0}>
           <Icon name="refresh" size={13} />
           {busy.has('__all__') ? '更新中…' : '全部更新'}
         </Button>
@@ -105,8 +148,7 @@ export default function Providers() {
                   </div>
                   <div className="pv-stat">
                     <span className="stat-num num">
-                      {p.subscription ? usedShort(p.subscription.used) : '—'}
-                      {p.subscription && <span className="unit">GB</span>}
+                      {p.subscription ? fmtBytes(p.subscription.used) : '—'}
                     </span>
                     <span className="stat-label"><Icon name="traffic" size={12} />已用</span>
                   </div>
@@ -120,7 +162,7 @@ export default function Providers() {
                     <div className="pv-traffic-top">
                       <span>已用流量 · {Math.round(pct)}%</span>
                       <span className="num">
-                        <b>{usedShort(p.subscription.used)}</b> / {fmtBytes(p.subscription.total)}
+                        <b>{fmtBytes(p.subscription.used)}</b> / {fmtBytes(p.subscription.total)}
                       </span>
                     </div>
                     <div className="pv-bar"><i style={{ width: `${pct}%` }} /></div>
@@ -129,15 +171,15 @@ export default function Providers() {
                 <div className="pv-foot">
                   <Button
                     size="sm"
-                    disabled={busy.has(`u:${p.name}`)}
-                    onClick={() => void withBusy(`u:${p.name}`, () => updateProxyProvider(p.name))}
+                    disabled={busy.has('__all__') || busy.has(`u:${p.name}`)}
+                    onClick={() => void withBusy(`u:${p.name}`, () => updateProxyProvider(p.name)).catch(() => undefined)}
                   >
                     {busy.has(`u:${p.name}`) ? '更新中…' : '更新'}
                   </Button>
                   <Button
                     size="sm"
-                    disabled={busy.has(`h:${p.name}`)}
-                    onClick={() => void withBusy(`h:${p.name}`, () => healthcheckProvider(p.name))}
+                    disabled={busy.has('__all__') || busy.has(`h:${p.name}`)}
+                    onClick={() => void withBusy(`h:${p.name}`, () => healthcheckProvider(p.name)).catch(() => undefined)}
                   >
                     {busy.has(`h:${p.name}`) ? '检查中…' : '健康检查'}
                   </Button>
@@ -177,8 +219,8 @@ export default function Providers() {
                     <button
                       className="icon-btn"
                       title="刷新"
-                      disabled={busy.has(`r:${p.name}`)}
-                      onClick={() => void withBusy(`r:${p.name}`, () => updateRuleProvider(p.name))}
+                      disabled={busy.has('__all__') || busy.has(`r:${p.name}`)}
+                      onClick={() => void withBusy(`r:${p.name}`, () => updateRuleProvider(p.name)).catch(() => undefined)}
                     >
                       <Icon name="refresh" size={14} />
                     </button>

@@ -36,12 +36,10 @@ if [ "${#missing[@]}" -ne 0 ]; then
 fi
 
 echo "==> 准备 mihomo Linux 内核"
-if [ ! -x "$MIHOMO_BIN" ]; then
-  node scripts/fetch-mihomo-linux.mjs
-fi
+node scripts/fetch-mihomo-linux.mjs
 if [ ! -x "$MIHOMO_BIN" ]; then
   echo "缺少 $MIHOMO_BIN(Tauri sidecar 需要 target-triple 后缀命名)。" >&2
-  echo "手动: node scripts/fetch-mihomo-linux.mjs(可设 GITHUB_TOKEN 规避限流)" >&2
+  echo "手动: node scripts/fetch-mihomo-linux.mjs(校验 scripts/mihomo.lock.json 锁定的官方资产)" >&2
   exit 1
 fi
 

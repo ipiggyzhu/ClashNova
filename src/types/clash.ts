@@ -43,6 +43,7 @@ export type StatRange = 'day' | '7d' | '30d'
 export type StatDim = 'proxy' | 'process' | 'host'
 export interface SeriesPoint { ts: number; up: number; down: number }
 export interface RankRow { key: string; up: number; down: number }
+export interface TrafficSummary { up: number; down: number; direct: number; proxy: number; unattributed: number }
 export interface ProfileMeta { id: string; name: string; kind: 'remote' | 'local'; url?: string;
   updatedAt: number; autoUpdateMin?: number; sizeBytes?: number; quota?: ProfileQuota; current: boolean;
   enhancers?: EnhancerMeta[] }
@@ -66,6 +67,8 @@ export interface AppSettings { sysProxy: boolean; guard: boolean; guardIntervalS
   hosts: string;
   /** 全局热键: 动作 → 加速键(如 Ctrl+Shift+N); 空表示未绑定 */
   hotkeys: Record<string, string>;
+  /** 统计保留天数, 0 表示无限保留。 */
+  statsRetentionDays: number;
   /* ---- DNS 高级配置 ---- */
   /** 启用 DNS */
   enableDns: boolean;

@@ -6,20 +6,13 @@ import Card from '../components/ui/Card'
 import Icon from '../components/ui/Icon'
 import Input from '../components/ui/Input'
 import Seg from '../components/ui/Seg'
+import { useVirtualRows } from '../hooks/useVirtualRows'
 import { closeAllConnections, closeConnection } from '../services/api'
 import { startLiveStreams, useLiveStore } from '../stores/live'
 import type { ConnItem } from '../types/clash'
 import { fmtBytes, fmtDuration, fmtSpeed } from '../utils/format'
 
 const PROC_COLORS = ['#64D2FF', '#BF5AF2', '#FF9F0A', '#32D74B', '#FF375F', '#FFD60A', '#40C8E0']
-const CONNECTION_FRAME_MS = 100
-const CONNECTION_RATE_SAMPLE_MS = 1000
-// 速率是每秒采样一次的量, 展示时缓慢滑动到目标值即可; 平滑窗口过短会让数字以 ~10fps 疯狂跳动,
-// 看上去像是"毫秒级"刷新。加长平滑窗口 + 降低 EMA 权重, 让速率以秒级的节奏平稳变化。
-const CONNECTION_RATE_SMOOTHING_MS = 900
-const CONNECTION_BYTES_SMOOTHING_MS = 260
-const CONNECTION_RATE_EMA = 0.4
-
 interface ConnRateSample {
   upload: number
   download: number
@@ -44,16 +37,6 @@ function connDuration(start: string): string {
   return fmtDuration(sec)
 }
 
-function expStep(from: number, to: number, dtMs: number, smoothingMs: number): number {
-  const alpha = 1 - Math.exp(-dtMs / smoothingMs)
-  const next = from + (to - from) * alpha
-  return Math.abs(next - to) < 1 ? to : next
-}
-
-function blendRate(previous: number, raw: number): number {
-  return previous + (raw - previous) * CONNECTION_RATE_EMA
-}
-
 export default function Connections() {
   const payload = useLiveStore((s) => s.connections)
   const traffic = useLiveStore((s) => s.traffic)
@@ -61,128 +44,51 @@ export default function Connections() {
   const [keyword, setKeyword] = useState('')
   const [network, setNetwork] = useState('all')
   const [proxyFilter, setProxyFilter] = useState('all')
-  const rateSamplesRef = useRef<Map<string, ConnRateSample>>(new Map())
-  const targetRowsRef = useRef<Map<string, ConnVisualRow>>(new Map())
-  const visualRowsRef = useRef<Map<string, ConnVisualRow>>(new Map())
-  const orderRef = useRef<Map<string, number>>(new Map())
-  const orderSeqRef = useRef(0)
+  const samplesRef = useRef(new Map<string, ConnRateSample & ConnVisualRow & { connection: ConnItem }>())
+  const previousPayload = useRef<typeof payload | null>(null)
   const [visualRows, setVisualRows] = useState<Map<string, ConnVisualRow>>(new Map())
+  const [closing, setClosing] = useState<Set<string>>(new Set())
+  const closingRef = useRef(new Set<string>())
+  const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => startLiveStreams(), [])
+  useEffect(() => startLiveStreams(['connections', 'traffic']), [])
 
+  // 仅在内核快照到达时更新；Map 的插入顺序保留首见次序，不再每 100 ms 扫描/插值全表。
   useEffect(() => {
-    const prevSamples = rateSamplesRef.current
-    const previousTargets = targetRowsRef.current
+    if (previousPayload.current === payload) return
+    previousPayload.current = payload
+    const samples = samplesRef.current
     const now = performance.now()
-    const seen = new Set<string>()
-    const nextSamples = new Map(prevSamples)
-    const nextTargets = new Map<string, ConnVisualRow>()
-    let visualChanged = false
-
+    const seen = new Set(payload.connections.map((c) => c.id))
+    for (const id of samples.keys()) if (!seen.has(id)) samples.delete(id)
     for (const c of payload.connections) {
-      seen.add(c.id)
-      if (!orderRef.current.has(c.id)) {
-        orderRef.current.set(c.id, orderSeqRef.current)
-        orderSeqRef.current += 1
-      }
-
-      const previousTarget = previousTargets.get(c.id)
-      const sample = prevSamples.get(c.id)
-      let rawUp = c.curUp ?? previousTarget?.up ?? 0
-      let rawDown = c.curDown ?? previousTarget?.down ?? 0
-
-      if (c.curUp === undefined || c.curDown === undefined) {
-        if (!sample) {
-          nextSamples.set(c.id, { upload: c.upload, download: c.download, at: now })
-        } else if (now - sample.at >= CONNECTION_RATE_SAMPLE_MS) {
-          const elapsedSec = Math.max(0.001, (now - sample.at) / 1000)
-          if (c.curUp === undefined) {
-            rawUp = Math.max(0, (c.upload - sample.upload) / elapsedSec)
-          }
-          if (c.curDown === undefined) {
-            rawDown = Math.max(0, (c.download - sample.download) / elapsedSec)
-          }
-          nextSamples.set(c.id, { upload: c.upload, download: c.download, at: now })
-        }
-      } else {
-        nextSamples.set(c.id, { upload: c.upload, download: c.download, at: now })
-      }
-
-      const target = {
-        upload: c.upload,
-        download: c.download,
-        up: previousTarget ? blendRate(previousTarget.up, rawUp) : rawUp,
-        down: previousTarget ? blendRate(previousTarget.down, rawDown) : rawDown,
-      }
-      nextTargets.set(c.id, target)
-      if (!visualRowsRef.current.has(c.id)) {
-        visualRowsRef.current.set(c.id, target)
-        visualChanged = true
-      }
+      const previous = samples.get(c.id)
+      const elapsed = previous ? Math.max(0.001, (now - previous.at) / 1000) : 1
+      samples.set(c.id, {
+        connection: c, at: now, upload: c.upload, download: c.download,
+        up: Math.max(0, c.curUp ?? (previous ? (c.upload - previous.upload) / elapsed : 0)),
+        down: Math.max(0, c.curDown ?? (previous ? (c.download - previous.download) / elapsed : 0)),
+      })
     }
-
-    for (const id of orderRef.current.keys()) {
-      if (!seen.has(id)) orderRef.current.delete(id)
-    }
-    for (const id of nextSamples.keys()) {
-      if (!seen.has(id)) nextSamples.delete(id)
-    }
-    for (const id of visualRowsRef.current.keys()) {
-      if (!seen.has(id)) {
-        visualRowsRef.current.delete(id)
-        visualChanged = true
-      }
-    }
-
-    rateSamplesRef.current = nextSamples
-    targetRowsRef.current = nextTargets
-
-    const ordered = [...payload.connections].sort(
-      (a, b) => (orderRef.current.get(a.id) ?? 0) - (orderRef.current.get(b.id) ?? 0),
-    )
-    setVisiblePayload({
-      uploadTotal: payload.uploadTotal,
-      downloadTotal: payload.downloadTotal,
-      connections: ordered,
-    })
-    if (visualChanged) setVisualRows(new Map(visualRowsRef.current))
+    setVisiblePayload({ ...payload, connections: [...samples.values()].map((row) => row.connection) })
+    setVisualRows(new Map(samples))
   }, [payload])
 
-  useEffect(() => {
-    let last = performance.now()
-
-    const timer = window.setInterval(() => {
-      const now = performance.now()
-      const dt = Math.max(1, now - last)
-      last = now
-      let changed = false
-
-      for (const [id, target] of targetRowsRef.current) {
-        const current = visualRowsRef.current.get(id) ?? target
-        const next = {
-          upload: expStep(current.upload, target.upload, dt, CONNECTION_BYTES_SMOOTHING_MS),
-          download: expStep(current.download, target.download, dt, CONNECTION_BYTES_SMOOTHING_MS),
-          up: expStep(current.up, target.up, dt, CONNECTION_RATE_SMOOTHING_MS),
-          down: expStep(current.down, target.down, dt, CONNECTION_RATE_SMOOTHING_MS),
-        }
-        if (
-          next.upload !== current.upload ||
-          next.download !== current.download ||
-          next.up !== current.up ||
-          next.down !== current.down
-        ) {
-          visualRowsRef.current.set(id, next)
-          changed = true
-        }
-      }
-
-      if (changed) {
-        setVisualRows(new Map(visualRowsRef.current))
-      }
-    }, CONNECTION_FRAME_MS)
-
-    return () => window.clearInterval(timer)
-  }, [])
+  const close = async (id = '__all__'): Promise<void> => {
+    if (closingRef.current.has(id) || closingRef.current.has('__all__')) return
+    closingRef.current.add(id)
+    setClosing(new Set(closingRef.current))
+    setError(null)
+    try {
+      if (id === '__all__') await closeAllConnections()
+      else await closeConnection(id)
+    } catch (reason) {
+      setError(String(reason))
+    } finally {
+      closingRef.current.delete(id)
+      setClosing(new Set(closingRef.current))
+    }
+  }
 
   const upSpeed = useMemo(
     () => [...visualRows.values()].reduce((s, r) => s + r.up, 0),
@@ -207,7 +113,7 @@ export default function Connections() {
       if (network !== 'all' && c.metadata.network !== network) return false
       // 代理筛选
       if (proxyFilter !== 'all') {
-        const lastProxy = c.chains[c.chains.length - 1] ?? ''
+        const lastProxy = c.chains[0] ?? ''
         if (proxyFilter === 'direct' && lastProxy !== 'DIRECT') return false
         if (proxyFilter === 'proxy' && (lastProxy === 'DIRECT' || lastProxy === 'REJECT')) return false
         if (proxyFilter === 'reject' && lastProxy !== 'REJECT') return false
@@ -217,6 +123,9 @@ export default function Connections() {
       return hay.includes(kw)
     })
   }, [visiblePayload, keyword, network, proxyFilter])
+
+  const windowed = useVirtualRows(list.length, 56, 36)
+  useEffect(() => { windowed.containerRef.current?.scrollTo({ top: 0 }) }, [keyword, network, proxyFilter, windowed.containerRef])
 
   const chainText = (c: ConnItem): string => [...c.chains].reverse().join(' → ') || '—'
   const isReject = (c: ConnItem): boolean => c.chains.includes('REJECT')
@@ -259,12 +168,14 @@ export default function Connections() {
           value={network}
           onChange={setNetwork}
         />
-        <Button variant="danger" onClick={() => void closeAllConnections()}>
+        <Button variant="danger" onClick={() => void close()} disabled={closing.has('__all__')}>
           <Icon name="x" size={13} />关闭全部
         </Button>
       </div>
 
+      {error && <div role="alert">关闭连接失败：{error}</div>}
       <Card className="conn-card" flush>
+        <div className="conn-scroll" ref={windowed.containerRef}>
         {list.length === 0 ? (
           <div className="empty">没有匹配的连接</div>
         ) : (
@@ -283,8 +194,9 @@ export default function Connections() {
               </tr>
             </thead>
             <tbody>
-              {list.map((c) => {
-                const r = visualRows.get(c.id) ?? targetRowsRef.current.get(c.id) ?? {
+              {windowed.before > 0 && <tr aria-hidden="true"><td colSpan={9} style={{ height: windowed.before, padding: 0, border: 0 }} /></tr>}
+              {list.slice(windowed.start, windowed.end).map((c) => {
+                const r = visualRows.get(c.id) ?? {
                   upload: c.upload,
                   download: c.download,
                   up: c.curUp ?? 0,
@@ -304,7 +216,7 @@ export default function Connections() {
                   ? `${c.rule}${c.rulePayload ? `:${c.rulePayload}` : ''}`
                   : '—'
                 return (
-                  <tr key={c.id}>
+                  <tr key={c.id} className="conn-row">
                     <td className="host-cell">
                       <div className="h">
                         {host}
@@ -345,7 +257,8 @@ export default function Connections() {
                       <button
                         className="icon-btn"
                         title="关闭连接"
-                        onClick={() => void closeConnection(c.id)}
+                        onClick={() => void close(c.id)}
+                        disabled={closing.has(c.id) || closing.has('__all__')}
                       >
                         <Icon name="x" size={13} />
                       </button>
@@ -353,9 +266,11 @@ export default function Connections() {
                   </tr>
                 )
               })}
+              {windowed.after > 0 && <tr aria-hidden="true"><td colSpan={9} style={{ height: windowed.after, padding: 0, border: 0 }} /></tr>}
             </tbody>
           </table>
         )}
+        </div>
       </Card>
     </div>
   )

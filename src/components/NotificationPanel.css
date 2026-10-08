@@ -4,13 +4,8 @@
   right: 0;
   width: 360px;
   max-height: 480px;
-  background: var(--bg);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-xl);
   display: flex;
   flex-direction: column;
-  overflow: hidden;
   z-index: 1000;
   animation: slide-down 0.2s ease;
 }
@@ -23,7 +18,7 @@
   border-bottom: 1px solid var(--line);
   font-size: 14px;
   font-weight: 600;
-  color: var(--text-1);
+  color: var(--text);
 }
 
 .notif-head .spacer {
@@ -61,7 +56,31 @@
 }
 
 .notif-item:hover {
-  background: var(--bg-hover);
+  background: var(--card-2);
+}
+
+.notif-item:focus-within {
+  background: var(--card-2);
+}
+
+.notif-open {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+}
+
+.notif-open:focus-visible,
+.notif-remove:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .notif-item:last-child {
@@ -100,13 +119,15 @@
 }
 
 .notif-title {
+  display: block;
   font-size: 13px;
   font-weight: 500;
-  color: var(--text-1);
+  color: var(--text);
   margin-bottom: 2px;
 }
 
 .notif-message {
+  display: block;
   font-size: 12px;
   color: var(--text-2);
   line-height: 1.4;
@@ -115,6 +136,7 @@
 }
 
 .notif-time {
+  display: block;
   font-size: 11px;
   color: var(--text-3);
 }
@@ -135,13 +157,14 @@
   transition: all 0.15s;
 }
 
-.notif-item:hover .notif-remove {
+.notif-item:hover .notif-remove,
+.notif-item:focus-within .notif-remove {
   opacity: 1;
 }
 
 .notif-remove:hover {
   background: var(--bg-deep);
-  color: var(--text-1);
+  color: var(--text);
 }
 
 @keyframes slide-down {

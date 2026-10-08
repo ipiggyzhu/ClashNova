@@ -50,7 +50,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   silentStart: false,
   mixedPort: 7897,
   externalController: '127.0.0.1:9097',
-  secret: '7kQx2mZpR4',
+  secret: 'MOCK_CONTROLLER_SECRET',
   allowLan: false,
   ipv6: false,
   logLevel: 'info',
@@ -61,6 +61,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   dnsOverride: '',
   hosts: '',
   hotkeys: {},
+  statsRetentionDays: 0,
   /* DNS 高级配置默认值 */
   enableDns: true,
   dnsListen: '127.0.0.1:5335',
@@ -193,7 +194,7 @@ let profiles: MockProfile[] = [
       id: 'p-bigairport',
       name: 'BigAirport',
       kind: 'remote',
-      url: 'https://sub.bigairport.io/api/v1/client/subscribe?token=mock',
+      url: 'https://subscription.example.invalid/main.yaml',
       updatedAt: Date.now() - 2 * HOUR,
       autoUpdateMin: 1440,
       sizeBytes: 184 * KB,
@@ -216,7 +217,7 @@ let profiles: MockProfile[] = [
       id: 'p-lantern',
       name: 'Lantern Plus',
       kind: 'remote',
-      url: 'https://sub.lantern.example/api/v1/client/subscribe?token=mock-lantern',
+      url: 'https://subscription.example.invalid/backup.yaml',
       updatedAt: Date.now() - 9 * HOUR,
       autoUpdateMin: 720,
       sizeBytes: Math.round(96 * KB),
@@ -254,7 +255,7 @@ let profiles: MockProfile[] = [
       id: 'p-full-en',
       name: 'full.en',
       kind: 'local',
-      url: 'C:\\Users\\piggy\\.config\\clash\\full.en.yaml',
+      url: 'C:\\Users\\USER\\.config\\clash\\full.en.yaml',
       updatedAt: new Date('2026-05-28T10:00:00+08:00').getTime(),
       sizeBytes: Math.round(12.6 * KB),
       current: false,
@@ -585,6 +586,10 @@ export const mockHandlers: Record<string, MockHandler> = {
     settings = { ...(args['settings'] as AppSettings) }
     return undefined
   },
+  patch_settings: (args) => {
+    settings = { ...settings, ...(args['patch'] as Partial<AppSettings>) }
+    return { ...settings }
+  },
   core_status: () => coreStatus(),
   start_core: () => {
     core.running = true
@@ -755,6 +760,16 @@ export const mockHandlers: Record<string, MockHandler> = {
   query_traffic_series: (args) => mockSeries(String(args['range'] ?? '7d')),
   query_traffic_rank: (args) =>
     mockRank(String(args['dim'] ?? 'proxy'), String(args['range'] ?? '7d')),
+  query_traffic_summary: (args) => {
+    const series = mockSeries(String(args['range'] ?? 'day'))
+    const up = series.reduce((total, row) => total + row.up, 0)
+    const down = series.reduce((total, row) => total + row.down, 0)
+    const direct = Math.floor((up + down) * 0.2)
+    const unattributed = Math.floor((up + down) * 0.05)
+    return { up, down, direct, unattributed, proxy: up + down - direct - unattributed }
+  },
+  get_platform: () => navigator.userAgent.includes('Windows') ? 'Windows' : navigator.userAgent.includes('Mac') ? 'macOS' : 'Linux',
+  probe_url: () => Math.round(30 + Math.random() * 300),
   get_runtime_config: () => `# ClashNova 运行时配置 (mock)
 port: 7890
 socks-port: 7891
@@ -911,7 +926,7 @@ function seeded(n: number): number {
 
 function mockSeries(range: string): { ts: number; up: number; down: number }[] {
   const step = range === 'day' ? 3600_000 : 86_400_000
-  const count = range === 'day' ? 24 : range === '30d' ? 30 : 7
+  const count = range === 'day' ? new Date().getHours() + 1 : range === '30d' ? 30 : 7
   const now = Math.floor(Date.now() / step) * step
   const out = []
   for (let i = count - 1; i >= 0; i -= 1) {

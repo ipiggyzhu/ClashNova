@@ -79,7 +79,13 @@ fn diagnose_registered_service() -> Option<String> {
         .ok()?;
     let config = service.query_config().ok()?;
 
-    if service_command_matches_expected(&config.executable_path) {
+    let directory_matches = dirs::config_dir().is_some_and(|dir| {
+        crate::service_paths::service_config_matches(
+            &config.executable_path,
+            &dir.join("ClashNova"),
+        )
+    });
+    if service_command_matches_expected(&config.executable_path) && directory_matches {
         return None;
     }
 
@@ -116,6 +122,12 @@ pub fn diagnose_installation() -> Result<(), String> {
             "service registration is stale: bundled service host is missing at {}; please repair the service",
             expected_exe.display()
         ));
+    }
+    if !crate::service_paths::managed_core_binary_path().is_file() {
+        return Err(
+            "service registration is stale: managed mihomo is missing; please repair the service"
+                .into(),
+        );
     }
 
     Ok(())
@@ -461,7 +473,11 @@ pub fn install(config_dir: &Path) -> Result<(), String> {
         | ServiceAccess::DELETE
         | ServiceAccess::CHANGE_CONFIG;
     if let Ok(service) = manager.open_service(SERVICE_NAME, service_access) {
-        if !service_matches_expected(&service) {
+        if !service_matches_expected(&service)
+            || !service.query_config().is_ok_and(|config| {
+                crate::service_paths::service_config_matches(&config.executable_path, config_dir)
+            })
+        {
             log::warn!("existing service points to a stale binary; recreating it");
             let _ = service.stop();
             let _ = wait_until_stopped(&service);

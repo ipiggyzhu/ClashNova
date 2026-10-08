@@ -116,8 +116,120 @@ fn find_mihomo_binary(app: &AppHandle) -> Result<PathBuf, String> {
 }
 
 #[cfg(not(windows))]
-fn find_mihomo_binary(_app: &AppHandle) -> Result<PathBuf, String> {
-    Err("服务模式当前仅支持 Windows".into())
+fn find_mihomo_binary(app: &AppHandle) -> Result<PathBuf, String> {
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    let target = if cfg!(target_os = "macos") {
+        "apple-darwin"
+    } else {
+        "unknown-linux-gnu"
+    };
+    let name = format!("mihomo-{}-{target}", std::env::consts::ARCH);
+    let mut dirs = vec![exe.parent().ok_or("内核所在目录不存在")?.to_path_buf()];
+    if let Ok(resources) = app.path().resource_dir() {
+        dirs.push(resources);
+    }
+    if let Ok(cwd) = std::env::current_dir() {
+        dirs.push(cwd.join("src-tauri/binaries"));
+    }
+    dirs.into_iter()
+        .flat_map(|dir| [dir.join("mihomo"), dir.join(&name)])
+        .find(|path| path.is_file())
+        .ok_or_else(|| "找不到 mihomo 内核".into())
+}
+
+/// 在替换 runtime.yaml 之前让同版本内核执行语义预检。
+pub fn validate_runtime(app: &AppHandle, content: &str) -> Result<(), String> {
+    use std::io::Read;
+    use std::process::{Command, Stdio};
+    use std::sync::atomic::AtomicU64;
+    static CHECK_ID: AtomicU64 = AtomicU64::new(0);
+    let state = app.state::<AppState>();
+    let candidate = state.dirs.config.join(format!(
+        ".runtime-check-{}-{}.yaml",
+        std::process::id(),
+        CHECK_ID.fetch_add(1, Ordering::Relaxed)
+    ));
+    crate::state::atomic_write(&candidate, content.as_bytes())?;
+    let result = (|| {
+        #[cfg(windows)]
+        let binary = if state.settings_snapshot().tun || is_service_core_running() {
+            crate::service_paths::managed_core_binary_path()
+        } else {
+            find_mihomo_binary(app)?
+        };
+        #[cfg(not(windows))]
+        let binary = find_mihomo_binary(app)?;
+        let mut command = Command::new(binary);
+        command
+            .args(["-t", "-d"])
+            .arg(&state.dirs.config)
+            .arg("-f")
+            .arg(&candidate)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            command.creation_flags(0x08000000);
+        }
+        let mut child = command
+            .spawn()
+            .map_err(|e| format!("启动配置预检失败: {e}"))?;
+        let (tx, rx) = std::sync::mpsc::channel();
+        let outputs: Vec<Box<dyn Read + Send>> = vec![
+            Box::new(child.stdout.take().ok_or("预检 stdout 不可用")?),
+            Box::new(child.stderr.take().ok_or("预检 stderr 不可用")?),
+        ];
+        for mut output in outputs {
+            let tx = tx.clone();
+            std::thread::spawn(move || {
+                let mut bytes = Vec::new();
+                // 仅保留有界诊断, 但继续排空输出, 避免输出量大时子进程被管道反压卡住。
+                let mut buffer = [0u8; 4096];
+                while let Ok(count) = output.read(&mut buffer) {
+                    if count == 0 {
+                        break;
+                    }
+                    let remaining = (32 * 1024usize).saturating_sub(bytes.len());
+                    bytes.extend_from_slice(&buffer[..count.min(remaining)]);
+                }
+                let _ = tx.send(String::from_utf8_lossy(&bytes).into_owned());
+            });
+        }
+        drop(tx);
+        let deadline = Instant::now() + Duration::from_secs(15);
+        let status = loop {
+            match child.try_wait() {
+                Ok(Some(status)) => break status,
+                Ok(None) if Instant::now() < deadline => {
+                    std::thread::sleep(Duration::from_millis(25))
+                }
+                result => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(match result {
+                        Err(err) => format!("配置预检进程异常: {err}"),
+                        _ => "配置预检超时，已保留原配置".into(),
+                    });
+                }
+            }
+        };
+        if !status.success() {
+            let details = (0..2)
+                .filter_map(|_| rx.recv_timeout(Duration::from_millis(200)).ok())
+                .collect::<Vec<_>>()
+                .join("\n");
+            return Err(format!(
+                "mihomo 配置预检失败 ({status}): {}",
+                details.trim()
+            ));
+        }
+        Ok(())
+    })();
+    if let Err(err) = std::fs::remove_file(&candidate) {
+        log::warn!("清理配置预检文件失败: {err}");
+    }
+    result
 }
 
 /// 内核句柄(挂在 `AppState.core` 的 Mutex 内, 只做短临界区读写)。
@@ -130,6 +242,7 @@ pub struct CoreHandle {
     manual_stop: bool,
     /// GET /version 的缓存(运行中异步刷新)。
     version: Option<String>,
+    generation: u64,
 }
 
 /// 契约 A 的 `CoreStatus` 镜像。
@@ -324,7 +437,7 @@ pub fn start_with_service(app: &AppHandle) -> Result<(), String> {
 }
 
 pub(crate) fn start_sidecar(app: &AppHandle) -> Result<(), String> {
-    spawn_core(app)?;
+    spawn_core(app, None)?;
     {
         let state = app.state::<AppState>();
         let mut guard = state.core.lock().expect("core 锁中毒");
@@ -340,6 +453,7 @@ pub(crate) fn stop_sidecar(app: &AppHandle) -> Result<(), String> {
     let state = app.state::<AppState>();
     let mut guard = state.core.lock().expect("core 锁中毒");
     guard.manual_stop = true;
+    guard.generation = guard.generation.wrapping_add(1);
     guard.started_at = None;
     guard.version = None;
     if let Some(child) = guard.child.take() {
@@ -411,8 +525,15 @@ pub fn restart(app: &AppHandle) -> Result<(), String> {
 }
 
 /// 实际拉起 sidecar 进程并挂事件循环。
-fn spawn_core(app: &AppHandle) -> Result<(), String> {
+fn spawn_core(app: &AppHandle, expected_generation: Option<u64>) -> Result<(), String> {
     let state = app.state::<AppState>();
+    let mut guard = state.core.lock().map_err(|_| "core 锁中毒")?;
+    if guard.child.is_some()
+        || expected_generation
+            .is_some_and(|generation| generation != guard.generation || guard.manual_stop)
+    {
+        return Ok(());
+    }
     let config_dir = state.dirs.config.to_string_lossy().to_string();
     let runtime_config = state.dirs.runtime_config().to_string_lossy().to_string();
     let (mut rx, child) = app
@@ -425,12 +546,13 @@ fn spawn_core(app: &AppHandle) -> Result<(), String> {
         .spawn()
         .map_err(|e| format!("启动 mihomo 失败: {e}"))?;
 
-    {
-        let mut guard = state.core.lock().expect("core 锁中毒");
-        guard.child = Some(child);
-        guard.started_at = Some(Instant::now());
-        guard.version = None;
-    }
+    guard.generation = guard.generation.wrapping_add(1);
+    let generation = guard.generation;
+    guard.child = Some(child);
+    guard.started_at = Some(Instant::now());
+    guard.version = None;
+    guard.manual_stop = false;
+    drop(guard);
     log::info!("mihomo 已启动 (配置目录: {config_dir}, 配置文件: {runtime_config})");
 
     // 事件循环:stdout/stderr 落日志文件; Terminated 时按退避策略自动重启
@@ -452,7 +574,7 @@ fn spawn_core(app: &AppHandle) -> Result<(), String> {
                 }
                 CommandEvent::Error(err) => log::error!("mihomo 进程错误: {err}"),
                 CommandEvent::Terminated(payload) => {
-                    on_terminated(&app_handle, payload.code);
+                    on_terminated(&app_handle, payload.code, generation);
                     break;
                 }
                 _ => {}
@@ -463,10 +585,13 @@ fn spawn_core(app: &AppHandle) -> Result<(), String> {
 }
 
 /// 进程退出处理:非手动停止时在退避窗口内自动重启。
-fn on_terminated(app: &AppHandle, code: Option<i32>) {
+fn on_terminated(app: &AppHandle, code: Option<i32>, generation: u64) {
     let state = app.state::<AppState>();
     let should_restart = {
         let mut guard = state.core.lock().expect("core 锁中毒");
+        if guard.generation != generation {
+            return;
+        }
         guard.child = None;
         guard.started_at = None;
         guard.version = None;
@@ -492,7 +617,7 @@ fn on_terminated(app: &AppHandle, code: Option<i32>) {
     };
     if should_restart {
         log::warn!("mihomo 意外退出(code={code:?}), 自动重启…");
-        if let Err(e) = spawn_core(app) {
+        if let Err(e) = spawn_core(app, Some(generation)) {
             log::error!("自动重启失败: {e}");
         } else {
             refresh_version_async(app.clone());
@@ -637,28 +762,9 @@ pub async fn reload_runtime_with_auth(
         .timeout(Duration::from_secs(5))
         .send()
         .await;
-    let resp = match resp {
-        Ok(resp) => resp,
-        Err(err) if sidecar_running => {
-            log::warn!("热加载请求失败({err}), 改为重启内核");
-            restart(app)?;
-            return Ok(());
-        }
-        Err(err) if service_running => {
-            log::warn!("服务模式热加载请求失败({err}), 改为重启服务托管内核");
-            restart(app)?;
-            return Ok(());
-        }
-        Err(err) => return Err(format!("热加载请求失败: {err}")),
-    };
+    let resp = resp.map_err(|err| format!("热加载请求失败，未重启运行中的内核: {err}"))?;
     if !resp.status().is_success() {
-        if sidecar_running || service_running {
-            // 热加载失败 → 退回重启内核
-            log::warn!("热加载返回 HTTP {}, 改为重启内核", resp.status());
-            restart(app)?;
-        } else {
-            return Err(format!("服务模式热加载失败: HTTP {}", resp.status()));
-        }
+        return Err(format!("热加载失败: HTTP {}", resp.status()));
     }
     Ok(())
 }
@@ -762,6 +868,9 @@ fn start_core_via_service(app: &AppHandle) -> Result<(), String> {
     let runtime_config = state.dirs.runtime_config();
     let settings = state.settings_snapshot();
 
+    #[cfg(windows)]
+    let mihomo_path = crate::service_paths::managed_core_binary_path();
+    #[cfg(not(windows))]
     let mihomo_path = find_mihomo_binary(app)?;
 
     // 构建内核配置

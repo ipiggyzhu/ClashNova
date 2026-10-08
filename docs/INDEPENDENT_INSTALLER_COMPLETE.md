@@ -1,5 +1,9 @@
 # 独立服务安装程序实现完成 (v2.3.0)
 
+> **历史版本完成记录（v2.3.0）。** 以下方案、完成标记与环境/验证描述保留原始上下文，不代表当前代码或本轮验证结果。
+> 当前技术栈及构建流程见 [BUILD.md](../BUILD.md)，实际依赖以锁文件为准。
+
+
 ## ✅ 已完成
 
 ### 1. 独立可执行文件
@@ -96,7 +100,7 @@ if ServiceManager::local_computer(None::<&str>, manager_access).is_err() {
 
 **PowerShell 提权**:
 ```powershell
-Start-Process 'clashnova-service-install.exe' -ArgumentList '--dir','C:\Users\...' -Verb RunAs -Wait
+Start-Process 'clashnova-service-install.exe' -ArgumentList '--dir','C:\Users\USER' -Verb RunAs -Wait
 ```
 
 ### 独立安装程序逻辑
@@ -353,7 +357,7 @@ C:\Program Files\ClashNova\
 ```powershell
 # 以管理员身份运行 PowerShell
 cd "C:\Program Files\ClashNova"
-.\clashnova-service-install.exe --dir "C:\Users\Username\AppData\Roaming\ClashNova"
+.\clashnova-service-install.exe --dir "C:\Users\USER\AppData\Roaming\ClashNova"
 ```
 
 ### 手动卸载服务

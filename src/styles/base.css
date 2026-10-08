@@ -1,8 +1,4 @@
-/* ============================================================
-   ClashNova v2 全局基础样式 + 组件类
-   来源: design/shell-head.html <style> (唯一视觉基准, 不得擅改)
-   差异说明: .page 在 React 路由下始终渲染单页, 故恒为 display:block
-   ============================================================ */
+/* 全局基础样式与共享组件；各页面只保留布局和业务状态样式。 */
 
 /* ============ 基础 ============ */
 *{margin:0;padding:0;box-sizing:border-box}
@@ -17,10 +13,15 @@ svg{display:block}
 #root{height:100%}
 
 /* ============ 应用框架 ============ */
-.app{display:flex;height:100vh;background:var(--bg)}
+.app{display:flex;height:100vh;background:
+  radial-gradient(ellipse at 90% 0%,color-mix(in srgb,var(--accent) 18%,transparent),transparent 55%),
+  radial-gradient(ellipse at 0% 100%,color-mix(in srgb,var(--purple) 10%,transparent),transparent 55%),var(--bg)}
+/* 只在壳层和浮层使用模糊，避免每张实时卡片都创建合成层。 */
+.sidebar,.notif-panel,.profile-menu{backdrop-filter:var(--glass-filter)}
 /* ---- 侧边栏 ---- */
-.sidebar{width:210px;flex-shrink:0;background:var(--bg-deep);border-right:1px solid var(--line);
-  display:flex;flex-direction:column;padding:14px 10px 12px}
+.sidebar{width:200px;flex-shrink:0;margin:10px 0 10px 10px;background:var(--glass);
+  border:1px solid var(--line);border-radius:var(--radius-lg);box-shadow:var(--shadow);
+  display:flex;flex-direction:column;padding:14px 9px 12px}
 .brand{display:flex;align-items:center;gap:10px;padding:4px 8px 14px}
 .brand-logo{width:30px;height:30px;border-radius:9px;flex-shrink:0;display:block;object-fit:cover;
   box-shadow:0 4px 14px rgba(10,132,255,.25)}
@@ -36,10 +37,11 @@ svg{display:block}
 .nav-item svg{width:16px;height:16px;stroke:currentColor;stroke-width:1.8;fill:none;
   stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
 .nav-item:hover{background:var(--card);color:var(--text)}
-.nav-item.on{background:var(--card-2);color:var(--accent)}
+.nav-item.on{background:var(--accent-dim);color:var(--accent);
+  box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--accent) 18%,transparent)}
 .side-foot{border-top:1px solid var(--line);padding:10px 8px 2px;margin-top:8px}
 .kernel-chip{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:var(--radius-sm);
-  background:var(--card)}
+  background:var(--card-2);border:1px solid var(--line)}
 .kernel-chip .dot{width:7px;height:7px;border-radius:50%;background:var(--green);
   box-shadow:0 0 6px var(--green);flex-shrink:0}
 .kernel-chip b{font-size:11.5px;font-weight:600}
@@ -47,18 +49,19 @@ svg{display:block}
 
 /* ---- 主区 ---- */
 .main{flex:1;display:flex;flex-direction:column;min-width:0}
-.topbar{height:52px;flex-shrink:0;display:flex;align-items:center;gap:14px;
-  padding:0 14px 0 20px;border-bottom:1px solid var(--line)}
+.topbar{height:44px;flex-shrink:0;display:flex;align-items:center;gap:14px;position:relative;z-index:10;
+  margin:8px 20px 0;padding:0 12px 0 16px;background:var(--glass);border:1px solid var(--line);
+  border-radius:var(--radius-lg);box-shadow:var(--shadow)}
 .topbar h1{font-size:15px;font-weight:700;flex-shrink:0}
 .topbar .spacer{flex:1}
-.icon-btn{width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;
+.icon-btn{width:30px;height:30px;border-radius:var(--radius-sm);position:relative;display:flex;align-items:center;justify-content:center;
   color:var(--text-2);cursor:pointer;border:none;background:transparent;transition:background .15s}
 .icon-btn:hover{background:var(--card-2);color:var(--text)}
 .icon-btn svg{width:16px;height:16px;stroke:currentColor;stroke-width:1.8;fill:none;
   stroke-linecap:round;stroke-linejoin:round}
 .win-ctrl{display:flex;margin-left:4px}
 .win-ctrl button{width:38px;height:30px;border:none;background:transparent;color:var(--text-3);
-  display:flex;align-items:center;justify-content:center;cursor:pointer;border-radius:6px}
+  display:flex;align-items:center;justify-content:center;cursor:pointer;border-radius:var(--radius-sm)}
 .win-ctrl button:hover{background:var(--card-2);color:var(--text)}
 .win-ctrl button.close:hover{background:var(--red);color:#fff}
 .win-ctrl svg{width:11px;height:11px;stroke:currentColor;stroke-width:1.6;fill:none;stroke-linecap:round}
@@ -67,7 +70,8 @@ svg{display:block}
 @keyframes pagein{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 
 /* ============ 通用组件 ============ */
-.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+  box-shadow:var(--shadow);overflow:hidden}
 .card-head{display:flex;align-items:center;gap:9px;padding:13px 16px;border-bottom:1px solid var(--line)}
 .card-head h3{font-size:13px;font-weight:600;flex-shrink:0}
 .card-head .card-actions{margin-left:auto;display:flex;align-items:center;gap:8px}
@@ -79,23 +83,31 @@ svg{display:block}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
 .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}
 
+.dialog-mask{position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;
+  background:var(--scrim);backdrop-filter:blur(6px)}
+.dialog-panel,.notif-panel,.profile-menu{background:var(--glass-strong);border:1px solid var(--line-2);
+  box-shadow:var(--shadow-xl)}
+.dialog-panel,.notif-panel{border-radius:var(--radius-lg);overflow:hidden}
+
 .seg{display:inline-flex;background:var(--card-2);border:1px solid var(--line);
-  border-radius:9px;padding:2px;gap:2px}
+  border-radius:calc(var(--radius-sm) + 3px);padding:2px;gap:2px}
 .seg-item{border:none;background:transparent;color:var(--text-2);font-size:12px;font-weight:500;
-  padding:4px 12px;border-radius:7px;cursor:pointer;font-family:var(--sans);transition:all .15s;white-space:nowrap}
+  padding:4px 12px;border-radius:var(--radius-sm);cursor:pointer;font-family:var(--sans);transition:background .15s,color .15s;white-space:nowrap}
 .seg-item:hover{color:var(--text)}
 .seg-item.on{background:var(--card-3);color:var(--text);box-shadow:0 1px 4px rgba(0,0,0,.25)}
-[data-theme="light"] .seg-item.on{background:#fff}
+[data-theme="light"] .seg-item.on{background:rgba(255,255,255,.92);box-shadow:0 1px 4px rgba(38,55,88,.12)}
 
 .btn{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line-2);
   background:var(--card-2);color:var(--text);font-size:12px;font-weight:500;font-family:var(--sans);
-  padding:5px 12px;border-radius:8px;cursor:pointer;transition:all .15s;white-space:nowrap}
+  padding:5px 12px;border-radius:var(--radius-sm);cursor:pointer;transition:background .15s,border-color .15s;white-space:nowrap}
 .btn:hover{background:var(--card-3)}
 .btn svg{width:13px;height:13px;stroke:currentColor;stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round}
 .btn-primary{background:var(--accent);border-color:transparent;color:#fff}
 .btn-primary:hover{background:#2b94ff}
 .btn-danger{color:var(--red)}
 .btn-sm{padding:3px 9px;font-size:11.5px}
+.btn:disabled,.icon-btn:disabled{opacity:.5;cursor:not-allowed}
+:is(.btn,.icon-btn,.nav-item,.seg-item,.select):focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 
 .badge{display:inline-flex;align-items:center;font-family:var(--mono);font-size:10.5px;font-weight:600;
   padding:1.5px 7px;border-radius:20px;line-height:1.5}
@@ -108,7 +120,7 @@ svg{display:block}
 .b-purple{color:var(--purple);background:rgba(191,90,242,.13)}
 .b-cyan{color:var(--cyan);background:rgba(100,210,255,.13)}
 .chip{display:inline-flex;align-items:center;font-size:10.5px;font-weight:600;padding:1.5px 8px;
-  border-radius:6px;background:var(--card-2);color:var(--text-2);border:1px solid var(--line)}
+  border-radius:999px;background:var(--card-2);color:var(--text-2);border:1px solid var(--line)}
 
 .stat-num{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:22px;font-weight:700;line-height:1.2}
 .stat-label{font-size:11px;color:var(--text-2);display:flex;align-items:center;gap:5px}
@@ -129,11 +141,11 @@ svg{display:block}
 .tbl tbody tr{transition:background .12s}
 .tbl tbody tr:hover{background:var(--card-2)}
 
-.input{background:var(--card-2);border:1px solid var(--line);border-radius:8px;color:var(--text);
+.input{background:var(--card-2);border:1px solid var(--line);border-radius:var(--radius-sm);color:var(--text);
   font-size:12.5px;font-family:var(--sans);padding:6px 11px;outline:none;transition:border .15s}
-.input:focus{border-color:var(--accent)}
+.input:focus{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-dim)}
 .input::placeholder{color:var(--text-3)}
-.select{background:var(--card-2);border:1px solid var(--line);border-radius:8px;color:var(--text);
+.select{background:var(--card-2);border:1px solid var(--line);border-radius:var(--radius-sm);color:var(--text);
   font-size:12px;font-family:var(--sans);padding:5px 9px;outline:none;cursor:pointer}
 .search-wrap{position:relative;display:inline-flex;align-items:center}
 .search-wrap svg{position:absolute;left:9px;width:13px;height:13px;stroke:var(--text-3);
@@ -163,7 +175,6 @@ svg{display:block}
   white-space:pre-wrap;word-break:break-word}
 
 /* 通知徽章 */
-.icon-btn{position:relative}
 .icon-btn .badge{position:absolute;top:-2px;right:-2px;min-width:16px;height:16px;padding:0 4px;
   background:var(--red);color:#fff;font-size:10px;font-weight:600;border-radius:8px;
   display:flex;align-items:center;justify-content:center;line-height:1;

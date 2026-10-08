@@ -10,6 +10,8 @@ export interface SegProps<T extends string = string> {
   value: T
   onChange: (value: T) => void
   className?: string
+  label?: string
+  disabled?: boolean
 }
 
 export default function Seg<T extends string = string>({
@@ -17,13 +19,17 @@ export default function Seg<T extends string = string>({
   value,
   onChange,
   className,
+  label,
+  disabled,
 }: SegProps<T>) {
   return (
-    <div className={className ? `seg ${className}` : 'seg'}>
+    <div className={className ? `seg ${className}` : 'seg'} role="group" aria-label={label}>
       {items.map((it) => (
         <button
           key={it.value}
           type="button"
+          aria-pressed={it.value === value}
+          disabled={disabled}
           className={it.value === value ? 'seg-item on' : 'seg-item'}
           onClick={() => onChange(it.value)}
         >

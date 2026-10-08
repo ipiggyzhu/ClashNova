@@ -3,7 +3,12 @@
 .pg-connections .toolbar .search-wrap{width:260px;max-width:100%}
 .pg-connections .toolbar .search-wrap .input{width:100%}
 .pg-connections .toolbar .spacer{flex:1}
-.pg-connections .conn-card{width:100%;min-width:0;overflow-x:auto;overflow-y:hidden}
+.pg-connections .conn-card{width:100%;min-width:0;overflow:hidden}
+.pg-connections .conn-scroll{max-height:calc(100vh - 210px);min-height:180px;overflow:auto}
+.pg-connections .tbl thead{position:sticky;top:0;background:var(--glass-strong);backdrop-filter:var(--glass-filter);z-index:1}
+.pg-connections .tbl .conn-row{height:56px}
+.pg-connections .tbl .conn-row td{height:56px;box-sizing:border-box;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pg-connections .tbl .conn-row .chip{max-width:100%;overflow:hidden;text-overflow:ellipsis}
 .pg-connections .conn-card .tbl{min-width:1120px;table-layout:fixed}
 .pg-connections .tbl th,
 .pg-connections .tbl td{text-align:center}

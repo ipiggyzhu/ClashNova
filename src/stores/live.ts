@@ -8,6 +8,7 @@ import {
   subscribeLogs,
   subscribeMemory,
   subscribeTraffic,
+  type StreamStatus,
   type Unsubscribe,
 } from '../services/ws'
 import type { ConnItem, ConnectionsPayload, LogItem, MemoryPoint, TrafficPoint } from '../types/clash'
@@ -19,6 +20,17 @@ export const LOG_CAPACITY = 1024
 const TRAFFIC_STALE_MS = 2500
 const DUPLICATE_TRAFFIC_WINDOW_MS = 50
 const REAL_TRAFFIC_SAMPLE_MS = 1000
+export type LiveStream = 'traffic' | 'connections' | 'memory' | 'logs'
+export type LiveLog = LogItem & { id: number }
+let logId = 0
+let pendingLogs: LiveLog[] = []
+let logTimer: ReturnType<typeof setTimeout> | null = null
+
+function clearPendingLogs(): void {
+  if (logTimer !== null) clearTimeout(logTimer)
+  logTimer = null
+  pendingLogs = []
+}
 
 const EMPTY_CONNECTIONS: ConnectionsPayload = {
   downloadTotal: 0,
@@ -188,10 +200,11 @@ function normalizeMemory(point: MemoryPoint | null | undefined): MemoryPoint {
   }
 }
 
-function normalizeLog(log: LogItem | null | undefined): LogItem | null {
+function normalizeLog(log: LogItem | null | undefined): LiveLog | null {
   if (!log || typeof log !== 'object') return null
   const type = log.type === 'warning' || log.type === 'error' || log.type === 'debug' ? log.type : 'info'
   return {
+    id: ++logId,
     type,
     payload: stringOrEmpty(log.payload),
     time: stringOrEmpty(log.time) || new Date().toLocaleTimeString(),
@@ -206,7 +219,8 @@ export interface LiveStore {
   /** 内核内存占用(WS /memory, 未知时 inuse=0) */
   memory: MemoryPoint
   /** 最近 1024 行日志(尾部为最新) */
-  logs: LogItem[]
+  logs: LiveLog[]
+  status: Record<LiveStream, StreamStatus>
   /** 暂停时丢弃新日志 */
   logsPaused: boolean
   pushTraffic: (point: TrafficPoint | null | undefined) => void
@@ -222,6 +236,7 @@ export const useLiveStore = create<LiveStore>((set, get) => ({
   connections: EMPTY_CONNECTIONS,
   memory: { inuse: 0 },
   logs: [],
+  status: { traffic: 'disconnected', connections: 'disconnected', memory: 'disconnected', logs: 'disconnected' },
   logsPaused: false,
 
   pushTraffic: (point) => {
@@ -281,45 +296,66 @@ export const useLiveStore = create<LiveStore>((set, get) => ({
   setMemory: (point) => set({ memory: normalizeMemory(point) }),
 
   pushLog: (log) => {
+    if (get().logsPaused) return
     const safeLog = normalizeLog(log)
     if (!safeLog) return
-    if (get().logsPaused) return
-    set((s) => ({ logs: [...s.logs, safeLog].slice(-LOG_CAPACITY) }))
+    pendingLogs.push(safeLog)
+    if (pendingLogs.length > LOG_CAPACITY) pendingLogs.shift()
+    if (logTimer === null) {
+      logTimer = setTimeout(() => {
+        const batch = pendingLogs
+        pendingLogs = []
+        logTimer = null
+        set((s) => ({ logs: [...s.logs, ...batch].slice(-LOG_CAPACITY) }))
+      }, 100)
+    }
   },
 
-  setLogsPaused: (paused) => set({ logsPaused: paused }),
+  setLogsPaused: (paused) => {
+    if (paused) clearPendingLogs()
+    set({ logsPaused: paused })
+  },
 
-  clearLogs: () => set({ logs: [] }),
+  clearLogs: () => { clearPendingLogs(); set({ logs: [] }) },
 }))
 
 /* ---------------- 订阅生命周期(引用计数) ---------------- */
 
-let refCount = 0
-let unsubscribers: Unsubscribe[] = []
+const subscriptions = new Map<LiveStream, { count: number; release: Unsubscribe }>()
 
 /**
  * 启动三路 WS 订阅并写入 store。返回释放函数;
  * 多个页面同时调用只建立一份底层订阅, 最后一个释放时断开。
  */
-export function startLiveStreams(): Unsubscribe {
-  refCount += 1
-  if (refCount === 1) {
+export function startLiveStreams(streams: readonly LiveStream[]): Unsubscribe {
+  const requested = [...new Set(streams)]
+  for (const stream of requested) {
+    const active = subscriptions.get(stream)
+    if (active) { active.count += 1; continue }
     const { pushTraffic, setConnections, setMemory, pushLog } = useLiveStore.getState()
-    unsubscribers = [
-      subscribeTraffic(pushTraffic),
-      subscribeConnections(setConnections),
-      subscribeMemory(setMemory),
-      subscribeLogs(pushLog),
-    ]
+    const onStatus = (status: StreamStatus): void => {
+      useLiveStore.setState((s) => ({ status: { ...s.status, [stream]: status } }))
+    }
+    const release = stream === 'traffic' ? subscribeTraffic(pushTraffic, onStatus)
+      : stream === 'connections' ? subscribeConnections(setConnections, onStatus)
+        : stream === 'memory' ? subscribeMemory(setMemory, onStatus)
+          : subscribeLogs(pushLog, 'debug', onStatus)
+    subscriptions.set(stream, { count: 1, release })
   }
   let released = false
   return () => {
     if (released) return
     released = true
-    refCount -= 1
-    if (refCount === 0) {
-      for (const u of unsubscribers) u()
-      unsubscribers = []
+    for (const stream of requested) {
+      const active = subscriptions.get(stream)!
+      active.count -= 1
+      if (active.count === 0) {
+        active.release()
+        subscriptions.delete(stream)
+        if (stream === 'logs') clearPendingLogs()
+      }
+    }
+    if (!subscriptions.has('traffic') && !subscriptions.has('connections')) {
       resetTrafficSamplingState()
     }
   }

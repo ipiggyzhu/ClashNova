@@ -1,23 +1,32 @@
-/* ============================================================
-   ClashNova v2 设计令牌
-   来源: design/shell-head.html <style> (唯一视觉基准, 不得擅改)
-   ============================================================ */
+/* 共享材质、颜色与圆角；透明度只作用于背景，不影响文字。 */
 :root{
-  --bg:#161618; --bg-deep:#101012; --card:#232326; --card-2:#2a2a2e; --card-3:#313136;
-  --line:rgba(255,255,255,.07); --line-2:rgba(255,255,255,.12);
-  --text:#ececf0; --text-2:#9b9ba3; --text-3:#6e6e76;
-  --accent:#0A84FF; --accent-dim:rgba(10,132,255,.14);
+  color-scheme:dark;
+  --bg:#151924; --bg-deep:#10131c;
+  --card:rgba(37,43,57,.68); --card-2:rgba(184,200,230,.08); --card-3:rgba(194,210,240,.14);
+  --glass:rgba(29,35,48,.62); --glass-strong:rgba(30,36,49,.90);
+  --glass-filter:blur(22px) saturate(150%); --scrim:rgba(6,10,18,.34);
+  --line:rgba(213,226,249,.09); --line-2:rgba(221,233,255,.17);
+  --text:#edf1f8; --text-2:#b7c0d0; --text-3:#8996ac;
+  --accent:#0A84FF; --accent-dim:rgba(10,132,255,.16);
   --green:#32D74B; --red:#FF453A; --orange:#FF9F0A; --yellow:#FFD60A;
   --purple:#BF5AF2; --cyan:#64D2FF; --pink:#FF375F; --teal:#40C8E0;
-  --radius:12px; --radius-sm:8px;
-  --shadow:0 8px 28px rgba(0,0,0,.36);
+  --radius:18px; --radius-sm:10px; --radius-md:14px; --radius-lg:24px;
+  --shadow:0 8px 24px rgba(0,0,0,.14),inset 0 1px 0 rgba(255,255,255,.05);
+  --shadow-xl:0 24px 64px rgba(0,0,0,.32),inset 0 1px 0 rgba(255,255,255,.10);
   --sans:-apple-system,"SF Pro Display","SF Pro Text","Segoe UI Variable Display","Segoe UI","PingFang SC","Microsoft YaHei UI",sans-serif;
   --mono:"SF Mono","Cascadia Code","JetBrains Mono",Consolas,monospace;
 }
 [data-theme="light"]{
-  --bg:#f2f2f6; --bg-deep:#e9e9ee; --card:#ffffff; --card-2:#f5f5f8; --card-3:#ececf1;
-  --line:rgba(0,0,0,.08); --line-2:rgba(0,0,0,.14);
-  --text:#1c1c1e; --text-2:#6e6e76; --text-3:#9b9ba3;
-  --accent-dim:rgba(10,132,255,.10);
-  --shadow:0 8px 28px rgba(0,0,0,.10);
+  color-scheme:light;
+  --bg:#edf1f7; --bg-deep:#e6ebf3;
+  --card:rgba(255,255,255,.68); --card-2:rgba(113,135,166,.08); --card-3:rgba(113,135,166,.14);
+  --glass:rgba(250,252,255,.62); --glass-strong:rgba(250,252,255,.92);
+  --scrim:rgba(44,58,83,.18);
+  --line:rgba(44,62,92,.09); --line-2:rgba(44,62,92,.16);
+  --text:#192638; --text-2:#52617a; --text-3:#627089;
+  --accent-dim:rgba(10,132,255,.11);
+  --green:#208438; --red:#d52e31; --orange:#a86100; --yellow:#8c7100;
+  --purple:#9440c9; --cyan:#027da4; --pink:#c92d58; --teal:#007d85;
+  --shadow:0 8px 24px rgba(38,55,88,.06),inset 0 1px 0 rgba(255,255,255,.85);
+  --shadow-xl:0 24px 64px rgba(39,56,85,.16),inset 0 1px 0 rgba(255,255,255,.95);
 }

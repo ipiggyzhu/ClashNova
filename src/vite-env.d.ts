@@ -10,6 +10,7 @@ declare module 'three' {
   export const LinearMipmapLinearFilter: number
 
   export class Texture {
+    dispose(): void
     colorSpace: string
     needsUpdate: boolean
     anisotropy: number

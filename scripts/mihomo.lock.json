@@ -1,0 +1,28 @@
+{
+  "version": "v1.19.27",
+  "releaseUrl": "https://github.com/MetaCubeX/mihomo/releases/tag/v1.19.27",
+  "digestSource": "https://api.github.com/repos/MetaCubeX/mihomo/releases/tags/v1.19.27",
+  "verifiedAt": "2026-10-08",
+  "targets": {
+    "windows": {
+      "asset": "mihomo-windows-amd64-v1.19.27.zip",
+      "url": "https://github.com/MetaCubeX/mihomo/releases/download/v1.19.27/mihomo-windows-amd64-v1.19.27.zip",
+      "size": 17445304,
+      "sha256": "34b4c5bc0c176eebd298f6624aa23ea41985a2c54efb04eb0e9c4542e45190ee",
+      "archiveEntry": "mihomo-windows-amd64.exe",
+      "binary": "mihomo-x86_64-pc-windows-msvc.exe",
+      "binarySize": 47169024,
+      "binarySha256": "77f8dee03001916c2b7c28c3094690bc5f78f0e8c2187f1488073214417dc44d"
+    },
+    "linux": {
+      "asset": "mihomo-linux-amd64-compatible-v1.19.27.gz",
+      "url": "https://github.com/MetaCubeX/mihomo/releases/download/v1.19.27/mihomo-linux-amd64-compatible-v1.19.27.gz",
+      "size": 17878244,
+      "sha256": "36850c946615f5c712946b62dbbbd06f6941d6d8a7543b315198bcb24ada3ea9",
+      "binary": "mihomo-x86_64-unknown-linux-gnu",
+      "binarySize": 48189566,
+      "binarySha256": "ab33dead65aaa95bc03b722f155d95f1003ac00517de6726e9b8d56ef9bbec92",
+      "executable": true
+    }
+  }
+}

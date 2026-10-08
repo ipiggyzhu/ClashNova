@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import './Traffic.css'
 import Card from '../components/ui/Card'
 import Icon from '../components/ui/Icon'
 import Seg from '../components/ui/Seg'
 import Spark from '../components/ui/Spark'
 import { useSmoothTraffic } from '../hooks/useSmoothTraffic'
+import { usePollingQuery } from '../hooks/usePollingQuery'
 import { call } from '../services/ipc'
 import { startLiveStreams, useLiveStore } from '../stores/live'
 import type { RankRow, SeriesPoint, StatDim, StatRange } from '../types/clash'
@@ -22,6 +23,8 @@ const RANGE_ITEMS: { value: StatRange; label: string }[] = [
   { value: '30d', label: '30 天' },
 ]
 
+const EMPTY_HISTORY: { series: SeriesPoint[]; daySeries: SeriesPoint[]; rank: RankRow[] } = { series: [], daySeries: [], rank: [] }
+
 const BAR_COLORS = ['#BF5AF2', '#0A84FF', '#64D2FF', '#32D74B', '#FF9F0A', '#FF375F', '#8E8E93']
 
 /** 数值与单位拆开渲染(大数字 + 小单位) */
@@ -37,67 +40,30 @@ function BigNum({ bytes }: { bytes: number }) {
 }
 
 export default function Traffic() {
-  const traffic = useLiveStore((s) => s.traffic)
   const [range, setRange] = useState<StatRange>('7d')
   const [dim, setDim] = useState<StatDim>('proxy')
-  const [series, setSeries] = useState<SeriesPoint[]>([])
-  const [daySeries, setDaySeries] = useState<SeriesPoint[]>([])
-  const [rank, setRank] = useState<RankRow[]>([])
-
-  useEffect(() => startLiveStreams(), [])
-
-  useEffect(() => {
-    void call('query_traffic_series', { range }).then(setSeries).catch(() => {})
-  }, [range])
-
-  useEffect(() => {
-    void call('query_traffic_series', { range: 'day' }).then(setDaySeries).catch(() => {})
-  }, [])
-
-  useEffect(() => {
-    void call('query_traffic_rank', { dim, range }).then(setRank).catch(() => {})
+  const query = useCallback(async () => {
+    const seriesRequest = call('query_traffic_series', { range })
+    const [series, daySeries, rank] = await Promise.all([
+      seriesRequest,
+      range === 'day' ? seriesRequest : call('query_traffic_series', { range: 'day' }),
+      call('query_traffic_rank', { dim, range }),
+    ])
+    return { series, daySeries, rank }
   }, [dim, range])
-
-  const last = traffic[traffic.length - 1] ?? { up: 0, down: 0 }
-  const smoothTraffic = useSmoothTraffic(last, traffic)
-  const peakUp = Math.max(0, ...traffic.map((p) => p.up), smoothTraffic.current.up)
-  const peakDown = Math.max(0, ...traffic.map((p) => p.down), smoothTraffic.current.down)
+  const { data: { series, daySeries, rank }, error } = usePollingQuery(query, EMPTY_HISTORY)
 
   const todayUp = daySeries.reduce((acc, p) => acc + p.up, 0)
   const todayDown = daySeries.reduce((acc, p) => acc + p.down, 0)
 
   const trendPts = useMemo(() => series.map((p) => p.up + p.down), [series])
   const rankMax = Math.max(1, ...rank.map((r) => r.up + r.down))
-  const rankTotal = Math.max(1, rank.reduce((acc, r) => acc + r.up + r.down, 0))
+  const rankTotal = Math.max(1, series.reduce((acc, r) => acc + r.up + r.down, 0))
 
   return (
     <div className="pg-traffic">
-      {/* ---- 实时速率 ---- */}
-      <Card
-        icon={<Icon name="traffic" />}
-        iconColor="var(--green)"
-        title="实时速率"
-        actions={<span className="chip">60 秒窗口</span>}
-      >
-        <div className="rt-wrap">
-          <div className="rt-cell">
-            <span className="rt-label" style={{ color: 'var(--purple)' }}>
-              <Icon name="upload" size={12} />上传
-            </span>
-            <div className="rt-big">{fmtSpeed(smoothTraffic.current.up)}</div>
-            <Spark pts={smoothTraffic.upPts} color="#BF5AF2" h={72} fill dot />
-            <div className="rt-peak">峰值 {fmtSpeed(peakUp)}</div>
-          </div>
-          <div className="rt-cell">
-            <span className="rt-label" style={{ color: 'var(--cyan)' }}>
-              <Icon name="download" size={12} />下载
-            </span>
-            <div className="rt-big">{fmtSpeed(smoothTraffic.current.down)}</div>
-            <Spark pts={smoothTraffic.downPts} color="#64D2FF" h={72} fill dot />
-            <div className="rt-peak">峰值 {fmtSpeed(peakDown)}</div>
-          </div>
-        </div>
-      </Card>
+      {error && <div role="alert">统计加载失败：{error}</div>}
+      <RealtimeRates />
 
       {/* ---- 今日汇总 ---- */}
       <div className="grid3">
@@ -150,7 +116,7 @@ export default function Traffic() {
                   <th className="r">上传</th>
                   <th className="r">下载</th>
                   <th className="r">总计</th>
-                  <th>占比</th>
+                  <th>占总流量（Top 10）</th>
                 </tr>
               </thead>
               <tbody>
@@ -190,5 +156,42 @@ export default function Traffic() {
         </div>
       </Card>
     </div>
+  )
+}
+
+/** 速率订阅与图表限定在实时卡片内。 */
+function RealtimeRates() {
+  const traffic = useLiveStore((s) => s.traffic)
+  useEffect(() => startLiveStreams(['traffic']), [])
+  const last = traffic[traffic.length - 1] ?? { up: 0, down: 0 }
+  const smoothTraffic = useSmoothTraffic(last, traffic)
+  const peakUp = Math.max(0, ...traffic.map((p) => p.up), smoothTraffic.current.up)
+  const peakDown = Math.max(0, ...traffic.map((p) => p.down), smoothTraffic.current.down)
+  return (
+    <Card
+      icon={<Icon name="traffic" />}
+      iconColor="var(--green)"
+      title="实时速率"
+      actions={<span className="chip">60 秒窗口</span>}
+    >
+      <div className="rt-wrap">
+        <div className="rt-cell">
+          <span className="rt-label" style={{ color: 'var(--purple)' }}>
+            <Icon name="upload" size={12} />上传
+          </span>
+          <div className="rt-big">{fmtSpeed(smoothTraffic.current.up)}</div>
+          <Spark pts={smoothTraffic.upPts} color="#BF5AF2" h={72} fill dot />
+          <div className="rt-peak">峰值 {fmtSpeed(peakUp)}</div>
+        </div>
+        <div className="rt-cell">
+          <span className="rt-label" style={{ color: 'var(--cyan)' }}>
+            <Icon name="download" size={12} />下载
+          </span>
+          <div className="rt-big">{fmtSpeed(smoothTraffic.current.down)}</div>
+          <Spark pts={smoothTraffic.downPts} color="#64D2FF" h={72} fill dot />
+          <div className="rt-peak">峰值 {fmtSpeed(peakDown)}</div>
+        </div>
+      </div>
+    </Card>
   )
 }

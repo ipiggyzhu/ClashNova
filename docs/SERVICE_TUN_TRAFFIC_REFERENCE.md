@@ -1,5 +1,9 @@
 # Service, TUN, and Traffic Reference Notes
 
+> **历史参考实现笔记。** 以下方案、完成标记与环境/验证描述保留原始上下文，不代表当前代码或本轮验证结果。
+> 当前技术栈及构建流程见 [BUILD.md](../BUILD.md)，实际依赖以锁文件为准。
+
+
 This fix was checked against `/mnt/d/code/clash-verge-rev-ref`.
 
 Relevant reference points:

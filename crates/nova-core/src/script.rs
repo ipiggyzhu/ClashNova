@@ -20,6 +20,9 @@ pub fn run_script(script: &str, config: &Value) -> Result<Value, CoreError> {
     let literal = serde_json::to_string(&json_text)?;
 
     let mut ctx = Context::default();
+    ctx.runtime_limits_mut().set_loop_iteration_limit(1_000_000);
+    ctx.runtime_limits_mut().set_recursion_limit(128);
+    ctx.runtime_limits_mut().set_stack_size_limit(4096);
     ctx.eval(Source::from_bytes(script.as_bytes()))
         .map_err(|e| CoreError::Script(format!("脚本加载失败: {e}")))?;
 
@@ -50,6 +53,22 @@ mod tests {
 
     fn yaml(s: &str) -> Value {
         serde_yaml::from_str(s).expect("测试用 YAML 必须合法")
+    }
+
+    #[test]
+    fn endless_loop_has_a_finite_budget() {
+        assert!(matches!(
+            run_script("function main(c) { while (true) {} }", &yaml("a: 1")),
+            Err(CoreError::Script(_))
+        ));
+    }
+
+    #[test]
+    fn recursive_script_has_a_finite_budget() {
+        assert!(matches!(
+            run_script("function main(c) { return main(c) }", &yaml("a: 1")),
+            Err(CoreError::Script(_))
+        ));
     }
 
     #[test]

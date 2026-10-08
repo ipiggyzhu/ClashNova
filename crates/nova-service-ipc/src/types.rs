@@ -1,6 +1,9 @@
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
+pub const MAX_REQUEST_BYTES: usize = 64 * 1024;
+pub const MAX_RESPONSE_BYTES: usize = 8 * 1024 * 1024;
+
 /// IPC 命名管道路径
 #[cfg(windows)]
 pub const IPC_PATH: &str = r"\\.\pipe\clashnova-service";
@@ -22,7 +25,7 @@ pub struct IpcConfig {
 impl Default for IpcConfig {
     fn default() -> Self {
         Self {
-            default_timeout: Duration::from_millis(150),
+            default_timeout: Duration::from_secs(10),
             retry_delay: Duration::from_millis(250),
             max_retries: 20,
         }

@@ -3,7 +3,7 @@
 
 use tauri::menu::{CheckMenuItem, MenuBuilder, MenuItem, PredefinedMenuItem, SubmenuBuilder};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Manager, Wry};
+use tauri::{AppHandle, Emitter, Manager, Wry};
 
 use crate::state::AppState;
 
@@ -132,6 +132,7 @@ pub fn sync_tray(app: &AppHandle) {
         let _ = handles.mode_rule.set_checked(settings.mode == "rule");
         let _ = handles.mode_global.set_checked(settings.mode == "global");
     }
+    let _ = app.emit("settings-changed", ());
 }
 
 pub fn show_main_window(app: &AppHandle) {
@@ -155,7 +156,7 @@ fn on_menu(app: &AppHandle, id: &str) {
             let enable = !app.state::<AppState>().settings_snapshot().sys_proxy;
             let app = app.clone();
             tauri::async_runtime::spawn(async move {
-                if let Err(e) = crate::commands::apply_sys_proxy(&app, enable) {
+                if let Err(e) = crate::commands::apply_sys_proxy(&app, enable).await {
                     log::error!("托盘切换系统代理失败: {e}");
                 }
                 sync_tray(&app);

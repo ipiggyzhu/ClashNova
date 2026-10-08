@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { useT } from '../../i18n'
 import { useAppStore } from '../../stores/app'
@@ -38,59 +38,53 @@ export default function Topbar() {
 
   const settingsMode = useAppStore((s) => s.settings.mode)
   const runtimeMode = useAppStore((s) => s.runtimeMode)
-  const coreRunning = useAppStore((s) => s.coreStatus.running)
-  const theme = useAppStore((s) => s.settings.theme)
+  const resolvedTheme = useAppStore((s) => s.resolvedTheme)
   const setMode = useAppStore((s) => s.setMode)
-  const syncRuntimeMode = useAppStore((s) => s.syncRuntimeMode)
   const setTheme = useAppStore((s) => s.setTheme)
   const mode = runtimeMode ?? settingsMode
 
   const unreadCount = useNotificationStore((s) => s.unreadCount)
+  const notify = useNotificationStore((s) => s.add)
   const [showNotifications, setShowNotifications] = useState(false)
-
-  /** system 主题按当前系统外观解析后再取反 */
-  const resolvedTheme: 'dark' | 'light' =
-    theme === 'system'
-      ? window.matchMedia('(prefers-color-scheme: light)').matches
-        ? 'light'
-        : 'dark'
-      : theme
+  const notificationTrigger = useRef<HTMLButtonElement>(null)
+  const closeNotifications = useCallback(() => setShowNotifications(false), [])
 
   const toggleTheme = () => {
-    void setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')
+    void setTheme(resolvedTheme === 'dark' ? 'light' : 'dark').catch((err: unknown) => {
+      notify('error', t('切换主题失败'), err instanceof Error ? err.message : String(err))
+    })
   }
-
-  useEffect(() => {
-    if (!coreRunning) return undefined
-    void syncRuntimeMode()
-    const timer = window.setInterval(() => {
-      void syncRuntimeMode()
-    }, 3000)
-    return () => window.clearInterval(timer)
-  }, [coreRunning, syncRuntimeMode])
 
   return (
     <header className="topbar">
       <h1>{title}</h1>
       <div className="spacer" />
       <Seg
+        label={t('出站模式')}
         items={MODE_ITEMS.map((m) => ({ ...m, label: t(m.label) }))}
         value={mode}
-        onChange={(m) => void setMode(m)}
+        onChange={(m) => void setMode(m).catch((err: unknown) => {
+          notify('error', t('切换模式失败'), err instanceof Error ? err.message : String(err))
+        })}
       />
       <div style={{ position: 'relative' }}>
         <button
+          ref={notificationTrigger}
           className="icon-btn"
           type="button"
           title={t('通知')}
-          onClick={() => setShowNotifications(!showNotifications)}
+          aria-label={t('通知')}
+          aria-expanded={showNotifications}
+          aria-haspopup="dialog"
+          aria-controls={showNotifications ? 'notification-panel' : undefined}
+          onClick={() => setShowNotifications((visible) => !visible)}
         >
           <Icon name="bell" />
           {unreadCount > 0 && <span className="badge">{unreadCount > 99 ? '99+' : unreadCount}</span>}
         </button>
-        {showNotifications && <NotificationPanel onClose={() => setShowNotifications(false)} />}
+        {showNotifications && <NotificationPanel onClose={closeNotifications} triggerRef={notificationTrigger} />}
       </div>
-      <button className="icon-btn" type="button" title={t('切换主题')} onClick={toggleTheme}>
+      <button className="icon-btn" type="button" title={t('切换主题')} aria-label={t('切换主题')} onClick={toggleTheme}>
         <Icon name={resolvedTheme === 'dark' ? 'sun' : 'moon'} />
       </button>
     </header>

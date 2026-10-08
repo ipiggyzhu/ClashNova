@@ -12,6 +12,7 @@ import type {
   StatDim,
   StatRange,
   TunAdapterStatus,
+  TrafficSummary,
 } from '../types/clash'
 import { mockHandlers } from './mock'
 
@@ -23,6 +24,7 @@ export const isMock =
 export interface IpcCommands {
   get_settings: { args: undefined; result: AppSettings }
   save_settings: { args: { settings: AppSettings }; result: void }
+  patch_settings: { args: { patch: Partial<AppSettings> }; result: AppSettings }
   core_status: { args: undefined; result: CoreStatus }
   start_core: { args: undefined; result: void }
   stop_core: { args: undefined; result: void }
@@ -68,6 +70,8 @@ export interface IpcCommands {
   query_traffic_series: { args: { range: StatRange }; result: SeriesPoint[] }
   query_traffic_rank: { args: { dim: StatDim; range: StatRange }; result: RankRow[] }
   get_runtime_config: { args: undefined; result: string }
+  query_traffic_summary: { args: { range: StatRange }; result: TrafficSummary }
+  get_platform: { args: undefined; result: string }
 }
 
 export type IpcCommand = keyof IpcCommands

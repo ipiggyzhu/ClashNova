@@ -29,6 +29,7 @@
 .pg-routemap .flat-svg .route-glow{opacity:.20;filter:drop-shadow(0 0 8px currentColor)}
 .pg-routemap .flat-svg .route-line{opacity:.9;filter:drop-shadow(0 0 3px currentColor)}
 .pg-routemap .flat-svg .route-trace{opacity:.55;stroke-dasharray:5 8;animation:routemap-trace 1.8s linear infinite}
+.pg-routemap .flat-svg[data-paused="true"] .route-trace{animation-play-state:paused}
 .pg-routemap .flat-svg .route-plane{filter:drop-shadow(0 0 5px currentColor) drop-shadow(0 1px 3px rgba(4,18,46,.65))}
 .pg-routemap .flat-svg .endpoint-halo{opacity:.18}
 .pg-routemap .flat-svg .endpoint-dot{filter:drop-shadow(0 0 5px currentColor)}

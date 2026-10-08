@@ -6,6 +6,7 @@ import Card from '../components/ui/Card'
 import Icon from '../components/ui/Icon'
 import Input from '../components/ui/Input'
 import Seg from '../components/ui/Seg'
+import { useVirtualRows } from '../hooks/useVirtualRows'
 import { useAppStore } from '../stores/app'
 import { startLiveStreams, useLiveStore } from '../stores/live'
 import type { LogItem } from '../types/clash'
@@ -49,19 +50,13 @@ export default function Logs() {
   const setPaused = useLiveStore((s) => s.setLogsPaused)
   const clearLogs = useLiveStore((s) => s.clearLogs)
   const logLevel = useAppStore((s) => s.settings.logLevel)
+  const status = useLiveStore((s) => s.status.logs)
 
   const [level, setLevel] = useState('all')
   const [keyword, setKeyword] = useState('')
-  const consoleRef = useRef<HTMLDivElement>(null)
+  const followTail = useRef(true)
 
-  useEffect(() => startLiveStreams(), [])
-
-  /* 自动滚底(暂停时不滚) */
-  useEffect(() => {
-    if (paused) return
-    const el = consoleRef.current
-    if (el) el.scrollTop = el.scrollHeight
-  }, [logs, paused])
+  useEffect(() => startLiveStreams(['logs']), [])
 
   const list = useMemo(() => {
     const kw = keyword.trim().toLowerCase()
@@ -71,6 +66,14 @@ export default function Logs() {
       return true
     })
   }, [logs, level, keyword])
+
+  const windowed = useVirtualRows(list.length, 24, 12)
+  useEffect(() => {
+    if (paused || !followTail.current) return
+    const el = windowed.containerRef.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [logs, list, paused, windowed.containerRef])
+  const statusText = { connected: 'WebSocket 已连接', connecting: 'WebSocket 连接中', disconnected: 'WebSocket 已断开', paused: '窗口隐藏，已暂停连接' }[status]
 
   return (
     <div className="pg-logs">
@@ -96,7 +99,7 @@ export default function Logs() {
         </div>
         <div className="spacer" />
         <span className="chip">日志等级: {logLevel}</span>
-        <Button onClick={() => setPaused(!paused)}>
+        <Button onClick={() => { followTail.current = true; setPaused(!paused) }}>
           <Icon name={paused ? 'play' : 'pause'} size={13} />
           {paused ? '继续' : '暂停'}
         </Button>
@@ -106,22 +109,30 @@ export default function Logs() {
       </div>
 
       <Card flush>
-        <div className="console" ref={consoleRef}>
+        <div className="console" ref={windowed.containerRef} role="region" aria-label="内核日志" tabIndex={0}
+          onScroll={(event) => {
+            const el = event.currentTarget
+            followTail.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48
+          }}>
           {list.length === 0 ? (
             <div className="empty">暂无日志</div>
           ) : (
-            list.map((l, i) => (
-              <div className="line" key={`${l.time}-${i}`}>
+            <>
+            <div aria-hidden="true" style={{ height: windowed.before }} />
+            {list.slice(windowed.start, windowed.end).map((l) => (
+              <div className="line" key={l.id}>
                 <span className="ts">{l.time}</span>
                 <Badge tone={LEVEL_TONE[l.type]}>{LEVEL_TEXT[l.type]}</Badge>
                 <span className="msg">{renderMsg(l.payload)}</span>
               </div>
-            ))
+            ))}
+            <div aria-hidden="true" style={{ height: windowed.after }} />
+            </>
           )}
         </div>
         <div className="foot">
-          <span className="dot" />
-          已缓冲 {logs.length.toLocaleString()} 行 · WebSocket 已连接
+          <span className="dot" style={status === 'connected' ? undefined : { background: 'var(--text-3)', boxShadow: 'none' }} />
+          已缓冲 {logs.length.toLocaleString()} 行 · {statusText}
           {paused && <span style={{ color: 'var(--orange)' }}>（已暂停）</span>}
         </div>
       </Card>

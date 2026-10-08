@@ -3,15 +3,11 @@ use anyhow::{Context, Result};
 use serde::de::DeserializeOwned;
 
 #[cfg(windows)]
-use std::fs::File;
-#[cfg(windows)]
-use std::io::{BufRead, BufReader, BufWriter, Write};
-#[cfg(windows)]
 use std::path::Path;
 
 /// IPC 客户端
 pub struct IpcClient {
-    _config: IpcConfig,
+    config: IpcConfig,
 }
 
 impl IpcClient {
@@ -96,69 +92,86 @@ impl IpcClient {
     }
 
     pub fn new(config: IpcConfig) -> Self {
-        Self { _config: config }
+        Self { config }
     }
 
-    /// 发送请求并接收响应
+    /// 独立运行时使同步调用者也能使用可取消的 overlapped I/O。
+    /// 只重试建立连接; 已发送的变更请求不重放, 避免超时后重复启停。
     #[cfg(windows)]
     fn send_request(&self, request: &ServiceRequest) -> Result<Vec<u8>> {
-        // 尝试多次连接（最多重试 3 次）
-        let mut last_error = None;
-        for attempt in 1..=3 {
-            match self.try_send_request(request) {
-                Ok(response) => return Ok(response),
-                Err(e) => {
-                    last_error = Some(e);
-                    if attempt < 3 {
-                        std::thread::sleep(std::time::Duration::from_millis(100));
-                    }
-                }
-            }
-        }
-
-        Err(last_error.unwrap())
+        let config = self.config.clone();
+        let request = request.clone();
+        std::thread::spawn(move || -> Result<Vec<u8>> {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()?;
+            runtime.block_on(async {
+                tokio::time::timeout(config.default_timeout, Self::exchange(&config, &request))
+                    .await
+                    .context("服务 IPC 请求超时")?
+            })
+        })
+        .join()
+        .map_err(|_| anyhow::anyhow!("IPC 工作线程异常退出"))?
     }
 
-    /// 尝试发送单次请求
     #[cfg(windows)]
-    fn try_send_request(&self, request: &ServiceRequest) -> Result<Vec<u8>> {
-        use std::io::ErrorKind;
-
-        // 打开命名管道
-        let pipe = match File::options().read(true).write(true).open(IPC_PATH) {
-            Ok(p) => p,
-            Err(e) => {
-                return match e.kind() {
-                    ErrorKind::NotFound => Err(anyhow::anyhow!("服务未运行（命名管道不存在）")),
-                    ErrorKind::PermissionDenied => Err(anyhow::anyhow!("权限不足，无法访问服务")),
-                    _ => Err(anyhow::anyhow!("无法连接到服务（命名管道打开失败）: {}", e)),
-                };
-            }
+    async fn exchange(config: &IpcConfig, request: &ServiceRequest) -> Result<Vec<u8>> {
+        use std::os::windows::fs::OpenOptionsExt;
+        use std::os::windows::io::IntoRawHandle;
+        use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+        use tokio::net::windows::named_pipe::NamedPipeClient;
+        use windows::Win32::Storage::FileSystem::{
+            FILE_FLAG_OVERLAPPED, FILE_GENERIC_READ, FILE_WRITE_DATA, SECURITY_IDENTIFICATION,
+            SECURITY_SQOS_PRESENT,
         };
 
-        // 注意：Windows 命名管道不支持 set_read_timeout/set_write_timeout
-        // 超时由服务端的管道创建参数控制
-
-        let mut writer = BufWriter::new(&pipe);
-        let mut reader = BufReader::new(&pipe);
-
-        // 序列化请求并发送
-        let request_json = serde_json::to_string(request).context("序列化请求失败")?;
-
-        writeln!(writer, "{}", request_json).context("发送请求失败")?;
-        writer.flush().context("刷新管道失败")?;
-
-        // 读取响应（单行 JSON）。按原始字节读，避免非 UTF-8 或尾部 NUL 让 read_line(String) 提前失败。
-        let mut response_line = Vec::new();
-        let read = reader
-            .read_until(b'\n', &mut response_line)
-            .context("读取响应失败")?;
-
-        if read == 0 || response_line.is_empty() {
-            anyhow::bail!("服务返回空响应");
+        let mut request_bytes = serde_json::to_vec(request)?;
+        request_bytes.push(b'\n');
+        if request_bytes.len() > MAX_REQUEST_BYTES {
+            anyhow::bail!("服务请求过长");
         }
-
-        Ok(response_line)
+        let mut pipe = None;
+        for attempt in 0..=config.max_retries {
+            // GENERIC_WRITE 包含创建管道实例的权限, 客户端仅请求写数据。
+            let opened = std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .access_mode(FILE_GENERIC_READ.0 | FILE_WRITE_DATA.0)
+                .custom_flags(
+                    FILE_FLAG_OVERLAPPED.0 | SECURITY_SQOS_PRESENT.0 | SECURITY_IDENTIFICATION.0,
+                )
+                .open(IPC_PATH);
+            match opened {
+                Ok(file) => {
+                    pipe =
+                        Some(unsafe { NamedPipeClient::from_raw_handle(file.into_raw_handle()) }?);
+                    break;
+                }
+                Err(err)
+                    if matches!(err.raw_os_error(), Some(2 | 231))
+                        && attempt < config.max_retries =>
+                {
+                    tokio::time::sleep(config.retry_delay).await;
+                }
+                Err(err) => return Err(err).context("连接服务管道失败"),
+            }
+        }
+        let mut pipe = pipe.context("服务管道未就绪")?;
+        pipe.write_all(&request_bytes)
+            .await
+            .context("写入服务请求失败")?;
+        pipe.flush().await?;
+        let mut reader = BufReader::new(pipe).take((MAX_RESPONSE_BYTES + 1) as u64);
+        let mut response = Vec::new();
+        reader
+            .read_until(b'\n', &mut response)
+            .await
+            .context("读取服务响应失败")?;
+        if response.len() > MAX_RESPONSE_BYTES || response.last() != Some(&b'\n') {
+            anyhow::bail!("服务响应过长或不完整");
+        }
+        Ok(response)
     }
 
     #[cfg(not(windows))]
@@ -313,5 +326,30 @@ pub fn is_reinstall_needed() -> bool {
             }
         }
         _ => true,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn response_parser_accepts_transport_padding_and_legacy_empty_data() {
+        let client = IpcClient::new(IpcConfig::default());
+        let response: ServiceResponse<()> = client
+            .parse_response(
+                b"\xef\xbb\xbf \0{\"code\":0,\"message\":\"\",\"data\":{}}\r\n",
+                "test",
+            )
+            .unwrap();
+        assert_eq!(response.code, 0);
+        assert!(response.data.is_none());
+    }
+
+    #[test]
+    fn response_parser_rejects_empty_and_malformed_responses() {
+        let client = IpcClient::new(IpcConfig::default());
+        assert!(client.parse_response::<()>(b"\0\r\n", "test").is_err());
+        assert!(client.parse_response::<()>(b"{truncated", "test").is_err());
     }
 }

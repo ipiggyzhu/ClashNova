@@ -8,11 +8,11 @@ use crate::state::AppState;
 use crate::{commands, tray};
 
 /// 以 settings.hotkeys 为准重注册全部热键(启动与每次保存设置后调用)。
-pub fn sync(app: &AppHandle) {
+pub fn sync(app: &AppHandle) -> Result<(), String> {
     let gs = app.global_shortcut();
-    if let Err(e) = gs.unregister_all() {
-        log::warn!("清空热键失败: {e}");
-    }
+    gs.unregister_all()
+        .map_err(|e| format!("清空热键失败: {e}"))?;
+    let mut errors = Vec::new();
     let hotkeys = app.state::<AppState>().settings_snapshot().hotkeys;
     for (action, accel) in hotkeys {
         if accel.trim().is_empty() {
@@ -25,8 +25,13 @@ pub fn sync(app: &AppHandle) {
             }
         });
         if let Err(e) = result {
-            log::warn!("注册热键 {action}={accel} 失败: {e}");
+            errors.push(format!("注册热键 {action}={accel} 失败: {e}"));
         }
+    }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors.join("; "))
     }
 }
 
@@ -43,11 +48,14 @@ fn dispatch(app: &AppHandle, action: &str) {
             }
         }
         "toggle-sysproxy" => {
-            let enable = !app.state::<AppState>().settings_snapshot().sys_proxy;
-            if let Err(e) = commands::apply_sys_proxy(app, enable) {
-                log::warn!("热键切换系统代理失败: {e}");
-            }
-            tray::sync_tray(app);
+            let app = app.clone();
+            tauri::async_runtime::spawn(async move {
+                let enable = !app.state::<AppState>().settings_snapshot().sys_proxy;
+                if let Err(e) = commands::apply_sys_proxy(&app, enable).await {
+                    log::warn!("热键切换系统代理失败: {e}");
+                }
+                tray::sync_tray(&app);
+            });
         }
         "toggle-tun" => {
             let app = app.clone();

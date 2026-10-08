@@ -135,6 +135,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             commands::get_settings,
             commands::save_settings,
+            commands::patch_settings,
             commands::core_status,
             commands::start_core,
             commands::stop_core,
@@ -172,6 +173,8 @@ fn main() {
             commands::reset_settings,
             commands::query_traffic_series,
             commands::query_traffic_rank,
+            commands::query_traffic_summary,
+            commands::get_platform,
             commands::get_runtime_config,
         ])
         .setup(|app| {
@@ -195,28 +198,34 @@ fn main() {
                 tray::show_main_window(&handle);
             }
 
-            // 启动内核
+            // 文件迁移、配置预检和进程启动不占用窗口主线程。
             let startup_handle = handle.clone();
-            if let Err(e) = core::start(&handle) {
-                log::error!("启动内核失败: {e}");
-                if service::is_running() && commands::is_service_ipc_failure(&e) {
-                    tauri::async_runtime::spawn(async move {
-                        log::warn!("启动阶段检测到服务 IPC 故障，尝试自动修复: {}", e);
-                        if let Err(repair_err) =
-                            commands::repair_service(startup_handle.clone()).await
+            tauri::async_runtime::spawn(async move {
+                let result = {
+                    let state = startup_handle.state::<AppState>();
+                    let _configuration = state.config_lock.lock().await;
+                    let worker = startup_handle.clone();
+                    tauri::async_runtime::spawn_blocking(move || {
+                        profiles::initialize(&worker)?;
+                        profiles::regenerate_runtime(&worker)?;
+                        core::start(&worker)
+                    })
+                    .await
+                    .map_err(|err| err.to_string())
+                    .and_then(|result| result)
+                };
+                if let Err(err) = result {
+                    log::error!("启动内核失败: {err}");
+                    if service::is_running() && commands::is_service_ipc_failure(&err) {
+                        if let Err(repair) = commands::repair_service(startup_handle.clone()).await
                         {
-                            log::error!("启动阶段自动修复服务失败: {}", repair_err);
+                            log::error!("启动阶段自动修复服务失败: {repair}");
                         }
-                    });
-                }
-            } else {
-                tauri::async_runtime::spawn(async move {
-                    let service_manager = service_manager::get_service_manager();
-                    if let Err(e) = service_manager.refresh().await {
-                        log::debug!("启动后刷新服务状态失败: {}", e);
                     }
-                });
-            }
+                } else if let Err(err) = service_manager::get_service_manager().refresh().await {
+                    log::debug!("启动后刷新服务状态失败: {err}");
+                }
+            });
 
             // 恢复系统代理与守卫、注册全局热键
             if settings.sys_proxy {
@@ -225,7 +234,10 @@ fn main() {
                 }
             }
             sysproxy_win::restart_guard(&handle);
-            hotkeys::sync(&handle);
+            if let Err(err) = hotkeys::sync(&handle) {
+                log::warn!("{err}");
+            }
+            profiles::spawn_updater(handle.clone());
             stats::spawn_collector(handle.clone());
             Ok(())
         })
@@ -238,6 +250,11 @@ fn main() {
                 }
             }
         })
-        .run(tauri::generate_context!())
-        .expect("ClashNova 运行失败");
+        .build(tauri::generate_context!())
+        .expect("ClashNova 初始化失败")
+        .run(|app, event| {
+            if matches!(event, tauri::RunEvent::Exit) {
+                stats::flush_on_exit(app);
+            }
+        });
 }

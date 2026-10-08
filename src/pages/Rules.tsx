@@ -1,17 +1,20 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import './Rules.css'
-import Badge from '../components/ui/Badge'
+import Button from '../components/ui/Button'
 import Card from '../components/ui/Card'
 import Icon from '../components/ui/Icon'
 import Input from '../components/ui/Input'
 import { getRules } from '../services/api'
+import { usePollingQuery } from '../hooks/usePollingQuery'
+import { normalizeRuleType } from '../utils/rules'
 import type { RuleItem } from '../types/clash'
 
 const TYPE_FILTERS = [
   'all', 'DOMAIN', 'DOMAIN-SUFFIX', 'DOMAIN-KEYWORD', 'IP-CIDR',
   'GEOIP', 'RULE-SET', 'PROCESS-NAME', 'MATCH',
 ]
-const MAX_RENDER = 500
+const PAGE_SIZE = 100
+const EMPTY_RULES: RuleItem[] = []
 
 function targetColor(proxy: string): string {
   if (proxy === 'DIRECT') return 'var(--green)'
@@ -29,33 +32,25 @@ function typeChipStyle(type: string): React.CSSProperties | undefined {
 }
 
 export default function Rules() {
-  const [rules, setRules] = useState<RuleItem[]>([])
-  const [loadError, setLoadError] = useState<string | null>(null)
+  const { data: rules, error: loadError } = usePollingQuery(getRules, EMPTY_RULES)
   const [keyword, setKeyword] = useState('')
   const [type, setType] = useState('all')
-
-  useEffect(() => {
-    void getRules()
-      .then((items) => {
-        setRules(items)
-        setLoadError(null)
-      })
-      .catch(() => {
-        setRules([])
-        setLoadError('Mihomo 未运行，启动内核后会显示规则。')
-      })
-  }, [])
+  const [page, setPage] = useState(0)
+  const indexed = useMemo(() => rules.map((rule, index) => ({ ...rule, index: index + 1, type: normalizeRuleType(rule.type) })), [rules])
+  const filters = useMemo(() => [...new Set([...TYPE_FILTERS, ...indexed.map((rule) => rule.type)])], [indexed])
 
   const filtered = useMemo(() => {
     const kw = keyword.trim().toLowerCase()
-    return rules.filter((r) => {
-      if (type !== 'all' && r.type.toUpperCase() !== type) return false
+    return indexed.filter((r) => {
+      if (type !== 'all' && r.type !== type) return false
       if (kw && !`${r.payload} ${r.proxy}`.toLowerCase().includes(kw)) return false
       return true
     })
-  }, [rules, keyword, type])
+  }, [indexed, keyword, type])
 
-  const shown = filtered.slice(0, MAX_RENDER)
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const currentPage = Math.min(page, pageCount - 1)
+  const shown = filtered.slice(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE)
 
   return (
     <div className="pg-rules">
@@ -65,19 +60,20 @@ export default function Rules() {
           <Input
             placeholder="搜索规则 / 域名 / IP…"
             value={keyword}
-            onChange={(e) => setKeyword(e.target.value)}
+            onChange={(e) => { setKeyword(e.target.value); setPage(0) }}
           />
         </div>
         <div className="spacer" />
-        <span className="chip">{loadError ? '内核未运行' : `共 ${rules.length.toLocaleString()} 条`}</span>
+        <span className="chip">{loadError ? '规则加载失败' : `共 ${rules.length.toLocaleString()} 条`}</span>
       </div>
 
       <div className="fchips">
-        {TYPE_FILTERS.map((t) => (
+        {filters.map((t) => (
           <button
             key={t}
             className={type === t ? 'fchip on' : 'fchip'}
-            onClick={() => setType(t)}
+            aria-pressed={type === t}
+            onClick={() => { setType(t); setPage(0) }}
           >
             {t === 'all' ? `全部` : t}
           </button>
@@ -89,14 +85,14 @@ export default function Rules() {
         flush
       >
         {loadError ? (
-          <div className="empty">{loadError}</div>
+          <div className="empty" role="alert">{loadError}</div>
         ) : shown.length === 0 ? (
           <div className="empty">没有匹配的规则</div>
         ) : (
           <>
-            {shown.map((r, i) => (
-              <div className="rule-row" key={`${r.type}-${r.payload}-${i}`}>
-                <span className="idx">{i + 1}</span>
+            {shown.map((r) => (
+              <div className="rule-row" key={r.index}>
+                <span className="idx">{r.index}</span>
                 <span className="content">{r.payload || '—'}</span>
                 <span className="chip" style={typeChipStyle(r.type.toUpperCase())}>
                   {r.type.toUpperCase()}
@@ -105,16 +101,13 @@ export default function Rules() {
                 <span className="target" style={{ color: targetColor(r.proxy) }}>
                   {r.proxy}
                 </span>
-                <span className="hits">
-                  <Badge tone="gray">{Math.max(0, 12381 - i * 137).toLocaleString()}</Badge>
-                </span>
               </div>
             ))}
-            {filtered.length > MAX_RENDER && (
-              <div className="truncated">
-                已展示前 {MAX_RENDER} 条，共匹配 {filtered.length.toLocaleString()} 条 — 请用搜索缩小范围
-              </div>
-            )}
+            <div className="pagination" aria-label="规则分页">
+              <Button size="sm" disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)}>上一页</Button>
+              <span>第 {currentPage + 1} / {pageCount} 页 · {filtered.length.toLocaleString()} 条</span>
+              <Button size="sm" disabled={currentPage + 1 >= pageCount} onClick={() => setPage(currentPage + 1)}>下一页</Button>
+            </div>
           </>
         )}
       </Card>

@@ -18,16 +18,8 @@ fn push_candidate(candidates: &mut Vec<PathBuf>, path: PathBuf) {
 }
 
 #[cfg(windows)]
-fn program_files_dir() -> PathBuf {
-    std::env::var_os("ProgramFiles")
-        .filter(|value| !value.is_empty())
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(r"C:\Program Files"))
-}
-
-#[cfg(windows)]
 pub fn managed_service_dir() -> PathBuf {
-    program_files_dir().join("ClashNova").join("service")
+    nova_service_ipc::policy::managed_service_directory()
 }
 
 #[cfg(windows)]
@@ -103,47 +95,88 @@ pub fn find_bundled_service_binary(base_dir: &Path) -> Result<PathBuf, String> {
 }
 
 #[cfg(windows)]
-pub fn prepare_managed_service_binary(source: &Path) -> Result<PathBuf, String> {
-    let target = managed_service_binary_path();
-    if same_path(source, &target) {
-        return Ok(target);
-    }
+pub fn managed_core_binary_path() -> PathBuf {
+    managed_service_dir().join(nova_service_ipc::policy::MANAGED_CORE_NAME)
+}
 
-    let target_dir = target
-        .parent()
-        .ok_or_else(|| format!("invalid managed service path: {}", target.display()))?;
-    std::fs::create_dir_all(target_dir).map_err(|e| {
-        format!(
-            "create managed service directory failed: {}: {e}",
-            target_dir.display()
-        )
-    })?;
+#[cfg(windows)]
+pub fn service_config_matches(command: &Path, config_dir: &Path) -> bool {
+    let command = command.to_string_lossy();
+    command.split_once("--dir").is_some_and(|(_, args)| {
+        normalized_path(Path::new(args.trim().trim_matches('"'))) == normalized_path(config_dir)
+    })
+}
 
-    let temp = target.with_file_name(format!("{SERVICE_EXE_NAME}.tmp"));
-    let _ = std::fs::remove_file(&temp);
-    std::fs::copy(source, &temp).map_err(|e| {
-        format!(
-            "copy service host to managed path failed: {} -> {}: {e}",
-            source.display(),
-            temp.display()
-        )
-    })?;
-    if target.exists() {
-        std::fs::remove_file(&target).map_err(|e| {
-            format!(
-                "replace managed service host failed; stop the service and retry: {}: {e}",
-                target.display()
-            )
-        })?;
+#[cfg(windows)]
+fn install_binary(source: &Path, target: &Path) -> Result<(), String> {
+    use nova_service_ipc::policy::windows_security::protect_installation_path;
+    use std::io::Write;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    if same_path(source, target) {
+        return protect_installation_path(target).map_err(|e| e.to_string());
     }
-    std::fs::rename(&temp, &target).map_err(|e| {
+    static INSTALL_ID: AtomicU64 = AtomicU64::new(0);
+    let temp = target.with_extension(format!(
+        "{}.{}.tmp",
+        std::process::id(),
+        INSTALL_ID.fetch_add(1, Ordering::Relaxed)
+    ));
+    let mut input = std::fs::File::open(source).map_err(|e| format!("open bundled binary: {e}"))?;
+    // create_new 失败时本次没有获得临时文件所有权, 不得进入清理分支。
+    let mut output = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&temp)
+        .map_err(|e| format!("create managed binary: {e}"))?;
+    let result = (|| {
+        std::io::copy(&mut input, &mut output).map_err(|e| format!("copy managed binary: {e}"))?;
+        output.flush().map_err(|e| e.to_string())?;
+        output.sync_all().map_err(|e| e.to_string())?;
+        drop(output);
+        protect_installation_path(&temp).map_err(|e| e.to_string())?;
+        std::fs::rename(&temp, target)
+            .map_err(|e| format!("replace managed binary; stop service and retry: {e}"))
+    })();
+    if result.is_err() {
         let _ = std::fs::remove_file(&temp);
-        format!(
-            "move managed service host into place failed: {}: {e}",
-            target.display()
-        )
-    })?;
+    }
+    result
+}
 
+#[cfg(windows)]
+pub fn prepare_managed_service_binary(source: &Path) -> Result<PathBuf, String> {
+    use nova_service_ipc::policy::windows_security::protect_installation_path;
+    let target = managed_service_binary_path();
+    let service_dir = managed_service_dir();
+    let product_dir = service_dir.parent().ok_or("invalid service directory")?;
+    std::fs::create_dir_all(product_dir).map_err(|e| e.to_string())?;
+    protect_installation_path(product_dir).map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&service_dir).map_err(|e| e.to_string())?;
+    protect_installation_path(&service_dir).map_err(|e| e.to_string())?;
+    let logs = service_dir.join("logs");
+    std::fs::create_dir_all(&logs).map_err(|e| e.to_string())?;
+    protect_installation_path(&logs).map_err(|e| e.to_string())?;
+
+    let core_target = managed_core_binary_path();
+    let core_source = source
+        .parent()
+        .into_iter()
+        .flat_map(|parent| parent.ancestors().take(4))
+        .flat_map(|dir| {
+            [
+                dir.join("mihomo.exe"),
+                dir.join("mihomo-x86_64-pc-windows-msvc.exe"),
+                dir.join("binaries/mihomo-x86_64-pc-windows-msvc.exe"),
+                dir.join("src-tauri/binaries/mihomo-x86_64-pc-windows-msvc.exe"),
+                dir.join("resources/mihomo.exe"),
+            ]
+        })
+        .find(|candidate| candidate.is_file())
+        .ok_or(
+            "bundled mihomo not found; reinstall the application before repairing its service",
+        )?;
+    install_binary(&core_source, &core_target)?;
+    install_binary(source, &target)?;
     Ok(target)
 }
 
@@ -161,6 +194,7 @@ pub fn remove_managed_service_binary() -> Result<(), String> {
         }
     }
 
+    let _ = std::fs::remove_file(managed_core_binary_path());
     match std::fs::remove_dir(managed_service_dir()) {
         Ok(()) => {}
         Err(err)

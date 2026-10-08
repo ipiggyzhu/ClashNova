@@ -5,7 +5,7 @@ import { useAppStore } from '../../stores/app'
 import { startLiveStreams, useLiveStore } from '../../stores/live'
 import Icon from '../ui/Icon'
 import type { IconName } from '../ui/Icon'
-import logoUrl from '/logo.png'
+import logoUrl from '/logo-brand.png'
 
 interface NavEntry {
   key: IconName
@@ -54,25 +54,12 @@ const NAV_GROUPS: NavGroup[] = [
   },
 ]
 
-/** 内核状态轮询间隔(ms) */
-const CORE_POLL_MS = 5000
-
 export default function Sidebar() {
   const t = useT()
   const core = useAppStore((s) => s.coreStatus)
   const memInuse = useLiveStore((s) => s.memory.inuse)
-  const loadAll = useAppStore((s) => s.loadAll)
-  const refreshCoreStatus = useAppStore((s) => s.refreshCoreStatus)
 
-  useEffect(() => startLiveStreams(), [])
-
-  useEffect(() => {
-    void loadAll().catch(() => undefined)
-    const timer = setInterval(() => {
-      void refreshCoreStatus().catch(() => undefined)
-    }, CORE_POLL_MS)
-    return () => clearInterval(timer)
-  }, [loadAll, refreshCoreStatus])
+  useEffect(() => startLiveStreams(['memory']), [])
 
   // 内核停止后 WS 不再推帧, 不能沿用最后一帧的陈旧内存值
   const memMb = core.running ? Math.round((memInuse || core.memoryBytes) / 1024 / 1024) : 0

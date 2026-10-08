@@ -4,9 +4,12 @@
 .pg-test .toolbar .input.url{flex:2}
 .pg-test .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px}
 .pg-test .site{position:relative;display:flex;flex-direction:column;align-items:center;
-  gap:8px;padding:20px 14px 16px;background:var(--card);border:1px solid var(--line);
+  gap:8px;padding:0;background:var(--card);border:1px solid var(--line);
   border-radius:var(--radius);cursor:pointer;transition:border-color .15s, transform .15s}
 .pg-test .site:hover{border-color:var(--line-2);transform:translateY(-1px)}
+.pg-test .site-probe{display:flex;flex-direction:column;align-items:center;gap:8px;width:100%;padding:20px 14px 16px;
+  border:0;border-radius:inherit;background:none;color:inherit;font:inherit;cursor:pointer;min-width:0}
+.pg-test .site-probe:disabled{cursor:wait}
 .pg-test .site .logo{width:42px;height:42px;border-radius:12px;display:flex;align-items:center;
   justify-content:center;font-size:19px;font-weight:700;color:#fff}
 .pg-test .site .logo svg{width:27px;height:27px;display:block;fill:currentColor}
@@ -25,6 +28,6 @@
 .pg-test .site .delay.gray{color:var(--text-3)}
 .pg-test .site .rm{position:absolute;top:8px;right:8px;width:22px;height:22px;border:none;
   border-radius:6px;background:transparent;color:var(--text-3);display:none;
-  align-items:center;justify-content:center;cursor:pointer}
-.pg-test .site:hover .rm{display:inline-flex}
+  align-items:center;justify-content:center;cursor:pointer;z-index:1}
+.pg-test .site:hover .rm,.pg-test .site:focus-within .rm{display:inline-flex}
 .pg-test .site .rm:hover{background:var(--card-3);color:var(--red)}

@@ -30,6 +30,7 @@ interface NotificationStore {
 }
 
 let notificationId = 0
+export const MAX_NOTIFICATIONS = 200
 
 export const useNotificationStore = create<NotificationStore>((set) => ({
   notifications: [],
@@ -45,10 +46,13 @@ export const useNotificationStore = create<NotificationStore>((set) => ({
       timestamp: Date.now(),
       read: false,
     }
-    set((state) => ({
-      notifications: [notification, ...state.notifications],
-      unreadCount: state.unreadCount + 1,
-    }))
+    set((state) => {
+      const notifications = [notification, ...state.notifications].slice(0, MAX_NOTIFICATIONS)
+      return {
+        notifications,
+        unreadCount: notifications.filter((item) => !item.read).length,
+      }
+    })
   },
 
   markAsRead: (id) =>

@@ -62,85 +62,47 @@ mod service_impl {
             .map(std::path::PathBuf::from)
     }
 
-    fn fallback_service_log_dir() -> std::path::PathBuf {
-        std::env::var_os("ProgramData")
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|| std::path::PathBuf::from(r"C:\ProgramData"))
-            .join("ClashNova")
-            .join("logs")
-    }
-
-    fn service_log_dirs(config_dir: Option<&std::path::Path>) -> Vec<std::path::PathBuf> {
-        let primary_log_dir = config_dir
-            .map(|dir| dir.join("logs"))
-            .unwrap_or_else(fallback_service_log_dir);
-        if config_dir.is_some() {
-            vec![primary_log_dir, fallback_service_log_dir()]
-        } else {
-            vec![primary_log_dir]
-        }
-    }
-
-    fn append_bootstrap_log(config_dir: Option<&std::path::Path>, line: &str) {
+    fn append_bootstrap_log(line: &str) {
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|value| value.as_secs())
             .unwrap_or_default();
-        for log_dir in service_log_dirs(config_dir) {
-            if std::fs::create_dir_all(&log_dir).is_err() {
-                continue;
-            }
-            let log_path = log_dir.join("clashnova-service.log");
-            if let Ok(mut file) = std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(log_path)
-            {
-                let _ = writeln!(file, "[bootstrap][{timestamp}] {line}");
-                break;
-            }
+        if let Ok(mut file) = nova_service_ipc::policy::windows_security::open_service_log() {
+            let _ = writeln!(file, "[bootstrap][{timestamp}] {line}");
         }
     }
 
-    fn init_service_logger(config_dir: Option<&std::path::Path>) {
-        append_bootstrap_log(config_dir, "initializing service logger");
+    fn init_service_logger() {
+        append_bootstrap_log("initializing service logger");
         let mut builder =
             env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"));
-
-        for log_dir in service_log_dirs(config_dir) {
-            if std::fs::create_dir_all(&log_dir).is_err() {
-                continue;
-            }
-            let log_path = log_dir.join("clashnova-service.log");
-            if let Ok(file) = std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(log_path)
-            {
+        match nova_service_ipc::policy::windows_security::open_service_log() {
+            Ok(file) => {
                 builder.target(Target::Pipe(Box::new(file)));
-                break;
             }
+            Err(err) => eprintln!("服务文件日志不可用: {err}"),
         }
-
         let _ = builder.try_init();
     }
 
-    fn service_main(args: Vec<std::ffi::OsString>) {
-        let config_dir = config_dir_from_args(&args);
-        append_bootstrap_log(config_dir.as_deref(), "service_main invoked");
+    fn service_main(_args: Vec<std::ffi::OsString>) {
+        // ServiceMain 参数不包含 SCM ImagePath 中的启动参数。
+        let args: Vec<_> = std::env::args_os().collect();
+        append_bootstrap_log("service_main invoked");
         let _ = run(args);
     }
 
     fn run(args: Vec<std::ffi::OsString>) -> windows_service::Result<()> {
         let config_dir = config_dir_from_args(&args);
-        init_service_logger(config_dir.as_deref());
+        init_service_logger();
 
         log::info!("ClashNova 服务模式启动");
 
         let (stop_tx, stop_rx) = mpsc::channel::<()>();
+        let handler_stop_tx = stop_tx.clone();
         let handler = move |control: ServiceControl| match control {
             ServiceControl::Stop | ServiceControl::Shutdown => {
-                let _ = stop_tx.send(());
+                let _ = handler_stop_tx.send(());
                 ServiceControlHandlerResult::NoError
             }
             ServiceControl::Interrogate => ServiceControlHandlerResult::NoError,
@@ -164,11 +126,31 @@ mod service_impl {
 
         let (ipc_ready_tx, ipc_ready_rx) = mpsc::channel();
         let _ipc_handle = std::thread::spawn(move || {
-            let server = nova_service_ipc::IpcServer::new();
+            let policy = config_dir
+                .as_deref()
+                .ok_or_else(|| "服务没有绑定配置目录，请重新安装服务".to_string())
+                .and_then(|dir| {
+                    nova_service_ipc::ServicePolicy::from_installation(dir)
+                        .map_err(|e| e.to_string())
+                });
+            let policy = match policy {
+                Ok(policy) => policy,
+                Err(err) => {
+                    log::error!("服务安全检查失败: {err}");
+                    let _ = ipc_ready_tx.send(Err(std::io::Error::new(
+                        std::io::ErrorKind::PermissionDenied,
+                        err,
+                    )
+                    .into()));
+                    return;
+                }
+            };
+            let server = nova_service_ipc::IpcServer::new(policy);
             if let Err(e) = server.run_with_ready_signal(Some(ipc_ready_tx)) {
                 log::error!("IPC 服务器启动失败: {}", e);
             }
             log::info!("IPC 服务器已退出");
+            let _ = stop_tx.send(());
         });
 
         match ipc_ready_rx.recv_timeout(Duration::from_secs(10)) {
@@ -193,6 +175,7 @@ mod service_impl {
         let _ = stop_rx.recv();
 
         log::info!("收到停止信号，关闭服务");
+        set_state(ServiceState::StopPending, ServiceControlAccept::empty())?;
 
         match nova_service_ipc::stop_core() {
             Ok(resp) if resp.code == 0 => log::info!("已停止服务托管内核"),

@@ -1,5 +1,9 @@
 # ClashNova v2 — M1 实施计划
 
+> **历史实施计划（2026-06-11）。** 以下方案、完成标记与环境/验证描述保留原始上下文，不代表当前代码或本轮验证结果。
+> 当前技术栈及构建流程见 [BUILD.md](../../BUILD.md)，实际依赖以锁文件为准。
+
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 交付可构建为 Windows exe/MSI 的 ClashNova v2 M1：mihomo 内核管理、订阅 Profile、代理切换/测速、系统代理/TUN、连接/日志/规则、托盘。

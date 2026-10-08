@@ -3,7 +3,7 @@ import './Test.css'
 import Button from '../components/ui/Button'
 import Icon from '../components/ui/Icon'
 import Input from '../components/ui/Input'
-import { isMock } from '../services/ipc'
+import { probeUrl } from '../services/probe'
 import { delayTone } from '../utils/format'
 
 interface TestSite {
@@ -25,7 +25,6 @@ const DEFAULT_SITES: TestSite[] = [
 ]
 
 const STORE_KEY = 'nova-test-sites'
-const TIMEOUT_MS = 5000
 
 const BRAND_LOGOS: Record<BrandLogoName, JSX.Element> = {
   apple: (
@@ -68,16 +67,32 @@ function inferLogo(site: Pick<TestSite, 'name' | 'url'>): BrandLogoName | undefi
   return undefined
 }
 
-function normalizeSites(sites: TestSite[]): TestSite[] {
-  return sites.map((site) => ({ ...site, logo: site.logo ?? inferLogo(site) }))
+function normalizeSites(sites: unknown[]): TestSite[] {
+  const normalized = new Map<string, TestSite>()
+  for (const value of sites) {
+    if (!value || typeof value !== 'object') continue
+    const site = value as Partial<TestSite>
+    if (typeof site.name !== 'string' || typeof site.url !== 'string') continue
+    try {
+      const url = new URL(site.url)
+      if (url.protocol !== 'http:' && url.protocol !== 'https:') continue
+      const name = site.name.trim()
+      if (!name) continue
+      normalized.set(url.href, { name, url: url.href,
+        color: typeof site.color === 'string' ? site.color : '#0A84FF',
+        logo: site.logo && Object.hasOwn(BRAND_LOGOS, site.logo) ? site.logo : inferLogo({ name, url: url.href }),
+      })
+    } catch { /* 忽略损坏条目，不影响其他测试地址 */ }
+  }
+  return [...normalized.values()]
 }
 
 function loadSites(): TestSite[] {
   try {
     const raw = localStorage.getItem(STORE_KEY)
     if (raw) {
-      const parsed = JSON.parse(raw) as TestSite[]
-      if (Array.isArray(parsed) && parsed.length > 0) return normalizeSites(parsed)
+      const parsed: unknown = JSON.parse(raw)
+      if (Array.isArray(parsed)) return normalizeSites(parsed)
     }
   } catch {
     /* 损坏即回退默认 */
@@ -90,24 +105,6 @@ function hostOf(url: string): string {
     return new URL(url).hostname
   } catch {
     return url
-  }
-}
-
-/** 经当前网络栈(真实模式即代理)对站点计时;失败/超时返回 -1 */
-async function probe(url: string): Promise<number> {
-  if (isMock) {
-    await new Promise((resolve) => setTimeout(resolve, 200 + Math.random() * 800))
-    return Math.random() < 0.9 ? Math.round(40 + Math.random() * 460) : -1
-  }
-  const begin = performance.now()
-  try {
-    const ctrl = new AbortController()
-    const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS)
-    await fetch(url, { mode: 'no-cors', cache: 'no-store', signal: ctrl.signal })
-    clearTimeout(timer)
-    return Math.round(performance.now() - begin)
-  } catch {
-    return -1
   }
 }
 
@@ -127,7 +124,12 @@ export default function Test() {
   const [delays, setDelays] = useState<DelayMap>({})
   const [name, setName] = useState('')
   const [url, setUrl] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [testingAll, setTestingAll] = useState(false)
   const aliveRef = useRef(true)
+  const pendingTests = useRef(new Map<string, Promise<void>>())
+  const batchBusy = useRef(false)
+  const removedUrls = useRef(new Set<string>())
 
   useEffect(() => {
     aliveRef.current = true
@@ -137,17 +139,32 @@ export default function Test() {
   }, [])
 
   useEffect(() => {
-    localStorage.setItem(STORE_KEY, JSON.stringify(sites))
+    try { localStorage.setItem(STORE_KEY, JSON.stringify(sites)) }
+    catch (reason) { setError(`测试地址保存失败：${String(reason)}`) }
   }, [sites])
 
-  const testOne = useCallback(async (site: TestSite): Promise<void> => {
+  const testOne = useCallback((site: TestSite): Promise<void> => {
+    const pending = pendingTests.current.get(site.url)
+    if (pending) return pending
     setDelays((d) => ({ ...d, [site.url]: 0 }))
-    const ms = await probe(site.url)
-    if (aliveRef.current) setDelays((d) => ({ ...d, [site.url]: ms }))
+    const task = probeUrl(site.url).catch(() => -1).then((ms) => {
+      if (aliveRef.current && !removedUrls.current.has(site.url)) {
+        setDelays((d) => ({ ...d, [site.url]: ms < 0 ? -1 : Math.max(1, ms) }))
+      }
+    }).finally(() => { pendingTests.current.delete(site.url) })
+    pendingTests.current.set(site.url, task)
+    return task
   }, [])
 
   const testAll = useCallback(async (): Promise<void> => {
-    await Promise.all(sites.map((s) => testOne(s)))
+    if (batchBusy.current) return
+    batchBusy.current = true
+    setTestingAll(true)
+    try { await Promise.all(sites.map(testOne)) }
+    finally {
+      batchBusy.current = false
+      if (aliveRef.current) setTestingAll(false)
+    }
   }, [sites, testOne])
 
   useEffect(() => {
@@ -158,15 +175,23 @@ export default function Test() {
 
   const addSite = (): void => {
     const n = name.trim()
-    const u = url.trim()
-    if (!n || !u) return
-    if (sites.some((s) => s.url === u)) return
+    if (!n || !url.trim()) { setError('请输入名称和 HTTP / HTTPS 地址'); return }
+    let u: string
+    try {
+      const parsed = new URL(url.trim())
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') throw new Error('scheme')
+      u = parsed.href
+    } catch { setError('请输入有效的 HTTP / HTTPS 地址'); return }
+    if (sites.some((s) => s.url === u)) { setError('该测试地址已存在'); return }
+    setError(null)
+    removedUrls.current.delete(u)
     const colors = ['#0A84FF', '#32D74B', '#BF5AF2', '#FF9F0A', '#64D2FF', '#FF375F']
     const site: TestSite = {
       name: n,
       url: u,
       color: colors[sites.length % colors.length] ?? '#0A84FF',
     }
+    site.logo = inferLogo(site)
     setSites((prev) => [...prev, site])
     setName('')
     setUrl('')
@@ -197,30 +222,35 @@ export default function Test() {
         <Button onClick={addSite}>
           <Icon name="plus" size={13} />添加
         </Button>
-        <Button variant="primary" onClick={() => void testAll()}>
-          <Icon name="zap" size={13} />全部测试
+        <Button variant="primary" onClick={() => void testAll()} disabled={testingAll || sites.length === 0}>
+          <Icon name="zap" size={13} />{testingAll ? '测试中…' : '全部测试'}
         </Button>
       </div>
 
+      {error && <div role="alert">{error}</div>}
       <div className="grid">
         {sites.map((s) => (
-          <div className="site" key={s.url} onClick={() => void testOne(s)} title="点击重测">
+          <div className="site" key={s.url}>
             <button
               className="rm"
-              title="移除"
+              title={`移除 ${s.name}`}
               onClick={(e) => {
                 e.stopPropagation()
+                removedUrls.current.add(s.url)
                 setSites((prev) => prev.filter((it) => it.url !== s.url))
+                setDelays((previous) => { const next = { ...previous }; delete next[s.url]; return next })
               }}
             >
               <Icon name="x" size={12} />
             </button>
+            <button className="site-probe" title={`重测 ${s.name}`} onClick={() => void testOne(s)} disabled={delays[s.url] === 0}>
             <div className={`logo ${s.logo ? `brand-${s.logo}` : ''}`} style={{ background: s.color }}>
               {s.logo ? <BrandLogo logo={s.logo} label={s.name} /> : s.name.slice(0, 1).toUpperCase()}
             </div>
             <span className="nm">{s.name}</span>
             <span className="host">{hostOf(s.url)}</span>
             {renderDelay(s)}
+            </button>
           </div>
         ))}
       </div>

@@ -4,9 +4,9 @@ use std::fs;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 
-use crate::state::{atomic_write, now_millis, AppState};
+use crate::state::{atomic_write, now_millis, AppState, FileTransaction};
 
 const USER_AGENT: &str = "ClashNova/2.0 clash-verge-compatible clash-meta";
 const BUILTIN_PRUNE_ENHANCER_ID: &str = "builtin-prune-invalid-nodes";
@@ -109,7 +109,11 @@ fn is_false(value: &bool) -> bool {
     !*value
 }
 
-fn ensure_builtin_prune_enhancers(app: &AppHandle, index: &mut [ProfileMeta]) -> bool {
+fn ensure_builtin_prune_enhancers(
+    app: &AppHandle,
+    index: &mut [ProfileMeta],
+    transaction: &mut FileTransaction,
+) -> Result<bool, String> {
     let state = app.state::<AppState>();
     let builtin = builtin_prune_enhancer();
     let mut changed = false;
@@ -134,30 +138,65 @@ fn ensure_builtin_prune_enhancers(app: &AppHandle, index: &mut [ProfileMeta]) ->
         {
             let path = enhancer_file(&state, &profile.id, &builtin);
             if !path.exists() {
-                if let Err(err) = atomic_write(&path, BUILTIN_PRUNE_SCRIPT.as_bytes()) {
-                    log::warn!("写入内置增强脚本失败 {}: {err}", path.display());
-                }
+                transaction.write(&path, BUILTIN_PRUNE_SCRIPT.as_bytes())?;
             }
         }
     }
 
-    changed
+    Ok(changed)
 }
 
 /// 读取 profiles.json 索引(缺失时返回空表)。
-pub fn load_index(app: &AppHandle) -> Vec<ProfileMeta> {
+pub fn load_index(app: &AppHandle) -> Result<Vec<ProfileMeta>, String> {
     let state = app.state::<AppState>();
     let path = state.dirs.profiles_index();
-    let Ok(raw) = fs::read_to_string(&path) else {
-        return Vec::new();
+    let raw = match fs::read_to_string(&path) {
+        Ok(raw) => raw,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(err) => return Err(format!("读取订阅索引失败: {err}")),
     };
-    let mut index: Vec<ProfileMeta> = serde_json::from_str(&raw).unwrap_or_default();
-    if ensure_builtin_prune_enhancers(app, &mut index) {
-        if let Err(err) = save_index(app, &index) {
-            log::warn!("迁移内置增强脚本索引失败: {err}");
+    serde_json::from_str(&raw).map_err(|err| format!("订阅索引损坏，保留原文件: {err}"))
+}
+
+/// 迁移仅在启动时执行, 普通读取不修改磁盘上的索引。
+pub fn initialize(app: &AppHandle) -> Result<(), String> {
+    let state = app.state::<AppState>();
+    let mut transaction = FileTransaction::capture(&[state.dirs.profiles_index()])?;
+    let mut index = load_index(app)?;
+    if ensure_builtin_prune_enhancers(app, &mut index, &mut transaction)? {
+        save_index(app, &index)?;
+    }
+    transaction.commit();
+    Ok(())
+}
+
+async fn finish_transaction<T>(
+    app: &AppHandle,
+    transaction: &mut FileTransaction,
+    result: Result<T, String>,
+) -> Result<T, String> {
+    match result {
+        Ok(value) => {
+            transaction.commit();
+            let _ = app.emit("profiles-changed", ());
+            Ok(value)
+        }
+        Err(err) => {
+            let runtime_changed =
+                transaction.changed(&app.state::<AppState>().dirs.runtime_config());
+            transaction
+                .rollback()
+                .map_err(|rollback| format!("{err}; 配置恢复失败: {rollback}"))?;
+            if runtime_changed {
+                if let Err(reload) = crate::core::reload_runtime(app).await {
+                    return Err(format!(
+                        "{err}; 原配置已恢复到磁盘，但运行态恢复失败: {reload}"
+                    ));
+                }
+            }
+            Err(err)
         }
     }
-    index
 }
 
 fn save_index(app: &AppHandle, index: &[ProfileMeta]) -> Result<(), String> {
@@ -347,42 +386,52 @@ pub async fn import(app: &AppHandle, url: String) -> Result<ProfileMeta, String>
         .or_else(|| url::host(&url).map(|h| h.to_string()))
         .unwrap_or_else(|| "新订阅".into());
 
-    let id = base36(now_millis());
-    let state = app.state::<AppState>();
-    atomic_write(&state.dirs.profile_file(&id), content.as_bytes())?;
-    let builtin_prune = builtin_prune_enhancer();
-    atomic_write(
-        &enhancer_file(&state, &id, &builtin_prune),
-        BUILTIN_PRUNE_SCRIPT.as_bytes(),
-    )?;
+    let transaction_state = app.state::<AppState>();
+    let _configuration = transaction_state.config_lock.lock().await;
+    let mut transaction = FileTransaction::capture(&[
+        transaction_state.dirs.profiles_index(),
+        transaction_state.dirs.runtime_config(),
+    ])?;
+    let result = async {
+        let id = base36(now_millis());
+        let state = app.state::<AppState>();
+        transaction.write(&state.dirs.profile_file(&id), content.as_bytes())?;
+        let builtin_prune = builtin_prune_enhancer();
+        transaction.write(
+            &enhancer_file(&state, &id, &builtin_prune),
+            BUILTIN_PRUNE_SCRIPT.as_bytes(),
+        )?;
 
-    let mut index = load_index(app);
-    let first = index.is_empty();
-    let meta = ProfileMeta {
-        id,
-        name,
-        kind: "remote".into(),
-        url: Some(url),
-        updated_at: now_millis(),
-        auto_update_min: Some(1440),
-        size_bytes: Some(content.len() as u64),
-        quota,
-        current: first,
-        builtin_enhancers_seeded: true,
-        enhancers: vec![builtin_prune],
-    };
-    index.push(meta.clone());
-    save_index(app, &index)?;
-    if first {
-        regenerate_runtime(app)?;
-        // 首次订阅自动成为当前配置 → 热加载或启动内核
-        if crate::core::is_running(app).await {
-            crate::core::reload_runtime(app).await?;
-        } else {
-            crate::core::start(app)?;
+        let mut index = load_index(app)?;
+        let first = index.is_empty();
+        let meta = ProfileMeta {
+            id,
+            name,
+            kind: "remote".into(),
+            url: Some(url),
+            updated_at: now_millis(),
+            auto_update_min: Some(1440),
+            size_bytes: Some(content.len() as u64),
+            quota,
+            current: first,
+            builtin_enhancers_seeded: true,
+            enhancers: vec![builtin_prune],
+        };
+        index.push(meta.clone());
+        save_index(app, &index)?;
+        if first {
+            regenerate_runtime_async(app).await?;
+            // 首次订阅自动成为当前配置 → 热加载或启动内核
+            if crate::core::is_running(app).await {
+                crate::core::reload_runtime(app).await?;
+            } else {
+                crate::core::start(app)?;
+            }
         }
+        Ok(meta)
     }
-    Ok(meta)
+    .await;
+    finish_transaction(app, &mut transaction, result).await
 }
 
 /// 导入本地配置文件内容, 返回新 ProfileMeta。
@@ -404,50 +453,63 @@ pub async fn import_file(
         .unwrap_or("本地配置")
         .to_string();
 
-    let id = base36(now_millis());
-    let state = app.state::<AppState>();
-    atomic_write(&state.dirs.profile_file(&id), content.as_bytes())?;
-    let builtin_prune = builtin_prune_enhancer();
-    atomic_write(
-        &enhancer_file(&state, &id, &builtin_prune),
-        BUILTIN_PRUNE_SCRIPT.as_bytes(),
-    )?;
+    let transaction_state = app.state::<AppState>();
+    let _configuration = transaction_state.config_lock.lock().await;
+    let mut transaction = FileTransaction::capture(&[
+        transaction_state.dirs.profiles_index(),
+        transaction_state.dirs.runtime_config(),
+    ])?;
+    let result = async {
+        let id = base36(now_millis());
+        let state = app.state::<AppState>();
+        transaction.write(&state.dirs.profile_file(&id), content.as_bytes())?;
+        let builtin_prune = builtin_prune_enhancer();
+        transaction.write(
+            &enhancer_file(&state, &id, &builtin_prune),
+            BUILTIN_PRUNE_SCRIPT.as_bytes(),
+        )?;
 
-    let mut index = load_index(app);
-    let first = index.is_empty();
-    let meta = ProfileMeta {
-        id,
-        name: profile_name,
-        kind: "local".into(),
-        url: Some(name),
-        updated_at: now_millis(),
-        auto_update_min: None,
-        size_bytes: Some(content.len() as u64),
-        quota: None,
-        current: first,
-        builtin_enhancers_seeded: true,
-        enhancers: vec![builtin_prune],
-    };
-    index.push(meta.clone());
-    save_index(app, &index)?;
-    if first {
-        regenerate_runtime(app)?;
-        if crate::core::is_running(app).await {
-            crate::core::reload_runtime(app).await?;
-        } else {
-            crate::core::start(app)?;
+        let mut index = load_index(app)?;
+        let first = index.is_empty();
+        let meta = ProfileMeta {
+            id,
+            name: profile_name,
+            kind: "local".into(),
+            url: Some(name),
+            updated_at: now_millis(),
+            auto_update_min: None,
+            size_bytes: Some(content.len() as u64),
+            quota: None,
+            current: first,
+            builtin_enhancers_seeded: true,
+            enhancers: vec![builtin_prune],
+        };
+        index.push(meta.clone());
+        save_index(app, &index)?;
+        if first {
+            regenerate_runtime_async(app).await?;
+            if crate::core::is_running(app).await {
+                crate::core::reload_runtime(app).await?;
+            } else {
+                crate::core::start(app)?;
+            }
         }
+        Ok(meta)
     }
-    Ok(meta)
+    .await;
+    finish_transaction(app, &mut transaction, result).await
 }
 
 /// 重新下载已有订阅并刷新元信息。
 pub async fn update(app: &AppHandle, id: String) -> Result<ProfileMeta, String> {
-    let index = load_index(app);
+    let index = load_index(app)?;
     let meta = index
         .iter()
         .find(|p| p.id == id)
         .ok_or_else(|| format!("订阅不存在: {id}"))?;
+    if meta.kind != "remote" {
+        return Err("本地配置不支持远程更新".into());
+    }
     let url = meta
         .url
         .clone()
@@ -477,118 +539,172 @@ pub async fn update(app: &AppHandle, id: String) -> Result<ProfileMeta, String> 
         .map_err(|e| format!("读取订阅失败: {e}"))?;
     let content = normalize_content(&raw)?;
 
-    let state = app.state::<AppState>();
-    atomic_write(&state.dirs.profile_file(&id), content.as_bytes())?;
+    let transaction_state = app.state::<AppState>();
+    let _configuration = transaction_state.config_lock.lock().await;
+    let mut transaction = FileTransaction::capture(&[
+        transaction_state.dirs.profiles_index(),
+        transaction_state.dirs.runtime_config(),
+    ])?;
+    let result = async {
+        let state = app.state::<AppState>();
+        transaction.write(&state.dirs.profile_file(&id), content.as_bytes())?;
 
-    let mut index = load_index(app);
-    let slot = index
-        .iter_mut()
-        .find(|p| p.id == id)
-        .ok_or_else(|| format!("订阅不存在: {id}"))?;
-    slot.updated_at = now_millis();
-    slot.size_bytes = Some(content.len() as u64);
-    if quota.is_some() {
-        slot.quota = quota;
-    }
-    let updated = slot.clone();
-    let is_current = slot.current;
-    save_index(app, &index)?;
+        let mut index = load_index(app)?;
+        let slot = index
+            .iter_mut()
+            .find(|p| p.id == id)
+            .ok_or_else(|| format!("订阅不存在: {id}"))?;
+        if slot.url.as_deref() != Some(url.as_str()) {
+            return Err("下载期间订阅地址已改变，请重新更新".into());
+        }
+        slot.updated_at = now_millis();
+        slot.size_bytes = Some(content.len() as u64);
+        if quota.is_some() {
+            slot.quota = quota;
+        }
+        let updated = slot.clone();
+        let is_current = slot.current;
+        save_index(app, &index)?;
 
-    if is_current {
-        regenerate_runtime(app)?;
-        crate::core::reload_runtime(app).await?;
+        if is_current {
+            regenerate_runtime_async(app).await?;
+            crate::core::reload_runtime(app).await?;
+        }
+        Ok(updated)
     }
-    Ok(updated)
+    .await;
+    finish_transaction(app, &mut transaction, result).await
 }
 
 /// 更新订阅元信息(名称、订阅地址、自动更新间隔)。
-pub fn update_meta(
+pub async fn update_meta(
     app: &AppHandle,
     id: String,
     name: String,
     url: Option<String>,
     auto_update_min: Option<u32>,
 ) -> Result<ProfileMeta, String> {
-    let name = name.trim().to_string();
-    if name.is_empty() {
-        return Err("订阅名称不能为空".into());
-    }
-
-    let mut index = load_index(app);
-    let slot = index
-        .iter_mut()
-        .find(|p| p.id == id)
-        .ok_or_else(|| format!("订阅不存在: {id}"))?;
-
-    let next_url = url
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty());
-    if slot.kind == "remote" {
-        let Some(remote_url) = next_url.as_deref() else {
-            return Err("远程订阅 URL 不能为空".into());
-        };
-        if remote_url.chars().any(char::is_whitespace) {
-            return Err("订阅 URL 不能包含空白字符".into());
+    let transaction_state = app.state::<AppState>();
+    let _configuration = transaction_state.config_lock.lock().await;
+    let mut transaction = FileTransaction::capture(&[
+        transaction_state.dirs.profiles_index(),
+        transaction_state.dirs.runtime_config(),
+    ])?;
+    let result = async {
+        let name = name.trim().to_string();
+        if name.is_empty() {
+            return Err("订阅名称不能为空".into());
         }
-    }
 
-    slot.name = name;
-    slot.url = next_url;
-    slot.auto_update_min = auto_update_min.filter(|value| *value > 0);
-    let updated = slot.clone();
-    save_index(app, &index)?;
-    Ok(updated)
+        let mut index = load_index(app)?;
+        let slot = index
+            .iter_mut()
+            .find(|p| p.id == id)
+            .ok_or_else(|| format!("订阅不存在: {id}"))?;
+
+        let next_url = url
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        if slot.kind == "remote" {
+            let Some(remote_url) = next_url.as_deref() else {
+                return Err("远程订阅 URL 不能为空".into());
+            };
+            if remote_url.chars().any(char::is_whitespace) {
+                return Err("订阅 URL 不能包含空白字符".into());
+            }
+        }
+
+        slot.name = name;
+        slot.url = next_url;
+        slot.auto_update_min = auto_update_min.filter(|value| *value > 0);
+        let updated = slot.clone();
+        save_index(app, &index)?;
+        Ok(updated)
+    }
+    .await;
+    finish_transaction(app, &mut transaction, result).await
 }
 
 /// 切换当前订阅并热加载。
 pub async fn select(app: &AppHandle, id: String) -> Result<(), String> {
-    let mut index = load_index(app);
-    if !index.iter().any(|p| p.id == id) {
-        return Err(format!("订阅不存在: {id}"));
+    let transaction_state = app.state::<AppState>();
+    let _configuration = transaction_state.config_lock.lock().await;
+    let mut transaction = FileTransaction::capture(&[
+        transaction_state.dirs.profiles_index(),
+        transaction_state.dirs.runtime_config(),
+    ])?;
+    let result = async {
+        let mut index = load_index(app)?;
+        if !index.iter().any(|p| p.id == id) {
+            return Err(format!("订阅不存在: {id}"));
+        }
+        for p in index.iter_mut() {
+            p.current = p.id == id;
+        }
+        save_index(app, &index)?;
+        regenerate_runtime_async(app).await?;
+        crate::core::reload_runtime(app).await
     }
-    for p in index.iter_mut() {
-        p.current = p.id == id;
-    }
-    save_index(app, &index)?;
-    regenerate_runtime(app)?;
-    crate::core::reload_runtime(app).await
+    .await;
+    finish_transaction(app, &mut transaction, result).await
 }
 
 /// 删除订阅;若删的是当前项, 自动切到剩余第一项。
 pub async fn delete(app: &AppHandle, id: String) -> Result<(), String> {
-    let mut index = load_index(app);
-    let was_current = index.iter().any(|p| p.id == id && p.current);
-    index.retain(|p| p.id != id);
-    if was_current {
-        if let Some(first) = index.first_mut() {
-            first.current = true;
+    let transaction_state = app.state::<AppState>();
+    let _configuration = transaction_state.config_lock.lock().await;
+    let mut transaction = FileTransaction::capture(&[
+        transaction_state.dirs.profiles_index(),
+        transaction_state.dirs.runtime_config(),
+    ])?;
+    let result = async {
+        let mut index = load_index(app)?;
+        let removed = index
+            .iter()
+            .find(|p| p.id == id)
+            .cloned()
+            .ok_or_else(|| format!("订阅不存在: {id}"))?;
+        let was_current = removed.current;
+        index.retain(|p| p.id != id);
+        if was_current {
+            if let Some(first) = index.first_mut() {
+                first.current = true;
+            }
         }
+        save_index(app, &index)?;
+        let state = app.state::<AppState>();
+        transaction.remove(state.dirs.profile_file(&id))?;
+        for enhancer in &removed.enhancers {
+            transaction.remove(enhancer_file(&state, &id, enhancer))?;
+        }
+        if was_current {
+            regenerate_runtime_async(app).await?;
+            crate::core::reload_runtime(app).await?;
+        }
+        Ok(())
     }
-    save_index(app, &index)?;
-    let state = app.state::<AppState>();
-    let _ = fs::remove_file(state.dirs.profile_file(&id));
-    if was_current {
-        regenerate_runtime(app)?;
-        crate::core::reload_runtime(app).await?;
-    }
-    Ok(())
+    .await;
+    finish_transaction(app, &mut transaction, result).await
 }
 
 /// 读取订阅 YAML 原文。
 pub fn read_content(app: &AppHandle, id: &str) -> Result<String, String> {
+    if !load_index(app)?.iter().any(|profile| profile.id == id) {
+        return Err(format!("订阅不存在: {id}"));
+    }
     let state = app.state::<AppState>();
     fs::read_to_string(state.dirs.profile_file(id)).map_err(|e| format!("读取订阅失败: {e}"))
 }
 
 pub fn list_rule_targets(app: &AppHandle, id: &str) -> Result<Vec<String>, String> {
-    let index = load_index(app);
+    let index = load_index(app)?;
     let meta = index
         .iter()
         .find(|p| p.id == id)
         .ok_or_else(|| format!("订阅不存在: {id}"))?;
     let profile_yaml = read_content(app, &meta.id)?;
     let enhanced = if meta.enhancers.iter().any(|e| e.enabled) {
-        apply_enhancers(app, meta, &profile_yaml)
+        apply_enhancers(app, meta, &profile_yaml)?
     } else {
         profile_yaml
     };
@@ -644,33 +760,46 @@ fn push_rule_target(targets: &mut Vec<String>, value: &str) {
 
 /// 校验 YAML 后写回订阅内容;当前项则重生成并热加载。
 pub async fn save_content(app: &AppHandle, id: String, content: String) -> Result<(), String> {
-    serde_yaml::from_str::<serde_yaml::Value>(&content)
-        .map_err(|e| format!("YAML 语法错误: {e}"))?;
-    let state = app.state::<AppState>();
-    atomic_write(&state.dirs.profile_file(&id), content.as_bytes())?;
+    let transaction_state = app.state::<AppState>();
+    let _configuration = transaction_state.config_lock.lock().await;
+    let mut transaction = FileTransaction::capture(&[
+        transaction_state.dirs.profiles_index(),
+        transaction_state.dirs.runtime_config(),
+    ])?;
+    let result = async {
+        serde_yaml::from_str::<serde_yaml::Value>(&content)
+            .map_err(|e| format!("YAML 语法错误: {e}"))?;
+        if !load_index(app)?.iter().any(|profile| profile.id == id) {
+            return Err(format!("订阅不存在: {id}"));
+        }
+        let state = app.state::<AppState>();
+        transaction.write(&state.dirs.profile_file(&id), content.as_bytes())?;
 
-    let mut index = load_index(app);
-    let mut is_current = false;
-    if let Some(slot) = index.iter_mut().find(|p| p.id == id) {
-        slot.updated_at = now_millis();
-        slot.size_bytes = Some(content.len() as u64);
-        is_current = slot.current;
-        save_index(app, &index)?;
+        let mut index = load_index(app)?;
+        let mut is_current = false;
+        if let Some(slot) = index.iter_mut().find(|p| p.id == id) {
+            slot.updated_at = now_millis();
+            slot.size_bytes = Some(content.len() as u64);
+            is_current = slot.current;
+            save_index(app, &index)?;
+        }
+        if is_current {
+            regenerate_runtime_async(app).await?;
+            crate::core::reload_runtime(app).await?;
+        }
+        Ok(())
     }
-    if is_current {
-        regenerate_runtime(app)?;
-        crate::core::reload_runtime(app).await?;
-    }
-    Ok(())
+    .await;
+    finish_transaction(app, &mut transaction, result).await
 }
 
 /// 用当前订阅 + 增强链 + 设置覆写生成 runtime.yaml(无订阅时生成最小可启动配置)。
 ///
-/// 增强链单项失败仅记日志并跳过,不阻断内核配置生成。
+/// 增强链、语义预检均成功后才替换运行时文件。
 pub fn regenerate_runtime(app: &AppHandle) -> Result<(), String> {
     let state = app.state::<AppState>();
     let settings = state.settings_snapshot();
-    let index = load_index(app);
+    let index = load_index(app)?;
     let current = index.iter().find(|p| p.current);
     let profile_yaml = current
         .map(|p| read_content(app, &p.id))
@@ -679,14 +808,67 @@ pub fn regenerate_runtime(app: &AppHandle) -> Result<(), String> {
 
     let enhanced = match current {
         Some(meta) if meta.enhancers.iter().any(|e| e.enabled) => {
-            apply_enhancers(app, meta, &profile_yaml)
+            apply_enhancers(app, meta, &profile_yaml)?
         }
         _ => profile_yaml,
     };
 
     let runtime = nova_core::build_runtime_config(&enhanced, &settings.to_overrides())
         .map_err(|e| format!("生成运行时配置失败: {e}"))?;
+    crate::core::validate_runtime(app, &runtime)?;
     atomic_write(&state.dirs.runtime_config(), runtime.as_bytes())
+}
+
+pub async fn regenerate_runtime_async(app: &AppHandle) -> Result<(), String> {
+    let app = app.clone();
+    tauri::async_runtime::spawn_blocking(move || regenerate_runtime(&app))
+        .await
+        .map_err(|e| format!("生成配置任务失败: {e}"))?
+}
+
+/// 按订阅间隔更新; 顺序执行, 失败至少间隔一分钟再试。
+pub fn spawn_updater(app: AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        let mut attempted = std::collections::HashMap::<String, u64>::new();
+        loop {
+            tokio::time::sleep(Duration::from_secs(60)).await;
+            let index = match load_index(&app) {
+                Ok(index) => index,
+                Err(err) => {
+                    log::warn!("自动更新读取订阅失败: {err}");
+                    continue;
+                }
+            };
+            attempted.retain(|id, _| index.iter().any(|profile| &profile.id == id));
+            for profile in index {
+                let Some(minutes) = profile.auto_update_min.filter(|minutes| *minutes > 0) else {
+                    continue;
+                };
+                if profile.kind != "remote" {
+                    continue;
+                }
+                let now = now_millis();
+                let interval = u64::from(minutes) * 60_000;
+                if now.saturating_sub(profile.updated_at) < interval
+                    || attempted
+                        .get(&profile.id)
+                        .is_some_and(|last| now.saturating_sub(*last) < interval.min(300_000))
+                {
+                    continue;
+                }
+                attempted.insert(profile.id.clone(), now);
+                if let Err(err) = update(&app, profile.id).await {
+                    log::warn!("订阅自动更新失败: {err}");
+                    let _ = app.emit(
+                        "operation-error",
+                        serde_json::json!({
+                            "title": "订阅自动更新失败", "message": err,
+                        }),
+                    );
+                }
+            }
+        }
+    });
 }
 
 /* ---------------- 配置增强链(M2) ---------------- */
@@ -696,12 +878,15 @@ fn enhancer_file(state: &AppState, pid: &str, e: &EnhancerMeta) -> std::path::Pa
     state.dirs.profiles.join(format!("{pid}.{}.{ext}", e.id))
 }
 
-/// 依序应用启用的增强项;任一项读取/解析/执行失败 → 记日志跳过该项。
-fn apply_enhancers(app: &AppHandle, meta: &ProfileMeta, profile_yaml: &str) -> String {
+/// 依序应用启用的增强项, 读取/解析/执行失败必须反馈给调用者。
+fn apply_enhancers(
+    app: &AppHandle,
+    meta: &ProfileMeta,
+    profile_yaml: &str,
+) -> Result<String, String> {
     let state = app.state::<AppState>();
-    let Ok(mut base) = serde_yaml::from_str::<serde_yaml::Value>(profile_yaml) else {
-        return profile_yaml.to_string();
-    };
+    let mut base = serde_yaml::from_str::<serde_yaml::Value>(profile_yaml)
+        .map_err(|err| format!("订阅 YAML 无效: {err}"))?;
     let mut enabled_enhancers: Vec<&EnhancerMeta> =
         meta.enhancers.iter().filter(|e| e.enabled).collect();
     // Cleanup enhancers should see the final config produced by user scripts.
@@ -715,34 +900,25 @@ fn apply_enhancers(app: &AppHandle, meta: &ProfileMeta, profile_yaml: &str) -> S
 
     for e in enabled_enhancers {
         let path = enhancer_file(&state, &meta.id, e);
-        let content = match fs::read_to_string(&path) {
-            Ok(c) => c,
-            Err(err) => {
-                log::warn!("增强项 {}({}) 读取失败, 已跳过: {err}", e.name, e.id);
-                continue;
-            }
-        };
+        let content = fs::read_to_string(&path)
+            .map_err(|err| format!("增强项 {} 读取失败: {err}", e.name))?;
         let item = if e.kind == "merge" {
-            match serde_yaml::from_str::<serde_yaml::Value>(&content) {
-                Ok(v) => nova_core::EnhancerItem::Merge(v),
-                Err(err) => {
-                    log::warn!("增强项 {}({}) YAML 非法, 已跳过: {err}", e.name, e.id);
-                    continue;
-                }
-            }
+            nova_core::EnhancerItem::Merge(
+                serde_yaml::from_str::<serde_yaml::Value>(&content)
+                    .map_err(|err| format!("增强项 {} YAML 无效: {err}", e.name))?,
+            )
         } else {
             nova_core::EnhancerItem::Script(content)
         };
-        if let Err(err) = nova_core::apply_chain(&mut base, std::slice::from_ref(&item)) {
-            log::warn!("增强项 {}({}) 应用失败, 已跳过: {err}", e.name, e.id);
-        }
+        nova_core::apply_chain(&mut base, std::slice::from_ref(&item))
+            .map_err(|err| format!("增强项 {} 执行失败: {err}", e.name))?;
     }
-    serde_yaml::to_string(&base).unwrap_or_else(|_| profile_yaml.to_string())
+    serde_yaml::to_string(&base).map_err(|err| format!("序列化增强结果失败: {err}"))
 }
 
-/// 读取增强项内容(不存在时返回空串, 便于新建后首次编辑)。
+/// 读取增强项内容; 缺失/不可读时明确报错, 不用空字符串覆盖原配置。
 pub fn read_enhancer(app: &AppHandle, pid: &str, eid: &str) -> Result<String, String> {
-    let index = load_index(app);
+    let index = load_index(app)?;
     let meta = index
         .iter()
         .find(|p| p.id == pid)
@@ -753,7 +929,8 @@ pub fn read_enhancer(app: &AppHandle, pid: &str, eid: &str) -> Result<String, St
         .find(|e| e.id == eid)
         .ok_or_else(|| format!("增强项不存在: {eid}"))?;
     let state = app.state::<AppState>();
-    Ok(fs::read_to_string(enhancer_file(&state, pid, e)).unwrap_or_default())
+    fs::read_to_string(enhancer_file(&state, pid, e))
+        .map_err(|err| format!("读取增强项失败: {err}"))
 }
 
 /// 新建或更新增强项(eid 缺省则新建);merge 内容先做 YAML 校验。
@@ -766,74 +943,94 @@ pub async fn save_enhancer(
     name: String,
     content: String,
 ) -> Result<EnhancerMeta, String> {
-    if !matches!(kind.as_str(), "merge" | "script") {
-        return Err(format!("非法增强类型: {kind}"));
-    }
-    if kind == "merge" {
-        serde_yaml::from_str::<serde_yaml::Value>(&content)
-            .map_err(|e| format!("Merge YAML 语法错误: {e}"))?;
-    }
-
-    let mut index = load_index(app);
-    let slot = index
-        .iter_mut()
-        .find(|p| p.id == pid)
-        .ok_or_else(|| format!("订阅不存在: {pid}"))?;
-
-    let meta = match eid {
-        Some(eid) => {
-            let e = slot
-                .enhancers
-                .iter_mut()
-                .find(|e| e.id == eid)
-                .ok_or_else(|| format!("增强项不存在: {eid}"))?;
-            e.name = name;
-            e.clone()
+    let transaction_state = app.state::<AppState>();
+    let _configuration = transaction_state.config_lock.lock().await;
+    let mut transaction = FileTransaction::capture(&[
+        transaction_state.dirs.profiles_index(),
+        transaction_state.dirs.runtime_config(),
+    ])?;
+    let result = async {
+        if !matches!(kind.as_str(), "merge" | "script") {
+            return Err(format!("非法增强类型: {kind}"));
         }
-        None => {
-            let e = EnhancerMeta {
-                id: base36(now_millis()),
-                kind,
-                name,
-                enabled: true,
-            };
-            slot.enhancers.push(e.clone());
-            e
+        if kind == "merge" {
+            serde_yaml::from_str::<serde_yaml::Value>(&content)
+                .map_err(|e| format!("Merge YAML 语法错误: {e}"))?;
         }
-    };
-    let is_current = slot.current;
-    let state = app.state::<AppState>();
-    atomic_write(&enhancer_file(&state, &pid, &meta), content.as_bytes())?;
-    save_index(app, &index)?;
 
-    if is_current {
-        regenerate_runtime(app)?;
-        crate::core::reload_runtime(app).await?;
+        let mut index = load_index(app)?;
+        let slot = index
+            .iter_mut()
+            .find(|p| p.id == pid)
+            .ok_or_else(|| format!("订阅不存在: {pid}"))?;
+
+        let meta = match eid {
+            Some(eid) => {
+                let e = slot
+                    .enhancers
+                    .iter_mut()
+                    .find(|e| e.id == eid)
+                    .ok_or_else(|| format!("增强项不存在: {eid}"))?;
+                e.name = name;
+                e.clone()
+            }
+            None => {
+                let e = EnhancerMeta {
+                    id: base36(now_millis()),
+                    kind,
+                    name,
+                    enabled: true,
+                };
+                slot.enhancers.push(e.clone());
+                e
+            }
+        };
+        let is_current = slot.current;
+        let state = app.state::<AppState>();
+        transaction.write(&enhancer_file(&state, &pid, &meta), content.as_bytes())?;
+        save_index(app, &index)?;
+
+        if is_current {
+            regenerate_runtime_async(app).await?;
+            crate::core::reload_runtime(app).await?;
+        }
+        Ok(meta)
     }
-    Ok(meta)
+    .await;
+    finish_transaction(app, &mut transaction, result).await
 }
 
 /// 删除增强项(连同内容文件)。
 pub async fn delete_enhancer(app: &AppHandle, pid: String, eid: String) -> Result<(), String> {
-    let mut index = load_index(app);
-    let slot = index
-        .iter_mut()
-        .find(|p| p.id == pid)
-        .ok_or_else(|| format!("订阅不存在: {pid}"))?;
-    let Some(pos) = slot.enhancers.iter().position(|e| e.id == eid) else {
-        return Err(format!("增强项不存在: {eid}"));
-    };
-    let removed = slot.enhancers.remove(pos);
-    let is_current = slot.current;
-    let state = app.state::<AppState>();
-    let _ = fs::remove_file(enhancer_file(&state, &pid, &removed));
-    save_index(app, &index)?;
+    let transaction_state = app.state::<AppState>();
+    let _configuration = transaction_state.config_lock.lock().await;
+    let mut transaction = FileTransaction::capture(&[
+        transaction_state.dirs.profiles_index(),
+        transaction_state.dirs.runtime_config(),
+    ])?;
+    let result = async {
+        let mut index = load_index(app)?;
+        let slot = index
+            .iter_mut()
+            .find(|p| p.id == pid)
+            .ok_or_else(|| format!("订阅不存在: {pid}"))?;
+        let Some(pos) = slot.enhancers.iter().position(|e| e.id == eid) else {
+            return Err(format!("增强项不存在: {eid}"));
+        };
+        let removed = slot.enhancers.remove(pos);
+        let is_current = slot.current;
+        let state = app.state::<AppState>();
+        transaction.remove(enhancer_file(&state, &pid, &removed))?;
+        save_index(app, &index)?;
 
-    if is_current {
-        regenerate_runtime(app)?;
-        crate::core::reload_runtime(app).await?;
+        if is_current {
+            regenerate_runtime_async(app).await?;
+            crate::core::reload_runtime(app).await?;
+        }
+        Ok(())
     }
-    Ok(())
+    .await;
+    finish_transaction(app, &mut transaction, result).await
 }
 
 /// 启用/停用增强项。
@@ -843,25 +1040,35 @@ pub async fn toggle_enhancer(
     eid: String,
     enabled: bool,
 ) -> Result<(), String> {
-    let mut index = load_index(app);
-    let slot = index
-        .iter_mut()
-        .find(|p| p.id == pid)
-        .ok_or_else(|| format!("订阅不存在: {pid}"))?;
-    let e = slot
-        .enhancers
-        .iter_mut()
-        .find(|e| e.id == eid)
-        .ok_or_else(|| format!("增强项不存在: {eid}"))?;
-    e.enabled = enabled;
-    let is_current = slot.current;
-    save_index(app, &index)?;
+    let transaction_state = app.state::<AppState>();
+    let _configuration = transaction_state.config_lock.lock().await;
+    let mut transaction = FileTransaction::capture(&[
+        transaction_state.dirs.profiles_index(),
+        transaction_state.dirs.runtime_config(),
+    ])?;
+    let result = async {
+        let mut index = load_index(app)?;
+        let slot = index
+            .iter_mut()
+            .find(|p| p.id == pid)
+            .ok_or_else(|| format!("订阅不存在: {pid}"))?;
+        let e = slot
+            .enhancers
+            .iter_mut()
+            .find(|e| e.id == eid)
+            .ok_or_else(|| format!("增强项不存在: {eid}"))?;
+        e.enabled = enabled;
+        let is_current = slot.current;
+        save_index(app, &index)?;
 
-    if is_current {
-        regenerate_runtime(app)?;
-        crate::core::reload_runtime(app).await?;
+        if is_current {
+            regenerate_runtime_async(app).await?;
+            crate::core::reload_runtime(app).await?;
+        }
+        Ok(())
     }
-    Ok(())
+    .await;
+    finish_transaction(app, &mut transaction, result).await
 }
 
 /// 重排序增强项。
@@ -870,44 +1077,54 @@ pub async fn reorder_enhancers(
     pid: String,
     eids: Vec<String>,
 ) -> Result<(), String> {
-    let mut index = load_index(app);
-    let slot = index
-        .iter_mut()
-        .find(|p| p.id == pid)
-        .ok_or_else(|| format!("订阅不存在: {pid}"))?;
+    let transaction_state = app.state::<AppState>();
+    let _configuration = transaction_state.config_lock.lock().await;
+    let mut transaction = FileTransaction::capture(&[
+        transaction_state.dirs.profiles_index(),
+        transaction_state.dirs.runtime_config(),
+    ])?;
+    let result = async {
+        let mut index = load_index(app)?;
+        let slot = index
+            .iter_mut()
+            .find(|p| p.id == pid)
+            .ok_or_else(|| format!("订阅不存在: {pid}"))?;
 
-    // 验证所有 ID 都存在
-    if eids.len() != slot.enhancers.len() {
-        return Err("增强项数量不匹配".into());
-    }
-
-    // 验证 ID 唯一性
-    let mut unique_ids = std::collections::HashSet::new();
-    for eid in &eids {
-        if !unique_ids.insert(eid) {
-            return Err(format!("增强项 ID 重复: {eid}"));
+        // 验证所有 ID 都存在
+        if eids.len() != slot.enhancers.len() {
+            return Err("增强项数量不匹配".into());
         }
-        if !slot.enhancers.iter().any(|e| &e.id == eid) {
-            return Err(format!("增强项不存在: {eid}"));
-        }
-    }
 
-    // 按新顺序重排
-    let mut reordered = Vec::with_capacity(eids.len());
-    for eid in &eids {
-        if let Some(enh) = slot.enhancers.iter().find(|e| &e.id == eid).cloned() {
-            reordered.push(enh);
+        // 验证 ID 唯一性
+        let mut unique_ids = std::collections::HashSet::new();
+        for eid in &eids {
+            if !unique_ids.insert(eid) {
+                return Err(format!("增强项 ID 重复: {eid}"));
+            }
+            if !slot.enhancers.iter().any(|e| &e.id == eid) {
+                return Err(format!("增强项不存在: {eid}"));
+            }
         }
-    }
-    slot.enhancers = reordered;
-    let is_current = slot.current;
-    save_index(app, &index)?;
 
-    if is_current {
-        regenerate_runtime(app)?;
-        crate::core::reload_runtime(app).await?;
+        // 按新顺序重排
+        let mut reordered = Vec::with_capacity(eids.len());
+        for eid in &eids {
+            if let Some(enh) = slot.enhancers.iter().find(|e| &e.id == eid).cloned() {
+                reordered.push(enh);
+            }
+        }
+        slot.enhancers = reordered;
+        let is_current = slot.current;
+        save_index(app, &index)?;
+
+        if is_current {
+            regenerate_runtime_async(app).await?;
+            crate::core::reload_runtime(app).await?;
+        }
+        Ok(())
     }
-    Ok(())
+    .await;
+    finish_transaction(app, &mut transaction, result).await
 }
 
 /// 极小 URL host 提取(避免为取名引入 url crate)。

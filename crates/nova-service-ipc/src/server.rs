@@ -1,3 +1,4 @@
+use crate::policy::ServicePolicy;
 use crate::types::*;
 use anyhow::{Context, Result};
 use std::collections::VecDeque;
@@ -7,22 +8,6 @@ use std::process::{Child, ChildStderr, ChildStdout, Command, Stdio};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
-
-#[cfg(windows)]
-use std::io::{BufWriter, Write};
-
-#[cfg(windows)]
-use windows::Win32::Security::{
-    InitializeSecurityDescriptor, SetSecurityDescriptorDacl, PSECURITY_DESCRIPTOR,
-    SECURITY_ATTRIBUTES,
-};
-#[cfg(windows)]
-use windows::Win32::Storage::FileSystem::{FlushFileBuffers, PIPE_ACCESS_DUPLEX};
-#[cfg(windows)]
-use windows::Win32::System::Pipes::{
-    ConnectNamedPipe, CreateNamedPipeW, DisconnectNamedPipe, PIPE_READMODE_BYTE, PIPE_TYPE_BYTE,
-    PIPE_UNLIMITED_INSTANCES, PIPE_WAIT,
-};
 
 /// 内核管理器
 struct CoreManager {
@@ -42,6 +27,15 @@ struct CoreManager {
     crash_count: u32,
     /// 最后一次崩溃时间
     last_crash_time: Option<i64>,
+    restart_at: Option<i64>,
+}
+
+impl Drop for CoreManager {
+    fn drop(&mut self) {
+        if let Err(err) = self.stop() {
+            log::error!("关闭服务内核管理器失败: {err}");
+        }
+    }
 }
 
 impl CoreManager {
@@ -55,6 +49,7 @@ impl CoreManager {
             auto_restart: true,
             crash_count: 0,
             last_crash_time: None,
+            restart_at: None,
         }
     }
 
@@ -114,12 +109,48 @@ impl CoreManager {
     }
 
     fn read_core_version(core_path: &str) -> Option<String> {
-        let output = Command::new(core_path).arg("-v").output().ok()?;
-        if !output.status.success() {
+        use std::time::{Duration, Instant};
+        let mut child = Command::new(core_path)
+            .arg("-v")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .ok()?;
+        let Some(mut stdout) = child.stdout.take() else {
+            let _ = child.kill();
+            let _ = child.wait();
             return None;
+        };
+        let (tx, rx) = std::sync::mpsc::sync_channel(1);
+        std::thread::spawn(move || {
+            let mut bytes = Vec::new();
+            let mut buffer = [0u8; 1024];
+            while let Ok(count) = stdout.read(&mut buffer) {
+                if count == 0 {
+                    break;
+                }
+                bytes
+                    .extend_from_slice(&buffer[..count.min(4096usize.saturating_sub(bytes.len()))]);
+            }
+            let _ = tx.send(bytes);
+        });
+        let deadline = Instant::now() + Duration::from_secs(3);
+        loop {
+            match child.try_wait() {
+                Ok(Some(status)) if status.success() => break,
+                Ok(Some(_)) => return None,
+                Ok(None) if Instant::now() < deadline => {
+                    std::thread::sleep(Duration::from_millis(25))
+                }
+                _ => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return None;
+                }
+            }
         }
-
-        let text = String::from_utf8_lossy(&output.stdout);
+        let bytes = rx.recv_timeout(Duration::from_millis(250)).ok()?;
+        let text = String::from_utf8_lossy(&bytes);
         let first_line = text.lines().next()?.trim();
         if first_line.is_empty() {
             return None;
@@ -140,10 +171,13 @@ impl CoreManager {
 
     /// 启动内核
     fn start(&mut self, config: CoreConfig) -> Result<()> {
-        // 如果已经在运行，先停止
-        if self.is_running() {
-            self.stop()?;
-        }
+        self.reset_crash_count();
+        self.start_process(config)
+    }
+
+    fn start_process(&mut self, config: CoreConfig) -> Result<()> {
+        self.stop()?;
+        self.config = Some(config.clone());
 
         log::info!("启动内核: {}", config.core_path);
         log::info!("配置文件: {}", config.config_path);
@@ -174,8 +208,7 @@ impl CoreManager {
         self.start_time = Some(start_time);
         self.config = Some(config);
         self.core_version = core_version;
-        self.crash_count = 0;
-        self.last_crash_time = None;
+        self.restart_at = None;
         self.push_log("内核进程已启动".into());
         Self::attach_output_logs(stdout, stderr, self.logs.clone());
 
@@ -185,22 +218,23 @@ impl CoreManager {
 
     /// 停止内核
     fn stop(&mut self) -> Result<()> {
-        if let Some(mut process) = self.process.take() {
+        self.restart_at = None;
+        if let Some(process) = self.process.as_mut() {
             log::info!("停止内核进程 PID: {:?}", process.id());
 
             // 尝试优雅停止
-            if let Err(e) = process.kill() {
-                log::warn!("终止进程失败: {}", e);
+            if process
+                .try_wait()
+                .context("检查内核退出状态失败")?
+                .is_none()
+            {
+                process.kill().context("终止内核进程失败")?;
             }
-
-            // 等待进程退出
-            if let Err(e) = process.wait() {
-                log::warn!("等待进程退出失败: {}", e);
-            }
+            process.wait().context("等待内核退出失败")?;
 
             log::info!("内核进程已停止");
         }
-
+        self.process = None;
         self.start_time = None;
         self.core_version = None;
         Ok(())
@@ -218,6 +252,7 @@ impl CoreManager {
                     self.process = None;
                     self.start_time = None;
                     self.core_version = None;
+                    self.record_crash(Self::now());
                     false
                 }
                 Ok(None) => true,
@@ -269,54 +304,30 @@ impl CoreManager {
 
     /// 检查进程是否崩溃并决定是否重启
     fn check_and_restart(&mut self) -> bool {
-        // 检查进程是否退出
-        if let Some(process) = &mut self.process {
-            match process.try_wait() {
-                Ok(Some(status)) => {
-                    let now = SystemTime::now()
-                        .duration_since(UNIX_EPOCH)
-                        .unwrap()
-                        .as_secs() as i64;
-
-                    let message = format!("内核进程已退出: {:?}", status);
-                    log::warn!("{message}");
-                    self.push_log(message);
-                    self.process = None;
-                    self.start_time = None;
-                    self.core_version = None;
-
-                    // 记录崩溃
-                    self.record_crash(now);
-
-                    // 判断是否应该重启
-                    if self.should_auto_restart(now) {
-                        log::info!("尝试自动重启内核（崩溃次数: {}）", self.crash_count);
-                        if let Some(config) = self.config.clone() {
-                            if let Err(e) = self.start(config) {
-                                log::error!("自动重启失败: {}", e);
-                                return false;
-                            }
-                            log::info!("自动重启成功");
-                            return true;
-                        }
-                    } else {
-                        log::error!("崩溃次数过多，停止自动重启");
-                    }
-
-                    return false;
-                }
-                Ok(None) => {
-                    // 进程仍在运行
-                    return true;
-                }
-                Err(e) => {
-                    log::error!("检查进程状态失败: {}", e);
-                    return false;
-                }
-            }
+        if self.is_running() {
+            return true;
         }
-
+        let now = Self::now();
+        if !self.should_auto_restart(now) {
+            return false;
+        }
+        if let Some(config) = self.config.clone() {
+            if let Err(err) = self.start_process(config) {
+                log::error!("自动重启失败: {err}");
+                self.record_crash(now);
+                return false;
+            }
+            log::info!("内核已自动重启");
+            return true;
+        }
         false
+    }
+
+    fn now() -> i64 {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64
     }
 
     /// 记录崩溃
@@ -330,32 +341,15 @@ impl CoreManager {
 
         self.crash_count += 1;
         self.last_crash_time = Some(now);
+        self.restart_at = (self.auto_restart && self.crash_count <= 5).then_some(now + 10);
     }
 
     /// 判断是否应该自动重启
     fn should_auto_restart(&self, now: i64) -> bool {
-        if !self.auto_restart {
-            return false;
-        }
-
-        // 如果没有配置，不重启
-        if self.config.is_none() {
-            return false;
-        }
-
-        // 如果崩溃次数超过 5 次，不重启
-        if self.crash_count > 5 {
-            return false;
-        }
-
-        // 如果上次崩溃距离现在少于 10 秒，不重启（防止快速崩溃循环）
-        if let Some(last_crash) = self.last_crash_time {
-            if now - last_crash < 10 {
-                return false;
-            }
-        }
-
-        true
+        self.auto_restart
+            && self.config.is_some()
+            && self.crash_count <= 5
+            && self.restart_at.is_some_and(|deadline| now >= deadline)
     }
 
     /// 启用/禁用自动重启
@@ -370,6 +364,7 @@ impl CoreManager {
     fn reset_crash_count(&mut self) {
         self.crash_count = 0;
         self.last_crash_time = None;
+        self.restart_at = None;
         log::info!("崩溃计数已重置");
     }
 }
@@ -377,290 +372,210 @@ impl CoreManager {
 /// IPC 服务端
 pub struct IpcServer {
     core_manager: Arc<Mutex<CoreManager>>,
+    policy: Arc<ServicePolicy>,
 }
 
 impl IpcServer {
-    pub fn new() -> Self {
+    pub fn new(policy: ServicePolicy) -> Self {
         Self {
             core_manager: Arc::new(Mutex::new(CoreManager::new())),
+            policy: Arc::new(policy),
         }
     }
 
-    /// 启动后台监控线程
-    #[cfg(windows)]
-    fn start_monitor_thread(&self) {
-        let manager = self.core_manager.clone();
-
-        std::thread::spawn(move || {
-            log::info!("内核监控线程已启动");
-
-            loop {
-                // 每 5 秒检查一次
-                std::thread::sleep(std::time::Duration::from_secs(5));
-
-                let mut mgr = manager.lock().unwrap();
-                mgr.check_and_restart();
-            }
-        });
-    }
-
-    /// 启动 IPC 服务（Windows 命名管道）
-    #[cfg(windows)]
     pub fn run(&self) -> Result<()> {
         self.run_with_ready_signal(None)
     }
 
     #[cfg(windows)]
-    pub fn run_with_ready_signal(&self, ready_tx: Option<mpsc::Sender<Result<()>>>) -> Result<()> {
-        use windows::core::PCWSTR;
-        use windows::Win32::Foundation::CloseHandle;
+    pub fn run_with_ready_signal(
+        &self,
+        mut ready_tx: Option<mpsc::Sender<Result<()>>>,
+    ) -> Result<()> {
+        use std::time::Duration;
+        use tokio::net::windows::named_pipe::ServerOptions;
+        use tokio::sync::Semaphore;
 
-        log::info!("启动 IPC 服务: {}", IPC_PATH);
-
-        // 启动后台监控线程
-        self.start_monitor_thread();
-
-        let pipe_name: Vec<u16> = IPC_PATH.encode_utf16().chain(std::iter::once(0)).collect();
-        let mut ready_tx = ready_tx;
-
-        // 创建允许所有用户访问的安全描述符
-        let mut sd_buffer = vec![0u8; 1024]; // 足够大的缓冲区
-        let psd = PSECURITY_DESCRIPTOR(sd_buffer.as_mut_ptr() as *mut _);
-
-        let sa = unsafe {
-            // 初始化安全描述符 (SECURITY_DESCRIPTOR_REVISION = 1)
-            if InitializeSecurityDescriptor(psd, 1).is_err() {
-                log::error!("初始化安全描述符失败");
-                return Err(anyhow::anyhow!("初始化安全描述符失败"));
-            }
-
-            // 设置 NULL DACL (允许所有人访问)
-            if SetSecurityDescriptorDacl(psd, true, None, false).is_err() {
-                log::error!("设置 DACL 失败");
-                return Err(anyhow::anyhow!("设置 DACL 失败"));
-            }
-
-            SECURITY_ATTRIBUTES {
-                nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
-                lpSecurityDescriptor: psd.0,
-                bInheritHandle: false.into(),
-            }
-        };
-
-        loop {
-            // 创建命名管道 - 使用自定义安全描述符允许所有用户访问
-            let h_pipe = unsafe {
-                CreateNamedPipeW(
-                    PCWSTR(pipe_name.as_ptr()),
-                    PIPE_ACCESS_DUPLEX,
-                    PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
-                    PIPE_UNLIMITED_INSTANCES,
-                    8192,                              // 输出缓冲区大小
-                    8192,                              // 输入缓冲区大小
-                    0,                                 // 默认超时
-                    Some(&sa as *const _ as *const _), // 自定义安全属性
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?;
+        let result: Result<()> = runtime.block_on(async {
+            let security = self.policy.pipe_security()?;
+            let mut attributes = security.attributes();
+            let mut options = ServerOptions::new();
+            options
+                .max_instances(8)
+                .reject_remote_clients(true)
+                .first_pipe_instance(true);
+            let mut listener = unsafe {
+                options.create_with_security_attributes_raw(
+                    IPC_PATH,
+                    (&mut attributes as *mut windows::Win32::Security::SECURITY_ATTRIBUTES).cast(),
                 )
-            };
-
-            if h_pipe.is_invalid() {
-                let error = std::io::Error::last_os_error();
-                log::error!("创建命名管道失败: {}", error);
-                if let Some(tx) = ready_tx.take() {
-                    let _ = tx.send(Err(anyhow::anyhow!("创建命名管道失败: {}", error)));
-                }
-                std::thread::sleep(std::time::Duration::from_secs(1));
-                continue;
             }
-
+            .context("创建受保护的服务管道失败")?;
+            options.first_pipe_instance(false);
             if let Some(tx) = ready_tx.take() {
                 let _ = tx.send(Ok(()));
             }
 
-            log::debug!("等待客户端连接...");
-
-            // 等待客户端连接
-            let connected = unsafe { ConnectNamedPipe(h_pipe, None) };
-            if let Err(e) = connected {
-                let error_code = e.code().0;
-                // ERROR_PIPE_CONNECTED (535) 表示客户端已经连接
-                if error_code != 535 {
-                    log::warn!("客户端连接失败: {:?}", e);
-                    unsafe {
-                        CloseHandle(h_pipe).ok();
-                    }
-                    continue;
-                }
-            }
-
-            log::debug!("客户端已连接");
-
-            // 在新线程中处理客户端请求
-            let core_manager = self.core_manager.clone();
-            // 将 HANDLE 转换为 raw pointer 以便跨线程传递
-            let h_pipe_raw = h_pipe.0 as usize;
-            std::thread::spawn(move || {
-                use windows::Win32::Foundation::HANDLE;
-                // 在新线程中重建 HANDLE
-                let h_pipe = HANDLE(h_pipe_raw as *mut _);
-
-                if let Err(e) = Self::handle_client(h_pipe, core_manager) {
-                    log::error!("处理客户端请求失败: {}", e);
-                }
-
-                // Windows 会在 DisconnectNamedPipe 时丢弃客户端尚未读取的数据。
-                // 这里先刷新服务端缓冲区，确保响应在断开前被客户端读走。
-                unsafe {
-                    if let Err(err) = FlushFileBuffers(h_pipe) {
-                        log::debug!("刷新命名管道缓冲区失败: {:?}", err);
-                    }
-                }
-
-                // 断开连接并关闭句柄
-                unsafe {
-                    DisconnectNamedPipe(h_pipe).ok();
-                    CloseHandle(h_pipe).ok();
+            let manager = self.core_manager.clone();
+            let policy = self.policy.clone();
+            tokio::spawn(async move {
+                let mut interval = tokio::time::interval(Duration::from_secs(1));
+                loop {
+                    interval.tick().await;
+                    let manager = manager.clone();
+                    let policy = policy.clone();
+                    let _ = tokio::task::spawn_blocking(move || {
+                        if let Ok(mut manager) = manager.lock() {
+                            // 配置目录可能在运行期间被替换, 自动重启前重新检查边界。
+                            if let Some(config) = manager.config.as_ref() {
+                                if policy.validate(config).is_err() {
+                                    manager.restart_at = None;
+                                    return;
+                                }
+                            }
+                            manager.check_and_restart();
+                        }
+                    })
+                    .await;
                 }
             });
-        }
-    }
 
-    /// 在独立线程中处理单个客户端
-    #[cfg(windows)]
-    fn handle_client(
-        h_pipe: windows::Win32::Foundation::HANDLE,
-        core_manager: Arc<Mutex<CoreManager>>,
-    ) -> Result<()> {
-        use std::os::windows::io::{FromRawHandle, IntoRawHandle};
-
-        // 使用标准库的文件 API 包装句柄
-        let pipe_file = unsafe { std::fs::File::from_raw_handle(h_pipe.0 as *mut _) };
-
-        // 读取请求
-        let mut request_line = String::new();
-        {
-            let mut reader = BufReader::new(&pipe_file);
-            reader
-                .read_line(&mut request_line)
-                .context("读取请求失败")?;
-        }
-
-        if request_line.is_empty() {
-            log::warn!("客户端发送空请求");
-            // 释放 pipe_file 但不关闭句柄
-            let _ = pipe_file.into_raw_handle();
-            return Ok(());
-        }
-
-        // 解析请求
-        let request_line = request_line
-            .trim_start_matches('\u{feff}')
-            .trim_matches(char::from(0))
-            .to_string();
-        log::debug!("收到原始请求: {}", request_line);
-        let request: ServiceRequest = match serde_json::from_str(&request_line) {
-            Ok(request) => request,
-            Err(err) => {
-                log::warn!("解析请求失败: {}", err);
-                let response = ServiceResponse::error(400, format!("解析请求失败: {}", err));
-                Self::write_response(&pipe_file, &response)?;
-                let _ = pipe_file.into_raw_handle();
-                return Ok(());
+            // 七个活动请求加一个监听实例, 不为每次连接无限创建线程。
+            let slots = Arc::new(Semaphore::new(7));
+            loop {
+                listener.connect().await.context("等待服务客户端失败")?;
+                let permit = slots.clone().acquire_owned().await?;
+                let next = unsafe {
+                    options.create_with_security_attributes_raw(
+                        IPC_PATH,
+                        (&mut attributes as *mut windows::Win32::Security::SECURITY_ATTRIBUTES)
+                            .cast(),
+                    )
+                }
+                .context("创建下一个管道实例失败")?;
+                let pipe = std::mem::replace(&mut listener, next);
+                let manager = self.core_manager.clone();
+                let policy = self.policy.clone();
+                tokio::spawn(async move {
+                    let _permit = permit;
+                    if let Err(err) = Self::handle_client(pipe, manager, policy).await {
+                        log::warn!("服务请求失败: {err}");
+                    }
+                });
             }
-        };
-
-        log::debug!("收到命令: {}", request.command);
-
-        // 处理请求
-        let response = Self::handle_request_static(request, core_manager);
-
-        // 发送响应
-        Self::write_response(&pipe_file, &response)?;
-
-        log::debug!("响应已发送");
-
-        // 释放 pipe_file 但不关闭句柄（外部会关闭）
-        let _ = pipe_file.into_raw_handle();
-
-        Ok(())
+            #[allow(unreachable_code)]
+            Ok(())
+        });
+        if let (Err(err), Some(tx)) = (&result, ready_tx.take()) {
+            let _ = tx.send(Err(anyhow::anyhow!(err.to_string())));
+        }
+        result
     }
 
     #[cfg(windows)]
-    fn write_response(
-        pipe_file: &std::fs::File,
-        response: &ServiceResponse<serde_json::Value>,
+    async fn handle_client(
+        pipe: tokio::net::windows::named_pipe::NamedPipeServer,
+        core_manager: Arc<Mutex<CoreManager>>,
+        policy: Arc<ServicePolicy>,
     ) -> Result<()> {
-        let response_json = serde_json::to_string(response).context("序列化响应失败")?;
-
-        let mut writer = BufWriter::new(pipe_file);
-        writeln!(writer, "{}", response_json).context("发送响应失败")?;
-        writer.flush().context("刷新管道失败")?;
+        use std::time::Duration;
+        use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+        let mut reader = BufReader::new(pipe);
+        let mut bytes = Vec::new();
+        {
+            let mut limited = (&mut reader).take((MAX_REQUEST_BYTES + 1) as u64);
+            tokio::time::timeout(
+                Duration::from_secs(5),
+                limited.read_until(b'\n', &mut bytes),
+            )
+            .await
+            .context("读取请求超时")??;
+        }
+        if bytes.len() > MAX_REQUEST_BYTES || bytes.last() != Some(&b'\n') {
+            anyhow::bail!("请求过长或未完整结束");
+        }
+        let request: ServiceRequest =
+            serde_json::from_slice(bytes.strip_prefix(&[0xef, 0xbb, 0xbf]).unwrap_or(&bytes))
+                .context("请求不是有效 JSON")?;
+        let response = tokio::task::spawn_blocking(move || {
+            Self::handle_request_static(request, core_manager, &policy)
+        })
+        .await
+        .context("服务请求执行失败")?;
+        let mut response = serde_json::to_vec(&response)?;
+        response.push(b'\n');
+        if response.len() > MAX_RESPONSE_BYTES {
+            anyhow::bail!("服务响应过长");
+        }
+        tokio::time::timeout(Duration::from_secs(5), async {
+            reader.get_mut().write_all(&response).await?;
+            reader.get_mut().flush().await
+        })
+        .await
+        .context("写入响应超时")??;
+        // 保持管道直到客户端读完并关闭, 避免 DisconnectNamedPipe 丢弃未读响应。
+        // 恶意客户端不关闭也只占用有界时间, 不调用会无限阻塞的 FlushFileBuffers。
+        let mut tail = [0u8; 1];
+        let _ = tokio::time::timeout(Duration::from_secs(2), reader.read(&mut tail)).await;
         Ok(())
     }
 
-    /// 静态方法处理请求（用于多线程）
-    #[cfg(windows)]
     fn handle_request_static(
         request: ServiceRequest,
         core_manager: Arc<Mutex<CoreManager>>,
+        policy: &ServicePolicy,
     ) -> ServiceResponse<serde_json::Value> {
         match request.command.as_str() {
             "ping" => ServiceResponse::ok(),
-
             "start" => {
-                let config: CoreConfig = match request.data {
-                    Some(data) => match serde_json::from_str(&data) {
-                        Ok(c) => c,
-                        Err(e) => return ServiceResponse::error(1, format!("解析配置失败: {}", e)),
-                    },
-                    None => return ServiceResponse::error(1, "缺少内核配置".to_string()),
+                let config: CoreConfig = match request.data.as_deref().map(serde_json::from_str) {
+                    Some(Ok(config)) => config,
+                    _ => return ServiceResponse::error(400, "内核配置无效".into()),
                 };
-
-                let mut manager = core_manager.lock().unwrap();
+                if let Err(err) = policy.validate(&config) {
+                    return ServiceResponse::error(403, err.to_string());
+                }
+                let Ok(mut manager) = core_manager.lock() else {
+                    return ServiceResponse::error(500, "内核管理器不可用".into());
+                };
                 match manager.start(config) {
-                    Ok(_) => ServiceResponse::ok(),
-                    Err(e) => ServiceResponse::error(2, format!("启动内核失败: {}", e)),
+                    Ok(()) => ServiceResponse::ok(),
+                    Err(err) => ServiceResponse::error(2, format!("启动内核失败: {err}")),
                 }
             }
-
             "stop" => {
-                let mut manager = core_manager.lock().unwrap();
+                let Ok(mut manager) = core_manager.lock() else {
+                    return ServiceResponse::error(500, "内核管理器不可用".into());
+                };
                 match manager.stop() {
-                    Ok(_) => ServiceResponse::ok(),
-                    Err(e) => ServiceResponse::error(3, format!("停止内核失败: {}", e)),
+                    Ok(()) => ServiceResponse::ok(),
+                    Err(err) => ServiceResponse::error(3, format!("停止内核失败: {err}")),
                 }
             }
-
             "status" => {
-                let mut manager = core_manager.lock().unwrap();
-                let status = manager.get_status();
-                ServiceResponse::success(serde_json::to_value(status).unwrap())
+                let Ok(mut manager) = core_manager.lock() else {
+                    return ServiceResponse::error(500, "内核管理器不可用".into());
+                };
+                ServiceResponse::success(serde_json::to_value(manager.get_status()).unwrap())
             }
-
             "logs" => {
                 let lines: usize = request.data.and_then(|d| d.parse().ok()).unwrap_or(100);
-
-                let manager = core_manager.lock().unwrap();
-                let logs = manager.get_logs(lines);
-                ServiceResponse::success(serde_json::to_value(logs).unwrap())
-            }
-
-            "version" => {
-                let version = ServiceVersion {
-                    version: env!("CARGO_PKG_VERSION").to_string(),
-                    build_id: option_env!("CLASHNOVA_BUILD_ID")
-                        .unwrap_or(env!("CARGO_PKG_VERSION"))
-                        .to_string(),
+                let Ok(manager) = core_manager.lock() else {
+                    return ServiceResponse::error(500, "内核管理器不可用".into());
                 };
-                ServiceResponse::success(serde_json::to_value(version).unwrap())
+                ServiceResponse::success(
+                    serde_json::to_value(manager.get_logs(lines.min(1000))).unwrap(),
+                )
             }
-
-            _ => ServiceResponse::error(404, format!("未知命令: {}", request.command)),
+            "version" => ServiceResponse::success(serde_json::json!({
+                "version": env!("CARGO_PKG_VERSION"),
+                "build_id": option_env!("CLASHNOVA_BUILD_ID").unwrap_or(env!("CARGO_PKG_VERSION")),
+            })),
+            _ => ServiceResponse::error(404, "未知服务命令".into()),
         }
-    }
-
-    #[cfg(not(windows))]
-    pub fn run(&self) -> Result<()> {
-        anyhow::bail!("IPC 服务仅支持 Windows 平台")
     }
 
     #[cfg(not(windows))]
@@ -672,8 +587,52 @@ impl IpcServer {
     }
 }
 
-/// 启动 IPC 服务器
-pub fn start_server() -> Result<()> {
-    let server = IpcServer::new();
-    server.run()
+pub fn start_server(policy: ServicePolicy) -> Result<()> {
+    IpcServer::new(policy).run()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn configured_manager() -> CoreManager {
+        let mut manager = CoreManager::new();
+        manager.config = Some(CoreConfig {
+            core_path: String::new(),
+            config_path: String::new(),
+            config_dir: String::new(),
+            external_controller: String::new(),
+        });
+        manager
+    }
+
+    #[test]
+    fn crash_schedules_a_retry_after_backoff() {
+        let mut manager = configured_manager();
+        manager.record_crash(100);
+        assert!(!manager.should_auto_restart(100));
+        assert!(!manager.should_auto_restart(109));
+        assert!(manager.should_auto_restart(110));
+    }
+
+    #[test]
+    fn status_does_not_consume_a_pending_retry() {
+        let mut manager = configured_manager();
+        manager.record_crash(100);
+        assert!(!manager.get_status().running);
+        assert!(manager.should_auto_restart(110));
+        manager.stop().unwrap();
+        assert!(!manager.should_auto_restart(120));
+    }
+
+    #[test]
+    fn repeated_crashes_exhaust_the_budget() {
+        let mut manager = configured_manager();
+        for now in [100, 110, 120, 130, 140, 150] {
+            manager.record_crash(now);
+        }
+        assert!(!manager.should_auto_restart(200));
+        manager.record_crash(500);
+        assert!(manager.should_auto_restart(510));
+    }
 }

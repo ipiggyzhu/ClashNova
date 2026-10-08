@@ -1,11 +1,11 @@
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
 /// 健康检查器
 pub struct HealthChecker {
-    /// 是否正在运行
-    running: Arc<AtomicBool>,
+    /// 奇数表示运行, 偶数表示停止; 换代避免旧线程在重启后再次进入循环。
+    generation: Arc<AtomicU64>,
     /// 检查间隔（秒）
     interval: Duration,
 }
@@ -14,9 +14,26 @@ impl HealthChecker {
     /// 创建健康检查器
     pub fn new(interval_secs: u64) -> Self {
         Self {
-            running: Arc::new(AtomicBool::new(false)),
+            generation: Arc::new(AtomicU64::new(0)),
             interval: Duration::from_secs(interval_secs),
         }
+    }
+
+    fn begin_generation(&self) -> Option<u64> {
+        let mut generation = self.generation.load(Ordering::Acquire);
+        while generation % 2 == 0 {
+            let next = generation.wrapping_add(1);
+            match self.generation.compare_exchange_weak(
+                generation,
+                next,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
+                Ok(_) => return Some(next),
+                Err(current) => generation = current,
+            }
+        }
+        None
     }
 
     /// 启动健康检查
@@ -24,19 +41,22 @@ impl HealthChecker {
     where
         F: Fn() + Send + 'static,
     {
-        if self.running.swap(true, Ordering::AcqRel) {
+        let Some(expected_generation) = self.begin_generation() else {
             log::warn!("健康检查已在运行");
             return;
-        }
+        };
 
-        let running = self.running.clone();
+        let generation = self.generation.clone();
         let interval = self.interval;
 
         std::thread::spawn(move || {
             log::info!("健康检查线程已启动，间隔: {:?}", interval);
 
-            while running.load(Ordering::Acquire) {
+            while generation.load(Ordering::Acquire) == expected_generation {
                 std::thread::sleep(interval);
+                if generation.load(Ordering::Acquire) != expected_generation {
+                    break;
+                }
 
                 // 执行健康检查
                 match crate::client::connect() {
@@ -49,7 +69,9 @@ impl HealthChecker {
                         log::error!("健康检查失败: {}", e);
 
                         // 调用回调
-                        on_unhealthy();
+                        if generation.load(Ordering::Acquire) == expected_generation {
+                            on_unhealthy();
+                        }
                     }
                 }
             }
@@ -60,12 +82,23 @@ impl HealthChecker {
 
     /// 停止健康检查
     pub fn stop(&self) {
-        self.running.store(false, Ordering::Release);
+        let mut generation = self.generation.load(Ordering::Acquire);
+        while generation % 2 == 1 {
+            match self.generation.compare_exchange_weak(
+                generation,
+                generation.wrapping_add(1),
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
+                Ok(_) => return,
+                Err(current) => generation = current,
+            }
+        }
     }
 
     /// 检查是否正在运行
     pub fn is_running(&self) -> bool {
-        self.running.load(Ordering::Acquire)
+        self.generation.load(Ordering::Acquire) % 2 == 1
     }
 }
 
@@ -95,4 +128,22 @@ pub fn stop_health_check() {
 /// 检查健康检查是否正在运行
 pub fn is_health_check_running() -> bool {
     HEALTH_CHECKER.is_running()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn restarting_health_checks_invalidates_the_old_thread_generation() {
+        let checker = HealthChecker::new(30);
+        let old = checker.begin_generation().unwrap();
+        assert!(checker.is_running());
+        assert!(checker.begin_generation().is_none());
+        checker.stop();
+        assert!(!checker.is_running());
+        let new = checker.begin_generation().unwrap();
+        assert_ne!(old, new);
+        assert_eq!(checker.generation.load(Ordering::Acquire), new);
+    }
 }

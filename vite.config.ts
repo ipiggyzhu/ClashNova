@@ -18,7 +18,7 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
     // WSL 下 /mnt/* 无 inotify 事件,轮询保证 HMR/模块缓存失效正常
-    watch: { usePolling: true, interval: 800 },
+    watch: { usePolling: Boolean(process.env.WSL_DISTRO_NAME) || process.env.VITE_USE_POLLING === '1', interval: 800 },
   },
   build: {
     target: 'es2021',
@@ -44,6 +44,10 @@ export default defineConfig({
           if (normalized.includes('/node_modules/three/')) return 'vendor-three'
           if (
             normalized.includes('/node_modules/globe.gl/') ||
+            normalized.includes('/node_modules/three-globe/') ||
+            normalized.includes('/node_modules/three-render-objects/')
+          ) return 'vendor-globe'
+          if (
             normalized.includes('/node_modules/d3-') ||
             normalized.includes('/node_modules/topojson') ||
             normalized.includes('/node_modules/world-atlas/')

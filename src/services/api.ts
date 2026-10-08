@@ -11,6 +11,7 @@ import type {
   RuleProviderItem,
 } from '../types/clash'
 import { call, isMock } from './ipc'
+import { createTaskQueue } from '../utils/taskQueue'
 import {
   mockCloseAllConnections,
   mockCloseConnection,
@@ -32,6 +33,10 @@ const config: ApiConfig = {
   secret: mockSettings().secret,
 }
 let configReady = isMock
+let configuring: Promise<void> | null = null
+let configRevision = 0
+const activeRequests = new Set<AbortController>()
+const queueDelay = createTaskQueue<number>(8)
 
 /** 设置页修改外部控制地址/密钥后调用, 同步 REST/WS 连接参数 */
 export function configureApi(externalController: string, secret: string): void {
@@ -39,38 +44,60 @@ export function configureApi(externalController: string, secret: string): void {
   config.baseUrl = `http://${externalController}`
   config.secret = secret
   configReady = true
-  if (changed && typeof window !== 'undefined') {
-    window.dispatchEvent(new CustomEvent('clashnova-api-config-changed'))
+  if (changed) {
+    configRevision += 1
+    for (const controller of activeRequests) controller.abort()
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('clashnova-api-config-changed'))
+    }
   }
 }
 
 /** ws.ts 复用同一份连接参数 */
 export function apiConfig(): Readonly<ApiConfig> {
-  return config
+  return { ...config }
 }
 
 const DELAY_TEST_URL = 'https://www.gstatic.com/generate_204'
 
-async function ensureConfigured(): Promise<void> {
+export async function ensureConfigured(): Promise<void> {
   if (configReady) return
-  const settings = await call('get_settings')
-  configureApi(settings.externalController, settings.secret)
+  if (!configuring) {
+    const revision = configRevision
+    configuring = call('get_settings').then((settings) => {
+      if (revision === configRevision) configureApi(settings.externalController, settings.secret)
+    }).finally(() => { configuring = null })
+  }
+  await configuring
 }
 
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+async function request<T>(method: string, path: string, body?: unknown, timeoutMs = 10_000): Promise<T> {
   await ensureConfigured()
-  const res = await fetch(`${config.baseUrl}${path}`, {
-    method,
-    headers: {
-      Authorization: `Bearer ${config.secret}`,
-      ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
-    },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  })
-  if (!res.ok) throw new Error(`mihomo API ${method} ${path} 失败: HTTP ${res.status}`)
-  if (res.status === 204) return undefined as T
-  const text = await res.text()
-  return (text ? JSON.parse(text) : undefined) as T
+  const revision = configRevision
+  const controller = new AbortController()
+  activeRequests.add(controller)
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    const res = await fetch(`${config.baseUrl}${path}`, {
+      method,
+      signal: controller.signal,
+      headers: {
+        Authorization: `Bearer ${config.secret}`,
+        ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+      },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    })
+    if (!res.ok) {
+      await res.body?.cancel()
+      throw new Error(`mihomo API ${method} ${path.split('?')[0]} 失败: HTTP ${res.status}`)
+    }
+    const text = res.status === 204 ? '' : await res.text()
+    if (revision !== configRevision) throw new DOMException('控制器配置已变更', 'AbortError')
+    return (text ? JSON.parse(text) : undefined) as T
+  } finally {
+    clearTimeout(timer)
+    activeRequests.delete(controller)
+  }
 }
 
 function recordOrEmpty<T>(value: unknown): Record<string, T> {
@@ -126,7 +153,8 @@ export async function getProxies(): Promise<ProxiesPayload> {
         }
       }
     }
-  } catch {
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') throw error
     // /proxies is still useful when provider details are unavailable.
   }
   return payload
@@ -154,18 +182,23 @@ export async function selectProxy(group: string, name: string): Promise<void> {
 
 /** GET /proxies/{name}/delay — 单节点测延迟(ms); 超时抛错 */
 export async function testDelay(name: string, timeout = 5000): Promise<number> {
-  if (isMock) {
-    await new Promise((resolve) => setTimeout(resolve, 150 + Math.random() * 450))
-    const delay = mockTestDelay(name)
-    if (delay > 2000) throw new Error('超时')
-    return delay
-  }
-  const qs = `timeout=${timeout}&url=${encodeURIComponent(DELAY_TEST_URL)}`
-  const payload = await request<{ delay: number }>(
-    'GET',
-    `/proxies/${encodeURIComponent(name)}/delay?${qs}`,
-  )
-  return payload.delay
+  await ensureConfigured()
+  const revision = configRevision
+  return queueDelay(`${revision}:${name}`, async () => {
+    if (revision !== configRevision) throw new DOMException('控制器配置已变更', 'AbortError')
+    if (isMock) {
+      await new Promise((resolve) => setTimeout(resolve, 150 + Math.random() * 450))
+      const delay = mockTestDelay(name)
+      if (delay > timeout) throw new Error('超时')
+      return delay
+    }
+    const qs = `timeout=${timeout}&url=${encodeURIComponent(DELAY_TEST_URL)}`
+    const payload = await request<{ delay: number }>(
+      'GET', `/proxies/${encodeURIComponent(name)}/delay?${qs}`, undefined, timeout + 2000,
+    )
+    if (!Number.isFinite(payload.delay) || payload.delay <= 0) throw new Error('测速失败')
+    return payload.delay
+  })
 }
 
 /** PATCH /configs body {mode} — 切换出站模式 */
@@ -217,7 +250,7 @@ export async function updateGeo(): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, 800 + Math.random() * 1200))
     return
   }
-  await request('POST', '/configs/geo')
+  await request('POST', '/configs/geo', undefined, 180_000)
 }
 
 /** mihomo 提供者原始结构(仅取所需字段) */
@@ -311,7 +344,7 @@ export async function updateProxyProvider(name: string): Promise<void> {
     mockUpdateProxyProvider(name)
     return
   }
-  await request('PUT', `/providers/proxies/${encodeURIComponent(name)}`)
+  await request('PUT', `/providers/proxies/${encodeURIComponent(name)}`, undefined, 60_000)
 }
 
 /** PUT /providers/rules/{name} — 远程更新规则提供者 */
@@ -321,7 +354,7 @@ export async function updateRuleProvider(name: string): Promise<void> {
     mockUpdateRuleProvider(name)
     return
   }
-  await request('PUT', `/providers/rules/${encodeURIComponent(name)}`)
+  await request('PUT', `/providers/rules/${encodeURIComponent(name)}`, undefined, 60_000)
 }
 
 /** GET /providers/proxies/{name}/healthcheck */
@@ -330,5 +363,5 @@ export async function healthcheckProvider(name: string): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, 600 + Math.random() * 900))
     return
   }
-  await request('GET', `/providers/proxies/${encodeURIComponent(name)}/healthcheck`)
+  await request('GET', `/providers/proxies/${encodeURIComponent(name)}/healthcheck`, undefined, 90_000)
 }

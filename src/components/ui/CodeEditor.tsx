@@ -5,46 +5,55 @@
 import { javascript } from '@codemirror/lang-javascript'
 import { yaml } from '@codemirror/lang-yaml'
 import { oneDark } from '@codemirror/theme-one-dark'
-import CodeMirror from '@uiw/react-codemirror'
+import CodeMirror, { EditorView } from '@uiw/react-codemirror'
+import { useCallback, useLayoutEffect, useMemo, useRef } from 'react'
 import { useAppStore } from '../../stores/app'
 import './CodeEditor.css'
 
-export type EditorLang = 'yaml' | 'javascript' | 'css'
+export type EditorLang = 'yaml' | 'javascript' | 'css' | 'text'
 
-interface CodeEditorProps {
+export interface CodeEditorProps {
   value: string
   onChange: (value: string) => void
   lang: EditorLang
   readOnly?: boolean
+  label?: string
 }
 
-export default function CodeEditor({ value, onChange, lang, readOnly }: CodeEditorProps) {
-  const theme = useAppStore((s) => s.settings.theme)
-  const dark =
-    theme === 'system'
-      ? !window.matchMedia('(prefers-color-scheme: light)').matches
-      : theme === 'dark'
+const BASIC_SETUP = {
+  lineNumbers: true,
+  foldGutter: true,
+  highlightActiveLine: true,
+  autocompletion: true,
+}
 
-  const extensions =
-    lang === 'yaml' ? [yaml()] : lang === 'javascript' ? [javascript()] : []
+export default function CodeEditor({ value, onChange, lang, readOnly, label = '配置内容' }: CodeEditorProps) {
+  const dark = useAppStore((s) => s.resolvedTheme === 'dark')
+  const onChangeRef = useRef(onChange)
+  useLayoutEffect(() => { onChangeRef.current = onChange }, [onChange])
+  const handleChange = useCallback((next: string) => onChangeRef.current(next), [])
+
+  const extensions = useMemo(
+    () => [
+      ...(lang === 'yaml' ? [yaml()] : lang === 'javascript' ? [javascript()] : []),
+      EditorView.contentAttributes.of({ 'aria-label': label }),
+    ],
+    [lang, label],
+  )
 
   return (
     <div className="code-editor-shell">
       <CodeMirror
         value={value}
-        onChange={onChange}
+        onChange={handleChange}
         extensions={extensions}
         theme={dark ? oneDark : 'light'}
         height="100%"
         className="code-editor"
         editable={!readOnly}
         readOnly={readOnly}
-        basicSetup={{
-          lineNumbers: true,
-          foldGutter: true,
-          highlightActiveLine: true,
-          autocompletion: true,
-        }}
+        indentWithTab={false}
+        basicSetup={BASIC_SETUP}
       />
     </div>
   )

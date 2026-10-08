@@ -5,7 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "npm run typecheck && vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test tests/unit/*.test.mjs",
+    "test:browser": "node tests/browser.mjs",
     "mock": "set VITE_MOCK=1&& vite",
     "preview": "vite preview",
     "tauri": "tauri"

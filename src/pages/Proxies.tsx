@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './Proxies.css'
 import Badge from '../components/ui/Badge'
 import Button from '../components/ui/Button'
@@ -17,23 +17,10 @@ interface GroupView extends ProxyGroup {
   nodes: ProxyNode[]
 }
 
-/** 并发上限的批量执行 */
-async function runLimited(jobs: (() => Promise<void>)[], limit = 8): Promise<void> {
-  const queue = [...jobs]
-  const workers = Array.from({ length: Math.min(limit, queue.length) }, async () => {
-    for (let job = queue.shift(); job; job = queue.shift()) await job()
-  })
-  await Promise.all(workers)
-}
-
 function latestDelay(node: ProxyNode): number | undefined {
   if (node.delay !== undefined) return node.delay
   const last = node.history[node.history.length - 1]
   return last?.delay
-}
-
-function delayKey(group: string, node: string): string {
-  return `${group}\u0000${node}`
 }
 
 const COLLAPSED_KEY = 'proxies:collapsed'
@@ -65,28 +52,52 @@ export default function Proxies() {
   const [delays, setDelays] = useState<Record<string, number>>({})
   const [testingGroups, setTestingGroups] = useState<Set<string>>(new Set())
   const [testingAll, setTestingAll] = useState(false)
+  const [selecting, setSelecting] = useState<Set<string>>(new Set())
+  const [actionError, setActionError] = useState<string | null>(null)
+  const selectingRef = useRef(new Set<string>())
+  const testingRef = useRef(new Map<string, Promise<void>>())
+  const groupTestsRef = useRef(new Set<string>())
+  const testingAllRef = useRef(false)
+  const generation = useRef(0)
+  const loadGeneration = useRef(0)
+  const alive = useRef(true)
+  const refreshFlight = useRef<Promise<void> | null>(null)
 
   const refresh = useCallback(async () => {
-    try {
-      setPayload(await getProxies())
+    if (refreshFlight.current) return refreshFlight.current
+    if (selectingRef.current.size) return
+    const current = loadGeneration.current
+    const task = getProxies().then((value) => {
+      if (!alive.current || current !== loadGeneration.current) return
+      setPayload(value)
       setLoadError(null)
-    } catch {
-      setPayload(null)
-      setLoadError('Mihomo 未运行，启动内核后会显示节点。')
-    }
+    }, (error: unknown) => {
+      if (!alive.current || current !== loadGeneration.current) return
+      setLoadError(`节点加载失败：${String(error)}`)
+    }).finally(() => { refreshFlight.current = null })
+    refreshFlight.current = task
+    return task
   }, [])
 
   useEffect(() => {
+    alive.current = true
     void refresh().catch(() => {})
     const refreshWhenVisible = (): void => {
       if (document.visibilityState === 'visible') void refresh().catch(() => {})
     }
     const timer = window.setInterval(refreshWhenVisible, 5000)
-    window.addEventListener('clashnova-api-config-changed', refreshWhenVisible)
+    const reconfigure = (): void => {
+      generation.current += 1
+      loadGeneration.current += 1
+      setDelays({})
+      void (refreshFlight.current ?? Promise.resolve()).then(refreshWhenVisible)
+    }
+    window.addEventListener('clashnova-api-config-changed', reconfigure)
     document.addEventListener('visibilitychange', refreshWhenVisible)
     return () => {
+      alive.current = false
       window.clearInterval(timer)
-      window.removeEventListener('clashnova-api-config-changed', refreshWhenVisible)
+      window.removeEventListener('clashnova-api-config-changed', reconfigure)
       document.removeEventListener('visibilitychange', refreshWhenVisible)
     }
   }, [refresh])
@@ -137,6 +148,11 @@ export default function Proxies() {
     }))
 
   const handleSelect = async (group: string, name: string): Promise<void> => {
+    if (selectingRef.current.has(group)) return
+    selectingRef.current.add(group)
+    loadGeneration.current += 1
+    setSelecting(new Set(selectingRef.current))
+    setActionError(null)
     /* 乐观更新 */
     setPayload((prev) => {
       if (!prev) return prev
@@ -146,27 +162,41 @@ export default function Proxies() {
     })
     try {
       await selectProxy(group, name)
-    } catch {
-      await refresh().catch(() => {})
+    } catch (error) {
+      if (alive.current) setActionError(`切换节点失败：${String(error)}`)
+    } finally {
+      selectingRef.current.delete(group)
+      if (alive.current) {
+        setSelecting(new Set(selectingRef.current))
+        await refreshFlight.current
+        await refresh()
+      }
     }
   }
 
-  const testNode = async (group: string, name: string): Promise<void> => {
-    const key = delayKey(group, name)
-    setDelays((d) => ({ ...d, [key]: 0 }))
-    try {
-      const ms = await testDelay(name)
-      setDelays((d) => ({ ...d, [key]: ms }))
-    } catch {
-      setDelays((d) => ({ ...d, [key]: -1 }))
-    }
+  const testNode = (name: string): Promise<void> => {
+    const current = generation.current
+    const key = `${current}:${name}`
+    const existing = testingRef.current.get(key)
+    if (existing) return existing
+    setDelays((d) => ({ ...d, [name]: 0 }))
+    const test = testDelay(name).then((ms) => {
+      if (alive.current && current === generation.current) setDelays((d) => ({ ...d, [name]: ms }))
+    }, () => {
+      if (alive.current && current === generation.current) setDelays((d) => ({ ...d, [name]: -1 }))
+    }).finally(() => { testingRef.current.delete(key) })
+    testingRef.current.set(key, test)
+    return test
   }
 
   const testGroup = async (g: GroupView): Promise<void> => {
+    if (groupTestsRef.current.has(g.name)) return
+    groupTestsRef.current.add(g.name)
     setTestingGroups((prev) => new Set(prev).add(g.name))
     try {
-      await runLimited(g.nodes.map((n) => () => testNode(g.name, n.name)))
+      await Promise.all([...new Set(g.nodes.map((n) => n.name))].map(testNode))
     } finally {
+      groupTestsRef.current.delete(g.name)
       setTestingGroups((prev) => {
         const next = new Set(prev)
         next.delete(g.name)
@@ -176,19 +206,23 @@ export default function Proxies() {
   }
 
   const testAll = async (): Promise<void> => {
+    if (testingAllRef.current) return
+    testingAllRef.current = true
     setTestingAll(true)
     try {
-      for (const g of groups) await testGroup(g)
+      // 所有组共用同一队列和节点结果；同名节点只测一次，含双击测速也受全局 8 并发限制。
+      await Promise.all([...new Set(groups.flatMap((g) => g.all))].map(testNode))
     } finally {
+      testingAllRef.current = false
       setTestingAll(false)
     }
   }
 
-  const renderDelay = (group: string, node: ProxyNode) => {
-    const d = delays[delayKey(group, node.name)] ?? latestDelay(node)
+  const renderDelay = (node: ProxyNode) => {
+    const d = delays[node.name] ?? latestDelay(node)
     if (d === 0) return <span className="testing">测速中…</span>
     if (d === undefined) return <Badge tone="gray">— ms</Badge>
-    if (d === -1 || d > 2000) return <Badge tone="red">超时</Badge>
+    if (d === -1) return <Badge tone="red">失败 / 超时</Badge>
     return <Badge tone={delayTone(d)}>{d} ms</Badge>
   }
 
@@ -221,6 +255,7 @@ export default function Proxies() {
         </Button>
       </div>
 
+      {actionError && <div role="alert">{actionError}</div>}
       {loadError ? (
         <Card icon={<Icon name="proxies" />} iconColor="var(--accent)" title="节点列表" flush>
           <div className="empty">{loadError}</div>
@@ -268,8 +303,10 @@ export default function Proxies() {
                     <button
                       key={n.name}
                       className={sel ? 'node sel' : 'node'}
+                      aria-busy={selecting.has(g.name)}
+                      aria-pressed={isVirtualGroup ? undefined : sel}
                       onClick={isVirtualGroup ? undefined : () => void handleSelect(g.name, n.name)}
-                      onDoubleClick={() => void testNode(g.name, n.name)}
+                      onDoubleClick={() => void testNode(n.name)}
                       title={isVirtualGroup ? '双击测速' : '单击切换 · 双击测速'}
                       style={isVirtualGroup ? { cursor: 'default' } : undefined}
                     >
@@ -281,7 +318,7 @@ export default function Proxies() {
                       )}
                       <div className="meta">
                         <span className="chip">{n.type}</span>
-                        {renderDelay(g.name, n)}
+                        {renderDelay(n)}
                       </div>
                     </button>
                   )

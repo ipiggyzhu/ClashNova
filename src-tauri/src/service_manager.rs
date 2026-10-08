@@ -2,7 +2,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::sync::{Mutex, Notify};
 
-use crate::state::AppState;
+use crate::state::Dirs;
 
 /// 服务状态
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -82,27 +82,41 @@ impl ServiceManager {
         max_retries: usize,
         retry_delay: std::time::Duration,
     ) -> Result<(), String> {
+        let budget = retry_delay.saturating_mul(max_retries.min(u32::MAX as usize) as u32);
+        let deadline = std::time::Instant::now() + budget;
         let mut last_error: Option<String> = None;
         for i in 0..max_retries {
-            match tokio::task::spawn_blocking(nova_service_ipc::connect).await {
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            if remaining.is_zero() {
+                break;
+            }
+            let config = nova_service_ipc::IpcConfig {
+                default_timeout: remaining.min(std::time::Duration::from_secs(2)),
+                max_retries: 0,
+                ..Default::default()
+            };
+            match tokio::task::spawn_blocking(move || {
+                nova_service_ipc::IpcClient::new(config).connect()
+            })
+            .await
+            {
                 Ok(Ok(())) => {
                     log::info!("IPC 连接成功");
                     return Ok(());
                 }
-                Ok(Err(e)) => {
-                    let message = e.to_string();
-                    log::warn!("IPC 连接失败 ({}/{}): {}", i + 1, max_retries, message);
-                    last_error = Some(message);
+                Ok(Err(err)) => {
+                    last_error = Some(err.to_string());
                 }
-                Err(e) => {
-                    let message = e.to_string();
-                    log::warn!("IPC 连接任务失败 ({}/{}): {}", i + 1, max_retries, message);
-                    last_error = Some(message);
+                Err(err) => {
+                    last_error = Some(format!("IPC 连接任务失败: {err}"));
                 }
             }
-
-            if i < max_retries - 1 {
-                tokio::time::sleep(retry_delay).await;
+            log::debug!("等待 IPC 就绪 ({}/{})", i + 1, max_retries);
+            if i + 1 < max_retries {
+                tokio::time::sleep(
+                    retry_delay.min(deadline.saturating_duration_since(std::time::Instant::now())),
+                )
+                .await;
             }
         }
 
@@ -182,7 +196,7 @@ impl ServiceManager {
 
             // 尝试通过全局管理器修复
             let manager = get_service_manager();
-            tokio::spawn(async move {
+            tauri::async_runtime::spawn(async move {
                 if let Err(e) = manager.handle_unhealthy().await {
                     log::error!("服务修复失败: {}", e);
                 }
@@ -192,6 +206,15 @@ impl ServiceManager {
 
     /// 处理服务不健康
     async fn handle_unhealthy(&self) -> Result<(), String> {
+        self.run_operation(self.handle_unhealthy_inner()).await
+    }
+
+    async fn handle_unhealthy_inner(&self) -> Result<(), String> {
+        if crate::service::status() != "installed" {
+            nova_service_ipc::stop_health_check();
+            self.set_status(ServiceStatus::InstallRequired).await;
+            return Ok(());
+        }
         log::warn!("检测到服务不健康，开始诊断");
 
         // 检查服务是否还在运行
@@ -265,6 +288,7 @@ impl ServiceManager {
                 log::warn!("刷新时检测到服务版本不匹配，需要重装");
                 self_ref.set_status(ServiceStatus::NeedsReinstall).await;
             } else {
+                self_ref.start_health_check();
                 self_ref.set_status(ServiceStatus::Ready).await;
             }
 
@@ -291,12 +315,12 @@ impl ServiceManager {
             }
 
             ServiceStatus::InstallRequired => {
+                nova_service_ipc::stop_health_check();
                 log::info!("开始安装服务");
 
                 // 使用独立安装程序安装服务
-                let config_dir = AppState::init()
+                let config_dir = Dirs::resolve()
                     .map_err(|e| format!("获取配置目录失败: {}", e))?
-                    .dirs
                     .config;
 
                 crate::service_installer::install_with_installer(&config_dir).await?;
@@ -315,11 +339,13 @@ impl ServiceManager {
                         .await;
                 }
 
+                self.start_health_check();
                 self.set_status(ServiceStatus::Ready).await;
                 Ok(())
             }
 
             ServiceStatus::NeedsReinstall | ServiceStatus::ReinstallRequired => {
+                nova_service_ipc::stop_health_check();
                 log::info!("开始重装服务");
 
                 // 先卸载
@@ -333,9 +359,8 @@ impl ServiceManager {
 
                 // 再安装
                 log::info!("安装新服务");
-                let config_dir = AppState::init()
+                let config_dir = Dirs::resolve()
                     .map_err(|e| format!("获取配置目录失败: {}", e))?
-                    .dirs
                     .config;
 
                 crate::service_installer::install_with_installer(&config_dir).await?;
@@ -351,6 +376,7 @@ impl ServiceManager {
                     return Err("服务重装后版本仍不匹配".into());
                 }
 
+                self.start_health_check();
                 self.set_status(ServiceStatus::Ready).await;
                 Ok(())
             }
@@ -361,6 +387,7 @@ impl ServiceManager {
             }
 
             ServiceStatus::UninstallRequired => {
+                nova_service_ipc::stop_health_check();
                 log::info!("开始卸载服务");
 
                 if crate::service::status() == "installed" {
@@ -392,16 +419,23 @@ impl ServiceManager {
             return Err("已有操作正在进行".into());
         }
 
-        // 确保操作完成后释放锁
-        let operation_running = self.operation_running.clone();
-        let operation_done = self.operation_done.clone();
+        // future 被取消或任务异常退出时也必须释放标志, 避免永远卡在“已有操作”。
+        let _guard = OperationGuard {
+            running: &self.operation_running,
+            done: &self.operation_done,
+        };
+        operation.await
+    }
+}
 
-        let result = operation.await;
-
-        operation_running.store(false, Ordering::Release);
-        operation_done.notify_waiters();
-
-        result
+struct OperationGuard<'a> {
+    running: &'a AtomicBool,
+    done: &'a Notify,
+}
+impl Drop for OperationGuard<'_> {
+    fn drop(&mut self) {
+        self.running.store(false, Ordering::Release);
+        self.done.notify_waiters();
     }
 }
 
@@ -418,4 +452,30 @@ static SERVICE_MANAGER: once_cell::sync::Lazy<ServiceManager> =
 /// 获取全局服务管理器
 pub fn get_service_manager() -> &'static ServiceManager {
     &SERVICE_MANAGER
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn cancelled_operation_releases_the_operation_gate() {
+        let manager = Arc::new(ServiceManager::new());
+        let (started, waiting) = tokio::sync::oneshot::channel();
+        let worker = manager.clone();
+        let task = tokio::spawn(async move {
+            worker
+                .run_operation(async {
+                    let _ = started.send(());
+                    std::future::pending::<Result<(), String>>().await
+                })
+                .await
+        });
+        waiting.await.unwrap();
+        assert!(manager.operation_running.load(Ordering::Acquire));
+        task.abort();
+        let _ = task.await;
+        assert!(!manager.operation_running.load(Ordering::Acquire));
+        assert!(manager.run_operation(async { Ok(()) }).await.is_ok());
+    }
 }

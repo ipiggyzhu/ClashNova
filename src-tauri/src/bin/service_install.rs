@@ -73,12 +73,17 @@ fn expected_service_binary_path() -> PathBuf {
 }
 
 #[cfg(windows)]
-fn service_matches_expected(service: &windows_service::service::Service) -> bool {
+fn service_matches_expected(
+    service: &windows_service::service::Service,
+    config_dir: &Path,
+) -> bool {
     match service.query_config() {
         Ok(config) => {
             let expected = service_paths::normalized_path(&expected_service_binary_path());
             let (registered_exe, registered_args) = split_launch_command(&config.executable_path);
-            registered_exe == expected && registered_args.contains("--dir")
+            registered_exe == expected
+                && registered_args.contains("--dir")
+                && service_paths::service_config_matches(&config.executable_path, config_dir)
         }
         Err(_) => false,
     }
@@ -263,7 +268,7 @@ fn install_or_repair(config_dir: &Path) -> Result<(), String> {
         | ServiceAccess::CHANGE_CONFIG;
 
     if let Ok(service) = manager.open_service(SERVICE_NAME, service_access) {
-        if !service_matches_expected(&service) {
+        if !service_matches_expected(&service, config_dir) {
             log::warn!("existing service points to a stale path; recreating it");
             let _ = service.stop();
             let _ = wait_until_stopped(&service);
