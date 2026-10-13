@@ -91,11 +91,12 @@ export async function runMediaBrowser(browser, base) {
       await page.getByRole('link', { name: '仪表盘', exact: true }).click()
       await page.waitForFunction(() => window.__mediaFixture.cancels.length === 1)
       await page.getByRole('link', { name: '测试', exact: true }).click()
+      const card = page.locator('.media-check')
+      await card.waitFor()
       await page.evaluate(() => {
         window.__mediaFixture.report.results[0].detail = 'late-unmount-report'
         window.__mediaFixture.resolve(window.__mediaFixture.report)
       })
-      const card = page.locator('.media-check')
       assert.equal(await card.getByText('未检测', { exact: true }).count(), 3)
       assert.equal(await card.getByText('late-unmount-report').count(), 0)
     })
