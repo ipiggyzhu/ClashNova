@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { Outlet } from 'react-router-dom'
 import Sidebar from './components/layout/Sidebar'
 import Topbar from './components/layout/Topbar'
+import ProtocolImport from './components/ProtocolImport'
 import { useAppStore, watchSystemTheme } from './stores/app'
 import { isMock } from './services/ipc'
 import { useNotificationStore } from './stores/notifications'
@@ -69,6 +70,7 @@ export default function App() {
   return (
     <div className="app">
       <Sidebar />
+      <ProtocolImport />
       <div className="main">
         <Topbar />
         <div className="content">

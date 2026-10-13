@@ -21,6 +21,10 @@ pub struct AppSettings {
     pub guard_interval_sec: u64,
     pub bypass: String,
     pub tun: bool,
+    #[serde(default)]
+    pub tun_options: nova_core::TunOptions,
+    #[serde(default)]
+    pub lightweight_on_close: bool,
     pub autostart: bool,
     pub silent_start: bool,
     pub mixed_port: u16,
@@ -65,10 +69,32 @@ pub struct AppSettings {
     pub use_hosts: bool,
     #[serde(default)]
     pub use_system_hosts: bool,
+    /* ---- 测速与内核高级项 ---- */
+    #[serde(default = "default_delay_test_url")]
+    pub delay_test_url: String,
+    #[serde(default = "default_delay_test_timeout")]
+    pub delay_test_timeout: u32,
+    #[serde(default = "default_true")]
+    pub auto_close_connections: bool,
+    /// true 时强制 unified-delay: true;false 时沿用订阅。
+    #[serde(default)]
+    pub unified_delay: bool,
+    /// 空串沿用订阅(缺省 strict);否则覆写为 strict / always / off。
+    #[serde(default)]
+    pub find_process_mode: String,
+    /// true 时开启域名嗅探, 订阅未写的嗅探项补默认值;false 时沿用订阅。
+    #[serde(default)]
+    pub sniffer: bool,
 }
 
 fn default_language() -> String {
     "zh".into()
+}
+fn default_delay_test_url() -> String {
+    "https://www.gstatic.com/generate_204".into()
+}
+fn default_delay_test_timeout() -> u32 {
+    5000
 }
 fn default_true() -> bool {
     true
@@ -94,6 +120,8 @@ impl Default for AppSettings {
             guard_interval_sec: 30,
             bypass: "localhost;127.*;192.168.*;10.*;172.16.*;<local>".into(),
             tun: false,
+            tun_options: nova_core::TunOptions::default(),
+            lightweight_on_close: false,
             autostart: false,
             silent_start: false,
             mixed_port: 7897,
@@ -120,6 +148,12 @@ impl Default for AppSettings {
             respect_rules: false,
             use_hosts: false,
             use_system_hosts: false,
+            delay_test_url: default_delay_test_url(),
+            delay_test_timeout: default_delay_test_timeout(),
+            auto_close_connections: true,
+            unified_delay: false,
+            find_process_mode: String::new(),
+            sniffer: false,
         }
     }
 }
@@ -140,6 +174,7 @@ impl AppSettings {
                 self.log_level.clone()
             },
             tun_enable: self.tun,
+            tun_options: self.tun_options.clone(),
             dns_override: self.dns_override.clone(),
             hosts: self.hosts.clone(),
             enable_dns: self.enable_dns,
@@ -152,6 +187,9 @@ impl AppSettings {
             respect_rules: self.respect_rules,
             use_hosts: self.use_hosts,
             use_system_hosts: self.use_system_hosts,
+            unified_delay: self.unified_delay,
+            find_process_mode: self.find_process_mode.clone(),
+            sniffer: self.sniffer,
         }
     }
 }

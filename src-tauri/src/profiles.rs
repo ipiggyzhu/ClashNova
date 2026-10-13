@@ -6,9 +6,17 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager};
 
-use crate::state::{atomic_write, now_millis, AppState, FileTransaction};
+use crate::state::{atomic_write, now_millis, AppSettings, AppState, FileTransaction};
 
-const USER_AGENT: &str = "ClashNova/2.0 clash-verge-compatible clash-meta";
+#[path = "profile_options.rs"]
+mod options;
+#[path = "profile_topology.rs"]
+mod topology;
+pub use options::{resolve_import_url, DownloadProxy, ImportSource, ProfileDownloadOptions};
+pub use topology::ProfileTopology;
+
+const GLOBAL_ENHANCER_ID: &str = "__global__";
+const MAX_SUBSCRIPTION_BYTES: usize = 16 * 1024 * 1024;
 const BUILTIN_PRUNE_ENHANCER_ID: &str = "builtin-prune-invalid-nodes";
 const BUILTIN_PRUNE_ENHANCER_NAME: &str = "内置：去除无效节点";
 const BUILTIN_PRUNE_SCRIPT: &str = r#"// 去除名称里明显不是节点的项目，并同步清理策略组和订阅提供者引用。
@@ -64,6 +72,8 @@ pub struct ProfileMeta {
     pub updated_at: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub auto_update_min: Option<u32>,
+    #[serde(default)]
+    pub download_options: ProfileDownloadOptions,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub size_bytes: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -221,7 +231,7 @@ fn parse_userinfo(header: &str) -> Option<ProfileQuota> {
             "upload" => upload = v,
             "download" => download = v,
             "total" => total = v,
-            "expire" if v > 0 => expire = Some(v * 1000), // 秒 → 毫秒
+            "expire" if v > 0 => expire = Some(v.saturating_mul(1000)), // 秒 → 毫秒
             _ => {}
         }
     }
@@ -229,7 +239,7 @@ fn parse_userinfo(header: &str) -> Option<ProfileQuota> {
         return None;
     }
     Some(ProfileQuota {
-        used: upload + download,
+        used: upload.saturating_add(download),
         total,
         expire_at: expire,
     })
@@ -343,28 +353,85 @@ fn base36(mut n: u64) -> String {
     String::from_utf8(out).expect("base36 总是合法 ASCII")
 }
 
-/// 下载并导入订阅, 返回新 ProfileMeta。
-pub async fn import(app: &AppHandle, url: String) -> Result<ProfileMeta, String> {
-    let client = reqwest::Client::builder()
-        .user_agent(USER_AGENT)
-        .timeout(Duration::from_secs(30))
+struct DownloadedProfile {
+    content: String,
+    name: Option<String>,
+    quota: Option<ProfileQuota>,
+    interval_min: Option<u32>,
+}
+
+fn system_download_builder(
+    builder: reqwest::ClientBuilder,
+) -> Result<reqwest::ClientBuilder, String> {
+    #[cfg(windows)]
+    {
+        use winreg::{
+            enums::{HKEY_CURRENT_USER, KEY_READ},
+            RegKey,
+        };
+        let key = RegKey::predef(HKEY_CURRENT_USER).open_subkey_with_flags(
+            "Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings",
+            KEY_READ,
+        );
+        let key = match key {
+            Ok(key) => key,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(builder),
+            Err(error) => return Err(format!("读取 Windows 系统代理失败: {error}")),
+        };
+        if key.get_value::<u32, _>("ProxyEnable").unwrap_or(0) != 0 {
+            let server = key
+                .get_value::<String, _>("ProxyServer")
+                .map_err(|_| "Windows 系统代理缺少地址")?;
+            let bypass = key
+                .get_value::<String, _>("ProxyOverride")
+                .unwrap_or_default();
+            let routes = options::system_proxy_routes(&server)?;
+            return Ok(builder.proxy(reqwest::Proxy::custom(move |url| {
+                if options::system_proxy_bypassed(url, &bypass) {
+                    None
+                } else {
+                    routes.get(url.scheme()).cloned()
+                }
+            })));
+        }
+    }
+    Ok(builder)
+}
+
+async fn download_profile(
+    url: &str,
+    options: &ProfileDownloadOptions,
+    core_port: u16,
+) -> Result<DownloadedProfile, String> {
+    options.validate()?;
+    let mut builder = reqwest::Client::builder()
+        .user_agent(options.user_agent())
+        .timeout(Duration::from_secs(u64::from(options.timeout_sec)));
+    builder = match options.proxy {
+        DownloadProxy::System => system_download_builder(builder)?,
+        DownloadProxy::Direct => builder.no_proxy(),
+        DownloadProxy::Core => builder.proxy(
+            reqwest::Proxy::all(format!("http://127.0.0.1:{core_port}"))
+                .map_err(|e| format!("构建内核下载代理失败: {}", e.without_url()))?,
+        ),
+    };
+    let client = builder
         .build()
-        .map_err(|e| format!("构建 HTTP 客户端失败: {e}"))?;
-    let resp = client
-        .get(&url)
+        .map_err(|e| format!("构建 HTTP 客户端失败: {}", e.without_url()))?;
+    let mut resp = client
+        .get(url)
         .send()
         .await
-        .map_err(|e| format!("下载订阅失败: {e}"))?;
+        .map_err(|e| format!("下载订阅失败: {}", e.without_url()))?;
     if !resp.status().is_success() {
         return Err(format!("下载订阅失败: HTTP {}", resp.status()));
     }
-
     let quota = resp
         .headers()
         .get("subscription-userinfo")
         .and_then(|v| v.to_str().ok())
         .and_then(parse_userinfo);
-    let disp_name = resp
+    let name = resp
         .headers()
         .get("content-disposition")
         .and_then(|v| v.to_str().ok())
@@ -375,15 +442,68 @@ pub async fn import(app: &AppHandle, url: String) -> Result<ProfileMeta, String>
                 .to_string()
         });
 
-    let raw = resp
-        .text()
+    let interval_min = options
+        .update_interval_from_header
+        .then(|| {
+            options::header_update_minutes(
+                resp.headers()
+                    .get("profile-update-interval")
+                    .and_then(|value| value.to_str().ok()),
+            )
+        })
+        .flatten();
+    if resp
+        .content_length()
+        .is_some_and(|size| size > MAX_SUBSCRIPTION_BYTES as u64)
+    {
+        return Err("订阅超过 16 MiB 大小限制".into());
+    }
+    let mut body = Vec::new();
+    while let Some(chunk) = resp
+        .chunk()
         .await
-        .map_err(|e| format!("读取订阅失败: {e}"))?;
-    let content = normalize_content(&raw)?;
+        .map_err(|e| format!("读取订阅失败: {}", e.without_url()))?
+    {
+        if body.len().saturating_add(chunk.len()) > MAX_SUBSCRIPTION_BYTES {
+            return Err("订阅超过 16 MiB 大小限制".into());
+        }
+        body.extend_from_slice(&chunk);
+    }
+    let raw = String::from_utf8(body).map_err(|_| "订阅不是有效的 UTF-8 文本")?;
+    Ok(DownloadedProfile {
+        content: normalize_content(&raw)?,
+        name,
+        quota,
+        interval_min,
+    })
+}
 
-    let name = disp_name
+/// 下载并导入订阅，兼容浏览器分享协议和显式下载选项。
+pub async fn import(
+    app: &AppHandle,
+    url: String,
+    options: Option<ProfileDownloadOptions>,
+) -> Result<ProfileMeta, String> {
+    let source: ImportSource = resolve_import_url(&url)?;
+    let options = options.unwrap_or_default();
+    let downloaded = download_profile(
+        &source.url,
+        &options,
+        app.state::<AppState>().settings_snapshot().mixed_port,
+    )
+    .await?;
+    let content = downloaded.content;
+    let url = source.url;
+
+    let name = source
+        .name
+        .or(downloaded.name)
         .filter(|s| !s.is_empty())
-        .or_else(|| url::host(&url).map(|h| h.to_string()))
+        .or_else(|| {
+            reqwest::Url::parse(&url)
+                .ok()
+                .and_then(|url| url.host_str().map(str::to_string))
+        })
         .unwrap_or_else(|| "新订阅".into());
 
     let transaction_state = app.state::<AppState>();
@@ -410,9 +530,10 @@ pub async fn import(app: &AppHandle, url: String) -> Result<ProfileMeta, String>
             kind: "remote".into(),
             url: Some(url),
             updated_at: now_millis(),
-            auto_update_min: Some(1440),
+            auto_update_min: Some(downloaded.interval_min.unwrap_or(1440)),
+            download_options: options,
             size_bytes: Some(content.len() as u64),
-            quota,
+            quota: downloaded.quota,
             current: first,
             builtin_enhancers_seeded: true,
             enhancers: vec![builtin_prune],
@@ -478,6 +599,7 @@ pub async fn import_file(
             url: Some(name),
             updated_at: now_millis(),
             auto_update_min: None,
+            download_options: ProfileDownloadOptions::default(),
             size_bytes: Some(content.len() as u64),
             quota: None,
             current: first,
@@ -515,29 +637,15 @@ pub async fn update(app: &AppHandle, id: String) -> Result<ProfileMeta, String> 
         .clone()
         .ok_or_else(|| "本地配置不支持远程更新".to_string())?;
 
-    let client = reqwest::Client::builder()
-        .user_agent(USER_AGENT)
-        .timeout(Duration::from_secs(30))
-        .build()
-        .map_err(|e| format!("构建 HTTP 客户端失败: {e}"))?;
-    let resp = client
-        .get(&url)
-        .send()
-        .await
-        .map_err(|e| format!("下载订阅失败: {e}"))?;
-    if !resp.status().is_success() {
-        return Err(format!("下载订阅失败: HTTP {}", resp.status()));
-    }
-    let quota = resp
-        .headers()
-        .get("subscription-userinfo")
-        .and_then(|v| v.to_str().ok())
-        .and_then(parse_userinfo);
-    let raw = resp
-        .text()
-        .await
-        .map_err(|e| format!("读取订阅失败: {e}"))?;
-    let content = normalize_content(&raw)?;
+    let source = resolve_import_url(&url)?;
+    let options = meta.download_options.clone();
+    let downloaded = download_profile(
+        &source.url,
+        &options,
+        app.state::<AppState>().settings_snapshot().mixed_port,
+    )
+    .await?;
+    let content = downloaded.content;
 
     let transaction_state = app.state::<AppState>();
     let _configuration = transaction_state.config_lock.lock().await;
@@ -554,13 +662,17 @@ pub async fn update(app: &AppHandle, id: String) -> Result<ProfileMeta, String> 
             .iter_mut()
             .find(|p| p.id == id)
             .ok_or_else(|| format!("订阅不存在: {id}"))?;
-        if slot.url.as_deref() != Some(url.as_str()) {
-            return Err("下载期间订阅地址已改变，请重新更新".into());
+        if slot.url.as_deref() != Some(url.as_str()) || slot.download_options != options {
+            return Err("下载期间订阅地址或下载选项已改变，请重新更新".into());
         }
         slot.updated_at = now_millis();
         slot.size_bytes = Some(content.len() as u64);
-        if quota.is_some() {
-            slot.quota = quota;
+        if downloaded.quota.is_some() {
+            slot.quota = downloaded.quota;
+        }
+        // 用户关闭自动更新后，手动刷新不得被服务端响应头重新开启。
+        if slot.auto_update_min.is_some() && downloaded.interval_min.is_some() {
+            slot.auto_update_min = downloaded.interval_min;
         }
         let updated = slot.clone();
         let is_current = slot.current;
@@ -583,6 +695,7 @@ pub async fn update_meta(
     name: String,
     url: Option<String>,
     auto_update_min: Option<u32>,
+    download_options: Option<ProfileDownloadOptions>,
 ) -> Result<ProfileMeta, String> {
     let transaction_state = app.state::<AppState>();
     let _configuration = transaction_state.config_lock.lock().await;
@@ -602,16 +715,18 @@ pub async fn update_meta(
             .find(|p| p.id == id)
             .ok_or_else(|| format!("订阅不存在: {id}"))?;
 
-        let next_url = url
+        let mut next_url = url
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty());
         if slot.kind == "remote" {
             let Some(remote_url) = next_url.as_deref() else {
                 return Err("远程订阅 URL 不能为空".into());
             };
-            if remote_url.chars().any(char::is_whitespace) {
-                return Err("订阅 URL 不能包含空白字符".into());
-            }
+            next_url = Some(resolve_import_url(remote_url)?.url);
+        }
+        if let Some(options) = download_options {
+            options.validate()?;
+            slot.download_options = options;
         }
 
         slot.name = name;
@@ -696,6 +811,27 @@ pub fn read_content(app: &AppHandle, id: &str) -> Result<String, String> {
     fs::read_to_string(state.dirs.profile_file(id)).map_err(|e| format!("读取订阅失败: {e}"))
 }
 
+pub fn read_profile_topology(app: &AppHandle, id: &str) -> Result<ProfileTopology, String> {
+    topology::read_topology(read_content(app, id)?)
+}
+
+pub async fn save_profile_topology(
+    app: &AppHandle,
+    id: String,
+    original_content: String,
+    proxies: Vec<serde_json::Value>,
+    groups: Vec<serde_json::Value>,
+    renames: Option<std::collections::HashMap<String, String>>,
+) -> Result<(), String> {
+    let content = topology::write_topology(
+        &original_content,
+        proxies,
+        groups,
+        &renames.unwrap_or_default(),
+    )?;
+    save_content_checked(app, id, content, Some(original_content)).await
+}
+
 pub fn list_rule_targets(app: &AppHandle, id: &str) -> Result<Vec<String>, String> {
     let index = load_index(app)?;
     let meta = index
@@ -703,11 +839,16 @@ pub fn list_rule_targets(app: &AppHandle, id: &str) -> Result<Vec<String>, Strin
         .find(|p| p.id == id)
         .ok_or_else(|| format!("订阅不存在: {id}"))?;
     let profile_yaml = read_content(app, &meta.id)?;
-    let enhanced = if meta.enhancers.iter().any(|e| e.enabled) {
-        apply_enhancers(app, meta, &profile_yaml)?
-    } else {
-        profile_yaml
-    };
+    let state = app.state::<AppState>();
+    let enhanced = apply_enhancers(
+        Some(meta),
+        &list_global_enhancers(app)?,
+        &profile_yaml,
+        |file| {
+            fs::read_to_string(state.dirs.profiles.join(file))
+                .map_err(|err| format!("读取增强项失败: {err}"))
+        },
+    )?;
     let root = serde_yaml::from_str::<serde_yaml::Value>(&enhanced)
         .map_err(|e| format!("YAML 语法错误: {e}"))?;
 
@@ -760,6 +901,15 @@ fn push_rule_target(targets: &mut Vec<String>, value: &str) {
 
 /// 校验 YAML 后写回订阅内容;当前项则重生成并热加载。
 pub async fn save_content(app: &AppHandle, id: String, content: String) -> Result<(), String> {
+    save_content_checked(app, id, content, None).await
+}
+
+async fn save_content_checked(
+    app: &AppHandle,
+    id: String,
+    content: String,
+    original: Option<String>,
+) -> Result<(), String> {
     let transaction_state = app.state::<AppState>();
     let _configuration = transaction_state.config_lock.lock().await;
     let mut transaction = FileTransaction::capture(&[
@@ -771,6 +921,11 @@ pub async fn save_content(app: &AppHandle, id: String, content: String) -> Resul
             .map_err(|e| format!("YAML 语法错误: {e}"))?;
         if !load_index(app)?.iter().any(|profile| profile.id == id) {
             return Err(format!("订阅不存在: {id}"));
+        }
+        if let Some(original) = &original {
+            if read_content(app, &id)? != *original {
+                return Err("编辑期间订阅已更新，请重新打开编辑器后再保存".into());
+            }
         }
         let state = app.state::<AppState>();
         transaction.write(&state.dirs.profile_file(&id), content.as_bytes())?;
@@ -786,6 +941,27 @@ pub async fn save_content(app: &AppHandle, id: String, content: String) -> Resul
         if is_current {
             regenerate_runtime_async(app).await?;
             crate::core::reload_runtime(app).await?;
+        } else if original.is_some() {
+            // 可视化编辑未启用的订阅也做同一套内核语义检查，但不切换当前订阅。
+            for profile in &mut index {
+                profile.current = profile.id == id;
+            }
+            let app = app.clone();
+            tauri::async_runtime::spawn_blocking(move || {
+                let state = app.state::<AppState>();
+                let runtime = build_runtime_from_files(
+                    &state.settings_snapshot(),
+                    &index,
+                    &list_global_enhancers(&app)?,
+                    |file| {
+                        fs::read_to_string(state.dirs.profiles.join(file))
+                            .map_err(|error| format!("读取配置文件失败: {error}"))
+                    },
+                )?;
+                crate::core::validate_runtime(&app, &runtime)
+            })
+            .await
+            .map_err(|error| format!("验证节点与策略组任务失败: {error}"))??;
         }
         Ok(())
     }
@@ -800,23 +976,30 @@ pub fn regenerate_runtime(app: &AppHandle) -> Result<(), String> {
     let state = app.state::<AppState>();
     let settings = state.settings_snapshot();
     let index = load_index(app)?;
-    let current = index.iter().find(|p| p.current);
-    let profile_yaml = current
-        .map(|p| read_content(app, &p.id))
-        .transpose()?
-        .unwrap_or_else(|| "proxies: []\n".to_string());
-
-    let enhanced = match current {
-        Some(meta) if meta.enhancers.iter().any(|e| e.enabled) => {
-            apply_enhancers(app, meta, &profile_yaml)?
-        }
-        _ => profile_yaml,
-    };
-
-    let runtime = nova_core::build_runtime_config(&enhanced, &settings.to_overrides())
-        .map_err(|e| format!("生成运行时配置失败: {e}"))?;
+    let runtime =
+        build_runtime_from_files(&settings, &index, &list_global_enhancers(app)?, |file| {
+            fs::read_to_string(state.dirs.profiles.join(file))
+                .map_err(|err| format!("读取配置文件失败: {err}"))
+        })?;
     crate::core::validate_runtime(app, &runtime)?;
     atomic_write(&state.dirs.runtime_config(), runtime.as_bytes())
+}
+
+/// 运行时生成与备份恢复共用同一增强顺序；这里只读配置，不落盘或改动内核。
+pub fn build_runtime_from_files(
+    settings: &AppSettings,
+    index: &[ProfileMeta],
+    global: &[EnhancerMeta],
+    mut read: impl FnMut(&str) -> Result<String, String>,
+) -> Result<String, String> {
+    let current = index.iter().find(|p| p.current);
+    let profile_yaml = current
+        .map(|p| read(&format!("{}.yaml", p.id)))
+        .transpose()?
+        .unwrap_or_else(|| "proxies: []\n".to_string());
+    let enhanced = apply_enhancers(current, global, &profile_yaml, read)?;
+    nova_core::build_runtime_config(&enhanced, &settings.to_overrides())
+        .map_err(|e| format!("生成运行时配置失败: {e}"))
 }
 
 pub async fn regenerate_runtime_async(app: &AppHandle) -> Result<(), String> {
@@ -874,23 +1057,48 @@ pub fn spawn_updater(app: AppHandle) {
 /* ---------------- 配置增强链(M2) ---------------- */
 
 fn enhancer_file(state: &AppState, pid: &str, e: &EnhancerMeta) -> std::path::PathBuf {
+    state.dirs.profiles.join(enhancer_filename(pid, e))
+}
+
+fn enhancer_filename(pid: &str, e: &EnhancerMeta) -> String {
     let ext = if e.kind == "merge" { "yaml" } else { "js" };
-    state.dirs.profiles.join(format!("{pid}.{}.{ext}", e.id))
+    format!("{pid}.{}.{ext}", e.id)
+}
+
+fn global_enhancer_index(app: &AppHandle) -> std::path::PathBuf {
+    app.state::<AppState>()
+        .dirs
+        .profiles
+        .join("global-enhancers.json")
+}
+
+pub fn list_global_enhancers(app: &AppHandle) -> Result<Vec<EnhancerMeta>, String> {
+    match fs::read_to_string(global_enhancer_index(app)) {
+        Ok(content) => {
+            serde_json::from_str(&content).map_err(|err| format!("全局增强索引损坏: {err}"))
+        }
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
+        Err(err) => Err(format!("读取全局增强索引失败: {err}")),
+    }
 }
 
 /// 依序应用启用的增强项, 读取/解析/执行失败必须反馈给调用者。
 fn apply_enhancers(
-    app: &AppHandle,
-    meta: &ProfileMeta,
+    meta: Option<&ProfileMeta>,
+    global: &[EnhancerMeta],
     profile_yaml: &str,
+    mut read: impl FnMut(&str) -> Result<String, String>,
 ) -> Result<String, String> {
-    let state = app.state::<AppState>();
     let mut base = serde_yaml::from_str::<serde_yaml::Value>(profile_yaml)
         .map_err(|err| format!("订阅 YAML 无效: {err}"))?;
-    let mut enabled_enhancers: Vec<&EnhancerMeta> =
-        meta.enhancers.iter().filter(|e| e.enabled).collect();
+    let mut enabled_enhancers: Vec<(&str, &EnhancerMeta)> = meta
+        .into_iter()
+        .flat_map(|meta| meta.enhancers.iter().map(move |e| (meta.id.as_str(), e)))
+        .chain(global.iter().map(|e| (GLOBAL_ENHANCER_ID, e)))
+        .filter(|(_, e)| e.enabled)
+        .collect();
     // Cleanup enhancers should see the final config produced by user scripts.
-    enabled_enhancers.sort_by_key(|e| {
+    enabled_enhancers.sort_by_key(|(_, e)| {
         if e.id == BUILTIN_PRUNE_ENHANCER_ID {
             1
         } else {
@@ -898,9 +1106,8 @@ fn apply_enhancers(
         }
     });
 
-    for e in enabled_enhancers {
-        let path = enhancer_file(&state, &meta.id, e);
-        let content = fs::read_to_string(&path)
+    for (pid, e) in enabled_enhancers {
+        let content = read(&enhancer_filename(pid, e))
             .map_err(|err| format!("增强项 {} 读取失败: {err}", e.name))?;
         let item = if e.kind == "merge" {
             nova_core::EnhancerItem::Merge(
@@ -916,15 +1123,66 @@ fn apply_enhancers(
     serde_yaml::to_string(&base).map_err(|err| format!("序列化增强结果失败: {err}"))
 }
 
+/// 局部与全局增强共用 CRUD 和事务，避免两套编辑流程漂移。
+enum EnhancerScope {
+    Global(Vec<EnhancerMeta>),
+    Profile {
+        index: Vec<ProfileMeta>,
+        position: usize,
+    },
+}
+
+impl EnhancerScope {
+    fn load(app: &AppHandle, pid: &str) -> Result<Self, String> {
+        if pid == GLOBAL_ENHANCER_ID {
+            return Ok(Self::Global(list_global_enhancers(app)?));
+        }
+        let index = load_index(app)?;
+        let position = index
+            .iter()
+            .position(|p| p.id == pid)
+            .ok_or_else(|| format!("订阅不存在: {pid}"))?;
+        Ok(Self::Profile { index, position })
+    }
+
+    fn entries(&self) -> &Vec<EnhancerMeta> {
+        match self {
+            Self::Global(entries) => entries,
+            Self::Profile { index, position } => &index[*position].enhancers,
+        }
+    }
+
+    fn entries_mut(&mut self) -> &mut Vec<EnhancerMeta> {
+        match self {
+            Self::Global(entries) => entries,
+            Self::Profile { index, position } => &mut index[*position].enhancers,
+        }
+    }
+
+    fn affects_runtime(&self) -> bool {
+        match self {
+            Self::Global(_) => true,
+            Self::Profile { index, position } => index[*position].current,
+        }
+    }
+
+    fn save(&self, app: &AppHandle) -> Result<(), String> {
+        match self {
+            Self::Global(entries) => {
+                let json = serde_json::to_vec_pretty(entries)
+                    .map_err(|err| format!("序列化增强索引失败: {err}"))?;
+                atomic_write(&global_enhancer_index(app), &json)
+            }
+            Self::Profile { index, .. } => save_index(app, index),
+        }
+    }
+}
+
 /// 读取增强项内容; 缺失/不可读时明确报错, 不用空字符串覆盖原配置。
 pub fn read_enhancer(app: &AppHandle, pid: &str, eid: &str) -> Result<String, String> {
-    let index = load_index(app)?;
-    let meta = index
-        .iter()
-        .find(|p| p.id == pid)
-        .ok_or_else(|| format!("订阅不存在: {pid}"))?;
-    let e = meta
-        .enhancers
+    let scope = EnhancerScope::load(app, pid)?;
+    let e = scope
+        .entries()
         .iter()
         .find(|e| e.id == eid)
         .ok_or_else(|| format!("增强项不存在: {eid}"))?;
@@ -948,6 +1206,7 @@ pub async fn save_enhancer(
     let mut transaction = FileTransaction::capture(&[
         transaction_state.dirs.profiles_index(),
         transaction_state.dirs.runtime_config(),
+        global_enhancer_index(app),
     ])?;
     let result = async {
         if !matches!(kind.as_str(), "merge" | "script") {
@@ -958,19 +1217,17 @@ pub async fn save_enhancer(
                 .map_err(|e| format!("Merge YAML 语法错误: {e}"))?;
         }
 
-        let mut index = load_index(app)?;
-        let slot = index
-            .iter_mut()
-            .find(|p| p.id == pid)
-            .ok_or_else(|| format!("订阅不存在: {pid}"))?;
-
+        let mut scope = EnhancerScope::load(app, &pid)?;
+        let entries = scope.entries_mut();
         let meta = match eid {
             Some(eid) => {
-                let e = slot
-                    .enhancers
+                let e = entries
                     .iter_mut()
                     .find(|e| e.id == eid)
                     .ok_or_else(|| format!("增强项不存在: {eid}"))?;
+                if e.kind != kind {
+                    return Err("已有增强项的类型不能改变，请新建对应类型".into());
+                }
                 e.name = name;
                 e.clone()
             }
@@ -981,14 +1238,14 @@ pub async fn save_enhancer(
                     name,
                     enabled: true,
                 };
-                slot.enhancers.push(e.clone());
+                entries.push(e.clone());
                 e
             }
         };
-        let is_current = slot.current;
+        let is_current = scope.affects_runtime();
         let state = app.state::<AppState>();
         transaction.write(&enhancer_file(&state, &pid, &meta), content.as_bytes())?;
-        save_index(app, &index)?;
+        scope.save(app)?;
 
         if is_current {
             regenerate_runtime_async(app).await?;
@@ -1007,21 +1264,19 @@ pub async fn delete_enhancer(app: &AppHandle, pid: String, eid: String) -> Resul
     let mut transaction = FileTransaction::capture(&[
         transaction_state.dirs.profiles_index(),
         transaction_state.dirs.runtime_config(),
+        global_enhancer_index(app),
     ])?;
     let result = async {
-        let mut index = load_index(app)?;
-        let slot = index
-            .iter_mut()
-            .find(|p| p.id == pid)
-            .ok_or_else(|| format!("订阅不存在: {pid}"))?;
-        let Some(pos) = slot.enhancers.iter().position(|e| e.id == eid) else {
+        let mut scope = EnhancerScope::load(app, &pid)?;
+        let entries = scope.entries_mut();
+        let Some(pos) = entries.iter().position(|e| e.id == eid) else {
             return Err(format!("增强项不存在: {eid}"));
         };
-        let removed = slot.enhancers.remove(pos);
-        let is_current = slot.current;
+        let removed = entries.remove(pos);
+        let is_current = scope.affects_runtime();
         let state = app.state::<AppState>();
         transaction.remove(enhancer_file(&state, &pid, &removed))?;
-        save_index(app, &index)?;
+        scope.save(app)?;
 
         if is_current {
             regenerate_runtime_async(app).await?;
@@ -1045,21 +1300,18 @@ pub async fn toggle_enhancer(
     let mut transaction = FileTransaction::capture(&[
         transaction_state.dirs.profiles_index(),
         transaction_state.dirs.runtime_config(),
+        global_enhancer_index(app),
     ])?;
     let result = async {
-        let mut index = load_index(app)?;
-        let slot = index
-            .iter_mut()
-            .find(|p| p.id == pid)
-            .ok_or_else(|| format!("订阅不存在: {pid}"))?;
-        let e = slot
-            .enhancers
+        let mut scope = EnhancerScope::load(app, &pid)?;
+        let e = scope
+            .entries_mut()
             .iter_mut()
             .find(|e| e.id == eid)
             .ok_or_else(|| format!("增强项不存在: {eid}"))?;
         e.enabled = enabled;
-        let is_current = slot.current;
-        save_index(app, &index)?;
+        let is_current = scope.affects_runtime();
+        scope.save(app)?;
 
         if is_current {
             regenerate_runtime_async(app).await?;
@@ -1082,16 +1334,14 @@ pub async fn reorder_enhancers(
     let mut transaction = FileTransaction::capture(&[
         transaction_state.dirs.profiles_index(),
         transaction_state.dirs.runtime_config(),
+        global_enhancer_index(app),
     ])?;
     let result = async {
-        let mut index = load_index(app)?;
-        let slot = index
-            .iter_mut()
-            .find(|p| p.id == pid)
-            .ok_or_else(|| format!("订阅不存在: {pid}"))?;
+        let mut scope = EnhancerScope::load(app, &pid)?;
+        let entries = scope.entries_mut();
 
         // 验证所有 ID 都存在
-        if eids.len() != slot.enhancers.len() {
+        if eids.len() != entries.len() {
             return Err("增强项数量不匹配".into());
         }
 
@@ -1101,7 +1351,7 @@ pub async fn reorder_enhancers(
             if !unique_ids.insert(eid) {
                 return Err(format!("增强项 ID 重复: {eid}"));
             }
-            if !slot.enhancers.iter().any(|e| &e.id == eid) {
+            if !entries.iter().any(|e| &e.id == eid) {
                 return Err(format!("增强项不存在: {eid}"));
             }
         }
@@ -1109,13 +1359,13 @@ pub async fn reorder_enhancers(
         // 按新顺序重排
         let mut reordered = Vec::with_capacity(eids.len());
         for eid in &eids {
-            if let Some(enh) = slot.enhancers.iter().find(|e| &e.id == eid).cloned() {
+            if let Some(enh) = entries.iter().find(|e| &e.id == eid).cloned() {
                 reordered.push(enh);
             }
         }
-        slot.enhancers = reordered;
-        let is_current = slot.current;
-        save_index(app, &index)?;
+        *entries = reordered;
+        let is_current = scope.affects_runtime();
+        scope.save(app)?;
 
         if is_current {
             regenerate_runtime_async(app).await?;
@@ -1127,16 +1377,173 @@ pub async fn reorder_enhancers(
     finish_transaction(app, &mut transaction, result).await
 }
 
-/// 极小 URL host 提取(避免为取名引入 url crate)。
-mod url {
-    pub fn host(url: &str) -> Option<&str> {
-        let rest = url.split_once("//").map(|(_, r)| r).unwrap_or(url);
-        let host_port = rest.split(['/', '?', '#']).next()?;
-        let host = host_port.split('@').next_back()?.split(':').next()?;
-        if host.is_empty() {
-            None
-        } else {
-            Some(host)
-        }
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+
+    fn http_fixture(
+        status: &str,
+        headers: &str,
+        body: &str,
+    ) -> (u16, std::thread::JoinHandle<String>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let response = format!(
+            "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n{headers}\r\n{body}",
+            body.as_bytes().len()
+        );
+        let thread = std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            socket
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            let mut request = Vec::new();
+            let mut buffer = [0u8; 2048];
+            while !request.windows(4).any(|bytes| bytes == b"\r\n\r\n") {
+                let count = socket.read(&mut buffer).unwrap();
+                if count == 0 {
+                    break;
+                }
+                request.extend_from_slice(&buffer[..count]);
+            }
+            socket.write_all(response.as_bytes()).unwrap();
+            String::from_utf8(request).unwrap()
+        });
+        (port, thread)
+    }
+
+    #[tokio::test]
+    async fn downloads_use_custom_headers_and_server_update_interval() {
+        let (port, server) = http_fixture("200 OK", "profile-update-interval: 6\r\nsubscription-userinfo: upload=10; download=20; total=100; expire=1000\r\ncontent-disposition: attachment; filename=fixture.yaml\r\n", "proxies: []\n");
+        let options = ProfileDownloadOptions {
+            user_agent: Some("ClashNova-Fixture/1.0".into()),
+            proxy: DownloadProxy::Direct,
+            ..Default::default()
+        };
+        let downloaded = download_profile(
+            &format!("http://127.0.0.1:{port}/subscription"),
+            &options,
+            0,
+        )
+        .await
+        .unwrap();
+        assert_eq!(downloaded.interval_min, Some(360));
+        assert_eq!(downloaded.quota.unwrap().used, 30);
+        assert_eq!(downloaded.name.as_deref(), Some("fixture"));
+        assert!(server
+            .join()
+            .unwrap()
+            .to_lowercase()
+            .contains("user-agent: clashnova-fixture/1.0"));
+    }
+
+    #[tokio::test]
+    async fn core_download_proxy_routes_requests_and_manual_interval_is_preserved() {
+        let (port, server) =
+            http_fixture("200 OK", "profile-update-interval: 6\r\n", "proxies: []\n");
+        let options = ProfileDownloadOptions {
+            proxy: DownloadProxy::Core,
+            update_interval_from_header: false,
+            ..Default::default()
+        };
+        let downloaded =
+            download_profile("http://subscription.example.invalid/sub", &options, port)
+                .await
+                .unwrap();
+        assert!(server
+            .join()
+            .unwrap()
+            .starts_with("GET http://subscription.example.invalid/sub HTTP/1.1"));
+        assert_eq!(downloaded.interval_min, None);
+    }
+
+    #[tokio::test]
+    async fn failed_downloads_do_not_expose_subscription_queries() {
+        let (port, server) = http_fixture("503 Service Unavailable", "", "");
+        let options = ProfileDownloadOptions {
+            proxy: DownloadProxy::Direct,
+            ..Default::default()
+        };
+        let error = download_profile(
+            &format!("http://127.0.0.1:{port}/?token=fixture-private-value"),
+            &options,
+            0,
+        )
+        .await
+        .err()
+        .unwrap();
+        server.join().unwrap();
+        assert!(error.contains("503"));
+        assert!(!error.contains("fixture-private-value"));
+        let error = download_profile(
+            "http://127.0.0.1:0/?token=fixture-private-value",
+            &options,
+            0,
+        )
+        .await
+        .err()
+        .unwrap();
+        assert!(!error.contains("fixture-private-value"));
+    }
+
+    #[test]
+    fn global_enhancers_apply_after_profile_and_before_application_settings() {
+        let mut meta: ProfileMeta = serde_json::from_value(serde_json::json!({"id":"p", "name":"fixture", "kind":"local", "current":true, "updatedAt":0})).unwrap();
+        meta.enhancers.push(EnhancerMeta {
+            id: "local".into(),
+            kind: "merge".into(),
+            name: "local".into(),
+            enabled: true,
+        });
+        let global = vec![EnhancerMeta {
+            id: "shared".into(),
+            kind: "script".into(),
+            name: "shared".into(),
+            enabled: true,
+        }];
+        let files = std::collections::HashMap::from([
+            ("p.yaml", "proxies: []\nprofile-marker: original\n"),
+            ("p.local.yaml", "profile-marker: local\n"),
+            ("__global__.shared.js", "function main(config) { config['profile-marker'] += '-global'; config['mixed-port'] = 9999; return config; }"),
+        ]);
+        let settings = AppSettings::default();
+        let runtime = build_runtime_from_files(&settings, &[meta], &global, |file| {
+            files
+                .get(file)
+                .map(|content| content.to_string())
+                .ok_or_else(|| "missing fixture".into())
+        })
+        .unwrap();
+        let root: serde_yaml::Value = serde_yaml::from_str(&runtime).unwrap();
+        assert_eq!(root["profile-marker"].as_str(), Some("local-global"));
+        assert_eq!(
+            root["mixed-port"].as_u64(),
+            Some(settings.mixed_port as u64)
+        );
+    }
+
+    #[test]
+    fn global_enhancer_failure_is_reported_and_disabled_items_are_not_read() {
+        let mut enhancer = EnhancerMeta {
+            id: "missing".into(),
+            kind: "script".into(),
+            name: "fixture".into(),
+            enabled: true,
+        };
+        let error =
+            build_runtime_from_files(&AppSettings::default(), &[], &[enhancer.clone()], |_| {
+                Err("fixture file missing".into())
+            })
+            .unwrap_err();
+        assert!(error.contains("fixture file missing"));
+        enhancer.enabled = false;
+        assert!(
+            build_runtime_from_files(&AppSettings::default(), &[], &[enhancer], |_| panic!(
+                "disabled file read"
+            ))
+            .is_ok()
+        );
     }
 }

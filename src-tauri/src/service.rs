@@ -108,6 +108,13 @@ fn diagnose_registered_service() -> Option<String> {
 pub fn diagnose_installation() -> Result<(), String> {
     cleanup_stale_replacement_marker();
 
+    inspect_installation()
+}
+
+/// 供网络诊断读取；与启动检查不同，这里不清理文件或触发修复。
+#[cfg(windows)]
+pub(crate) fn inspect_installation() -> Result<(), String> {
+
     if status() != "installed" {
         return Ok(());
     }

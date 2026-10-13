@@ -110,6 +110,46 @@ test('log bursts batch notifications, cap storage, and keep stable unique IDs', 
   release()
 })
 
+test('closed connection history ignores baselines and disconnect snapshots, dedupes revived IDs and caps size', () => {
+  const { module } = loadSource('src/stores/live.ts', { '../services/ws': {
+    subscribeTraffic: () => () => {}, subscribeConnections: () => () => {},
+    subscribeMemory: () => () => {}, subscribeLogs: () => () => {},
+  } })
+  const store = module.useLiveStore
+  const conn = (id) => ({ id, metadata: { host: `${id}.test`, network: 'tcp' }, chains: ['DIRECT'], upload: 1, download: 2, start: '2026-10-10T00:00:00Z', curUp: 5, curDown: 6 })
+  const snap = (...ids) => ({ uploadTotal: 10, downloadTotal: 20, connections: ids.map(conn) })
+  const closedIds = () => plain(store.getState().closedConnections.map((c) => c.id))
+  const release = module.startLiveStreams(['connections'])
+
+  store.getState().setConnections(snap('a', 'b', 'c'))
+  assert.deepEqual(closedIds(), [], 'first snapshot only sets the baseline')
+  store.getState().setConnections(snap('a', 'c', 'd'))
+  assert.deepEqual(closedIds(), ['b'])
+  const closed = store.getState().closedConnections[0]
+  assert.equal(closed.curUp, 0)
+  assert.equal(typeof closed.closedAt, 'number')
+
+  store.getState().setConnections({ uploadTotal: 0, downloadTotal: 0, connections: [] })
+  assert.deepEqual(closedIds(), ['b'], 'disconnect snapshot is not treated as closing everything')
+  store.getState().setConnections(snap('b', 'x'))
+  assert.deepEqual(closedIds(), [], 'reconnect sets a new baseline and drops revived IDs')
+  store.getState().setConnections(snap('x'))
+  assert.deepEqual(closedIds(), ['b'])
+
+  release()
+  const again = module.startLiveStreams(['connections'])
+  store.getState().setConnections(snap('y'))
+  assert.deepEqual(closedIds(), ['b'], 'resubscribing starts from a fresh baseline')
+
+  const many = Array.from({ length: module.CLOSED_CAPACITY + 50 }, (_, i) => `m${i}`)
+  store.getState().setConnections(snap(...many))
+  store.getState().setConnections(snap())
+  assert.equal(store.getState().closedConnections.length, module.CLOSED_CAPACITY)
+  store.getState().clearClosedConnections()
+  assert.deepEqual(closedIds(), [])
+  again()
+})
+
 test('notification buffer bounds unread count after eviction', () => {
   const { useNotificationStore } = loadSource('src/stores/notifications.ts').module
   for (let i = 0; i < 250; i += 1) useNotificationStore.getState().add('info', `notice ${i}`, '')

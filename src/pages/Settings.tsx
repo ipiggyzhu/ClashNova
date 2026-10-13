@@ -6,17 +6,20 @@ import Card from '../components/ui/Card'
 import CodeEditor from '../components/ui/LazyCodeEditor'
 import Dialog from '../components/ui/Dialog'
 import DnsSettings from '../components/DnsSettings'
+import TunSettings from '../components/TunSettings'
+import BackupSettings from '../components/BackupSettings'
+import UpdateSettings from '../components/UpdateSettings'
 import HotkeyInput from '../components/HotkeyInput'
 import Icon from '../components/ui/Icon'
 import Input from '../components/ui/Input'
 import Seg from '../components/ui/Seg'
 import Toggle from '../components/ui/Toggle'
 import { useT } from '../i18n'
-import { updateGeo } from '../services/api'
+import { flushDnsCache, flushFakeIp, updateGeo } from '../services/api'
 import { call } from '../services/ipc'
 import { useAppStore } from '../stores/app'
 import { useNotificationStore } from '../stores/notifications'
-import type { AppSettings, Language, Theme, TunAdapterStatus } from '../types/clash'
+import type { AppSettings, FindProcessMode, Language, Theme, TunAdapterStatus } from '../types/clash'
 
 interface RowProps {
   title: string
@@ -48,7 +51,24 @@ const HOTKEY_ACTIONS = [
   { action: 'toggle-sysproxy', label: '切换系统代理' },
   { action: 'toggle-tun', label: '切换 TUN 模式' },
   { action: 'cycle-mode', label: '出站模式轮换' },
+  { action: 'mode-rule', label: '切换到规则模式' },
+  { action: 'mode-global', label: '切换到全局模式' },
+  { action: 'mode-direct', label: '切换到直连模式' },
+  { action: 'restart-core', label: '重启内核' },
 ]
+
+type ShellKind = 'bash' | 'cmd' | 'powershell'
+
+/** 终端代理环境变量(经混合端口) */
+function proxyEnvCommand(shell: ShellKind, port: number): string {
+  const url = `http://127.0.0.1:${port}`
+  if (shell === 'bash') return `export https_proxy=${url} http_proxy=${url} all_proxy=socks5://127.0.0.1:${port}`
+  if (shell === 'cmd') return `set http_proxy=${url}&& set https_proxy=${url}`
+  return `$env:HTTP_PROXY="${url}"; $env:HTTPS_PROXY="${url}"`
+}
+
+type NumberDraftKey = 'mixedPort' | 'guardIntervalSec' | 'delayTestTimeout'
+type TextDraftKey = 'externalController' | 'secret' | 'bypass' | 'delayTestUrl'
 
 /** 文本编辑抽屉(自定义 CSS / DNS 覆写 / 代理绕过) */
 interface DrawerState {
@@ -69,8 +89,6 @@ export default function Settings() {
   const loadAll = useAppStore((s) => s.loadAll)
   const core = useAppStore((s) => s.coreStatus)
   const restartCore = useAppStore((s) => s.restartCore)
-  const updateAvailable = useAppStore((s) => s.updateAvailable)
-  const checkUpdate = useAppStore((s) => s.checkUpdate)
   const notify = useNotificationStore((s) => s.add)
 
   /* 输入框本地草稿(失焦提交) */
@@ -85,7 +103,10 @@ export default function Settings() {
   const [busy, setBusy] = useState<string | null>(null)
   const busyRef = useRef<string | null>(null)
   const [confirmReset, setConfirmReset] = useState(false)
+  const [confirmService, setConfirmService] = useState<'install' | 'uninstall' | null>(null)
   const [showDnsSettings, setShowDnsSettings] = useState(false)
+  const [showTunSettings, setShowTunSettings] = useState(false)
+  const [showBackupSettings, setShowBackupSettings] = useState(false)
   const draftRef = useRef(draft)
   const draftSaveRef = useRef<Promise<boolean> | null>(null)
   const settingsRef = useRef(settings)
@@ -176,17 +197,23 @@ export default function Settings() {
     const keys: (keyof AppSettings)[] = []
     let validationError = ''
 
-    const commitNumberDraft = (key: 'mixedPort' | 'guardIntervalSec'): void => {
+    const commitNumberDraft = (key: NumberDraftKey): void => {
       const raw = currentDraft[key]
       if (raw === undefined) return
       keys.push(key)
       const n = Number(raw)
+      if (key === 'delayTestTimeout') {
+        if (!Number.isInteger(n) || n < 500 || n > 30_000) {
+          validationError = tRef.current('测速超时需在 500-30000 毫秒之间')
+        } else if (n !== currentSettings[key]) patch[key] = n
+        return
+      }
       if (!Number.isInteger(n) || n < 1 || n > 65535) {
         validationError = tRef.current('端口和守卫间隔需要是 1-65535 的整数')
       } else if (n !== currentSettings[key]) patch[key] = n
     }
 
-    const commitTextDraft = (key: 'externalController' | 'secret' | 'bypass'): void => {
+    const commitTextDraft = (key: TextDraftKey): void => {
       const raw = currentDraft[key]
       if (raw === undefined) return
       keys.push(key)
@@ -195,14 +222,20 @@ export default function Settings() {
         validationError = tRef.current('外部控制地址不能为空')
         return
       }
+      if (key === 'delayTestUrl' && !/^https?:\/\/\S+$/.test(value)) {
+        validationError = tRef.current('测速地址必须以 http:// 或 https:// 开头')
+        return
+      }
       if (value !== currentSettings[key]) patch[key] = value
     }
 
     commitNumberDraft('mixedPort')
     commitNumberDraft('guardIntervalSec')
+    commitNumberDraft('delayTestTimeout')
     commitTextDraft('externalController')
     commitTextDraft('secret')
     commitTextDraft('bypass')
+    commitTextDraft('delayTestUrl')
 
     if (validationError) {
       notifyRef.current('warning', tRef.current('设置未保存'), validationError)
@@ -244,17 +277,17 @@ export default function Settings() {
   const draftValue = (key: keyof AppSettings, fallback: string): string =>
     (draft[key] as string | undefined) ?? fallback
 
-  const commitNumber = (_key: 'mixedPort' | 'guardIntervalSec'): void => {
+  const commitNumber = (_key: NumberDraftKey): void => {
     void flushDraft()
   }
 
-  const commitText = (_key: 'externalController' | 'secret' | 'bypass'): void => {
+  const commitText = (_key: TextDraftKey): void => {
     void flushDraft()
   }
 
   const commitTextOnEnter = (
     e: React.KeyboardEvent<HTMLInputElement>,
-    _key: 'externalController' | 'secret' | 'bypass',
+    _key: TextDraftKey,
   ): void => {
     if (e.key !== 'Enter') return
     e.currentTarget.blur()
@@ -273,23 +306,17 @@ export default function Settings() {
     }
   }
 
-  const serviceCommand = (): 'install_service' | 'start_service' | 'uninstall_service' | 'repair_service' => {
-    if (service === 'running') return 'uninstall_service'
-    if (service === 'repair') return 'repair_service'
-    if (service === 'stopped') return 'start_service'
-    return 'install_service'
+  /* 服务只为 TUN 服务(普通启动走 sidecar), 因此并入 TUN 行: 首次开启时引导安装, 其余状态给一个就地操作 */
+  const serviceAction = (): { cmd: 'repair_service' | 'start_service' | 'uninstall_service'; label: string; icon: 'refresh' | 'play' | 'trash' } | null => {
+    if (service === 'repair') return { cmd: 'repair_service', label: t('修复服务'), icon: 'refresh' }
+    if (service === 'stopped' && settings.tun) return { cmd: 'start_service', label: t('启动服务'), icon: 'play' }
+    if (service === 'running' || service === 'stopped') return { cmd: 'uninstall_service', label: t('卸载服务'), icon: 'trash' }
+    return null
   }
 
-  const serviceButtonLabel = (): string => {
-    if (service === 'running') return t('卸载')
-    if (service === 'repair') return t('修复')
-    if (service === 'stopped') return t('启动')
-    return t('安装')
-  }
-
-  const toggleService = (): void => {
+  const runServiceAction = (cmd: 'repair_service' | 'start_service'): void => {
     void withBusy('service', async () => {
-      await call(serviceCommand())
+      await call(cmd)
       await refreshServiceStatus()
       await refreshTunAdapter()
       await loadAll()
@@ -298,7 +325,31 @@ export default function Settings() {
     })
   }
 
+  const confirmServiceChange = (): void => {
+    const kind = confirmService
+    if (!kind) return
+    void withBusy('service', async () => {
+      if (kind === 'install') {
+        await call('install_service')
+        await setTun(true)
+      } else {
+        await call('uninstall_service')
+        await loadAll()
+      }
+      await refreshServiceStatus()
+      await refreshTunAdapter()
+      setConfirmService(null)
+    }).catch((err) => {
+      notify('error', kind === 'install' ? t('安装服务失败') : t('卸载服务失败'), errorMessage(err))
+      void refreshServiceStatus().catch(() => setService('unknown'))
+    })
+  }
+
   const toggleTun = (on: boolean): void => {
+    if (on && service === 'not-installed') {
+      setConfirmService('install')
+      return
+    }
     void withBusy('tun', async () => {
       await setTun(on)
       await refreshServiceStatus()
@@ -318,18 +369,6 @@ export default function Settings() {
     })
   }
 
-  const handleCheckUpdate = (): void => {
-    void withBusy('update', checkUpdate).catch((err) => {
-      notify('error', t('检查更新失败'), errorMessage(err))
-    })
-  }
-
-  const downloadUpdate = (): void => {
-    void call('open_url', {
-      url: `https://github.com/ipiggyzhu/ClashNova/releases/tag/v${updateAvailable}`,
-    }).catch((err) => notify('error', t('打开链接失败'), errorMessage(err)))
-  }
-
   const doReset = (): void => {
     void withBusy('reset', async () => {
       await call('reset_settings')
@@ -346,6 +385,19 @@ export default function Settings() {
         : `http://${controller.replace(/\/+$/, '')}`
       await call('open_url', { url: `${base}/ui/` })
     }).catch((err) => notify('error', t('打开链接失败'), errorMessage(err)))
+  }
+
+  const flushCache = (kind: 'fakeip' | 'dns'): void => {
+    void withBusy(`flush-${kind}`, async () => {
+      await (kind === 'fakeip' ? flushFakeIp() : flushDnsCache())
+      notify('success', kind === 'fakeip' ? t('已清空 Fake-IP 映射') : t('已清空 DNS 缓存'), t('新连接将重新解析域名'))
+    }).catch((err) => notify('error', t('清空缓存失败'), errorMessage(err)))
+  }
+
+  const copyProxyEnv = (shell: ShellKind): void => {
+    void navigator.clipboard.writeText(proxyEnvCommand(shell, settings.mixedPort))
+      .then(() => notify('success', t('已复制终端代理命令'), proxyEnvCommand(shell, settings.mixedPort)))
+      .catch((err) => notify('error', t('复制失败'), errorMessage(err)))
   }
 
   const saveDrawer = (): void => {
@@ -381,7 +433,11 @@ export default function Settings() {
   }
 
   const tunAdapterBadge = (): JSX.Element => {
+    if (service === 'not-installed') return <Badge tone="gray">{t('服务未安装')}</Badge>
+    if (service === 'repair') return <Badge tone="orange">{t('服务需修复')}</Badge>
+    if (serviceError) return <Badge tone="red">{t('服务查询失败')}</Badge>
     if (!settings.tun) return <Badge tone="gray">{t('未启用')}</Badge>
+    if (service === 'stopped') return <Badge tone="yellow">{t('服务已停止')}</Badge>
     if (tunAdapterError) return <Badge tone="red">{t('检测失败')}</Badge>
     if (!tunAdapter) return <Badge tone="gray">{t('检测中…')}</Badge>
     if (tunAdapter.status === 'unsupported') return <Badge tone="blue">{t('检测不支持')}</Badge>
@@ -427,31 +483,39 @@ export default function Settings() {
               {t('编辑')}
             </Button>
           </Row>
-          <Row title={t('TUN 模式')} desc={t('虚拟网卡接管全部流量, 需服务模式')}>
-            <span title={tunAdapterError || tunAdapter?.detail || undefined}>{tunAdapterBadge()}</span>
+          <Row title={t('TUN 模式')} desc={t('虚拟网卡接管全部流量, 首次开启需安装服务')}>
+            <span title={serviceError || tunAdapterError || tunAdapter?.detail || undefined}>
+              {busy === 'service' ? <Badge tone="gray">{t('处理中…')}</Badge> : tunAdapterBadge()}
+            </span>
+            {(() => {
+              const action = serviceAction()
+              if (!action) return null
+              return (
+                <button
+                  type="button"
+                  className="icon-btn"
+                  aria-label={action.label}
+                  title={action.label}
+                  disabled={busy !== null}
+                  onClick={() => action.cmd === 'uninstall_service' ? setConfirmService('uninstall') : runServiceAction(action.cmd)}
+                >
+                  <Icon name={action.icon} size={14} />
+                </button>
+              )
+            })()}
+            <button type="button" className="icon-btn" aria-label="TUN 高级设置" title="TUN 高级设置" disabled={busy !== null} onClick={() => setShowTunSettings(true)}>
+              <Icon name="settings" size={14} />
+            </button>
             <Toggle label={t('TUN 模式')} on={settings.tun} onChange={toggleTun} disabled={busy !== null} />
-          </Row>
-          <Row title={t('服务模式')} desc={t('以 Windows 服务运行内核, TUN 免管理员')}>
-            {service === 'running' ? (
-              <Badge tone="green">{t('运行中')}</Badge>
-            ) : service === 'stopped' ? (
-              <Badge tone="yellow">{t('已停止')}</Badge>
-            ) : service === 'repair' ? (
-              <Badge tone="orange">{t('需修复')}</Badge>
-            ) : service === 'not-installed' ? (
-              <Badge tone="gray">{t('未安装')}</Badge>
-            ) : (
-              <span title={serviceError || undefined}><Badge tone={serviceError ? 'red' : 'gray'}>{serviceError ? t('查询失败') : '—'}</Badge></span>
-            )}
-            <Button size="sm" onClick={toggleService} disabled={busy !== null || service === 'unknown'}>
-              {busy === 'service' ? t('处理中…') : serviceButtonLabel()}
-            </Button>
           </Row>
           <Row title={t('开机自启')} desc={t('登录 Windows 时自动启动')}>
             <Toggle label={t('开机自启')} on={settings.autostart} onChange={(on) => patch({ autostart: on })} />
           </Row>
           <Row title={t('静默启动')} desc={t('启动时仅驻留托盘, 不显示主窗口')}>
             <Toggle label={t('静默启动')} on={settings.silentStart} onChange={(on) => patch({ silentStart: on })} />
+          </Row>
+          <Row title="轻量驻留" desc="关窗释放界面内存，内核继续运行；未保存草稿会丢弃，托盘或热键可重新打开">
+            <Toggle label="轻量驻留" on={settings.lightweightOnClose} onChange={(on) => patch({ lightweightOnClose: on })} />
           </Row>
         </Card>
 
@@ -501,6 +565,7 @@ export default function Settings() {
         <Card icon={<Icon name="traffic" />} title={t('流量统计')} flush>
           <Row title={t('历史数据保留')} desc={t('默认无限保留；设置期限后，更早的统计记录将被清理')}>
             <select
+              className="select"
               aria-label={t('历史数据保留')}
               value={settings.statsRetentionDays ?? 0}
               onChange={(event) => {
@@ -518,25 +583,17 @@ export default function Settings() {
         </Card>
 
         {/* ---- 关于 ---- */}
+        <UpdateSettings />
         <Card icon={<Icon name="check" />} iconColor="var(--green)" title={t('关于')} flush>
           <Row title="ClashNova">
             <div className="about-ver">
               <span className="v">v{__APP_VERSION__}</span>
-              {updateAvailable && updateAvailable !== 'error' && (
-                <Badge tone="orange">v{updateAvailable} 可用</Badge>
-              )}
-              {updateAvailable === null && <Badge tone="green">{t('已是最新')}</Badge>}
-              {updateAvailable === 'error' && <Badge tone="red">{t('检查失败')}</Badge>}
-              {updateAvailable && updateAvailable !== 'error' && (
-                <Button size="sm" onClick={downloadUpdate}>
-                  <Icon name="download" size={13} />
-                  {t('下载更新')}
-                </Button>
-              )}
-              <Button size="sm" variant="primary" onClick={handleCheckUpdate} disabled={busy !== null}>
-                {busy === 'update' ? t('检查中…') : t('检查更新')}
-              </Button>
             </div>
+          </Row>
+          <Row title="备份与恢复" desc="本地快照、脱敏导出及 WebDAV 同步">
+            <Button size="sm" disabled={busy !== null} onClick={() => void (async () => {
+              if (!busyRef.current && await flushDraft()) setShowBackupSettings(true)
+            })()}>备份与恢复</Button>
           </Row>
           <Row title={t('开源协议')} desc="MIT License">
             <button
@@ -704,6 +761,67 @@ export default function Settings() {
           </Row>
         </Card>
 
+        {/* ---- 测速与连接 ---- */}
+        <Card icon={<Icon name="clock" />} iconColor="var(--green)" title={t('测速与连接')} flush>
+          <Row title={t('测速地址')} desc={t('节点页单点与整组测速使用; 建议 204 端点')}>
+            <Input
+              aria-label={t('测速地址')}
+              style={{ width: 230 }}
+              spellCheck={false}
+              value={draftValue('delayTestUrl', settings.delayTestUrl)}
+              onChange={(e) => editDraft('delayTestUrl', e.target.value)}
+              onKeyDown={(e) => commitTextOnEnter(e, 'delayTestUrl')}
+              onBlur={() => commitText('delayTestUrl')}
+            />
+          </Row>
+          <Row title={t('测速超时')} desc={t('毫秒, 500-30000')}>
+            <Input
+              aria-label={t('测速超时')}
+              className="num"
+              style={{ width: 80 }}
+              value={draftValue('delayTestTimeout', String(settings.delayTestTimeout))}
+              onChange={(e) => editDraft('delayTestTimeout', e.target.value)}
+              onBlur={() => commitNumber('delayTestTimeout')}
+            />
+          </Row>
+          <Row title={t('切换节点时断开旧连接')} desc={t('切换后关闭经过该策略组的连接, 让应用立即走新节点')}>
+            <Toggle label={t('切换节点时断开旧连接')} on={settings.autoCloseConnections}
+              onChange={(on) => patch({ autoCloseConnections: on })} />
+          </Row>
+          <Row title={t('统一延迟')} desc={t('测速时扣除握手耗时, 不同协议的延迟可直接比较; 关闭则沿用订阅')}>
+            <Toggle label={t('统一延迟')} on={settings.unifiedDelay} onChange={(on) => patch({ unifiedDelay: on })} />
+          </Row>
+          <Row title={t('进程匹配')} desc={t('PROCESS-NAME 规则与连接页进程名依赖此项; always 开销最大')}>
+            <select
+              aria-label={t('进程匹配')}
+              className="select"
+              value={settings.findProcessMode}
+              onChange={(e) => patch({ findProcessMode: e.target.value as FindProcessMode | '' })}
+            >
+              <option value="">{t('跟随订阅')}</option>
+              <option value="strict">strict</option>
+              <option value="always">always</option>
+              <option value="off">off</option>
+            </select>
+          </Row>
+          <Row title={t('域名嗅探')} desc={t('从 TLS / HTTP / QUIC 还原域名, 改善 IP 直连与 Fake-IP 下的规则命中')}>
+            <Toggle label={t('域名嗅探')} on={settings.sniffer} onChange={(on) => patch({ sniffer: on })} />
+          </Row>
+          <Row title={t('清空缓存')} desc={t('内核运行时生效, 不需要重启')}>
+            <Button size="sm" disabled={busy !== null || !core.running} onClick={() => flushCache('fakeip')}>
+              {busy === 'flush-fakeip' ? t('处理中…') : 'Fake-IP'}
+            </Button>
+            <Button size="sm" disabled={busy !== null || !core.running} onClick={() => flushCache('dns')}>
+              {busy === 'flush-dns' ? t('处理中…') : 'DNS'}
+            </Button>
+          </Row>
+          <Row title={t('终端代理')} desc={t('复制当前混合端口的代理环境变量命令')}>
+            <Button size="sm" onClick={() => copyProxyEnv('powershell')}>PowerShell</Button>
+            <Button size="sm" onClick={() => copyProxyEnv('cmd')}>CMD</Button>
+            <Button size="sm" onClick={() => copyProxyEnv('bash')}>Bash</Button>
+          </Row>
+        </Card>
+
         {/* ---- 热键 ---- */}
         <Card icon={<Icon name="zap" />} iconColor="var(--orange)" title={t('热键')} flush>
           {HOTKEY_ACTIONS.map((h) => (
@@ -757,6 +875,24 @@ export default function Settings() {
 
       {/* ---- DNS 高级配置 ---- */}
       {showDnsSettings && <DnsSettings onClose={() => setShowDnsSettings(false)} />}
+      {showTunSettings && <TunSettings onClose={() => setShowTunSettings(false)} />}
+      {confirmService && (
+        <Dialog className="set-mask" panelClassName="set-confirm"
+          title={confirmService === 'install' ? t('安装系统服务') : t('卸载系统服务')}
+          onClose={() => setConfirmService(null)} dismissible={busy === null}>
+          <h3>{confirmService === 'install' ? t('安装系统服务') : t('卸载系统服务')}</h3>
+          <p>{confirmService === 'install'
+            ? t('TUN 需要以 Windows 服务运行内核才能创建虚拟网卡。安装时会请求一次管理员确认，完成后自动开启 TUN。')
+            : t('将停止内核、移除 ClashNova 系统服务并关闭 TUN 模式，需要管理员确认。')}</p>
+          <div className="set-confirm-actions">
+            <Button onClick={() => setConfirmService(null)} disabled={busy !== null}>{t('取消')}</Button>
+            <Button variant={confirmService === 'install' ? 'primary' : 'danger'} onClick={confirmServiceChange} disabled={busy !== null}>
+              {busy === 'service' ? t('处理中…') : confirmService === 'install' ? t('安装并开启 TUN') : t('确认卸载')}
+            </Button>
+          </div>
+        </Dialog>
+      )}
+      {showBackupSettings && <BackupSettings onClose={() => setShowBackupSettings(false)} />}
     </div>
   )
 }

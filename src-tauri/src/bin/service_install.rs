@@ -5,10 +5,14 @@
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 
+#[path = "../core_update.rs"]
+mod core_update;
 #[path = "../service_host.rs"]
 mod service_host;
 #[path = "../service_paths.rs"]
 mod service_paths;
+#[path = "../update_io.rs"]
+mod update_io;
 
 #[cfg(windows)]
 use windows_service::{
@@ -31,8 +35,7 @@ fn arg_value(args: &[String], name: &str) -> Option<String> {
 
 fn write_result(path: Option<&str>, ok: bool, message: &str) {
     if let Some(path) = path {
-        let prefix = if ok { "ok" } else { "error" };
-        let _ = std::fs::write(path, format!("{prefix}\n{message}\n"));
+        let _ = service_paths::write_helper_result(Path::new(path), ok, message);
     }
 }
 
@@ -224,6 +227,11 @@ fn main() {
 
     let result = match action.as_str() {
         "install" | "repair" | "start" => install_or_repair(&config_dir),
+        "update-core" => match arg_value(&args, "--core-id") {
+            Some(id) => update_managed_core(&config_dir, Some(&id)),
+            None => Err("missing --core-id argument".into()),
+        },
+        "rollback-core" => update_managed_core(&config_dir, None),
         other => Err(format!("unknown service action: {other}")),
     };
     let success_message = if action == "start" {
@@ -246,6 +254,71 @@ fn main() {
             std::process::exit(1);
         }
     }
+}
+
+#[cfg(windows)]
+fn update_managed_core(config_dir: &Path, id: Option<&str>) -> Result<(), String> {
+    update_io::checked_path(config_dir)?;
+    let manager = ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT)
+        .map_err(|_| "connect to service manager failed")?;
+    let service = manager
+        .open_service(
+            SERVICE_NAME,
+            ServiceAccess::QUERY_STATUS
+                | ServiceAccess::QUERY_CONFIG
+                | ServiceAccess::START
+                | ServiceAccess::STOP,
+        )
+        .map_err(|_| "open service for core update failed")?;
+    if !service_matches_expected(&service, config_dir) {
+        return Err(
+            "service registration or bound user directory does not match; repair required".into(),
+        );
+    }
+    // 下载源和哈希由提权助手独立核对，并先在受保护目录完成解压；网络失败时不停止服务。
+    let prepared = if let Some(id) = id {
+        let source = service_paths::find_bundled_core_binary(&find_bundled_service_binary()?)?;
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|_| "create core update runtime failed")?;
+        Some(runtime.block_on(core_update::prepare_managed(config_dir, id, &source))?)
+    } else {
+        None
+    };
+    let was_running = service
+        .query_status()
+        .map_err(|_| "query service before core update failed")?
+        .current_state
+        != ServiceState::Stopped;
+    if was_running {
+        service
+            .stop()
+            .map_err(|_| "stop service before core update failed")?;
+        wait_until_stopped(&service)?;
+    }
+    let result = match prepared {
+        Some(prepared) => core_update::apply_managed(prepared),
+        None => core_update::rollback_managed(),
+    };
+    if was_running {
+        if let Err(start) = start_existing_service(&service) {
+            if result.is_ok() && id.is_some() {
+                let rollback = core_update::rollback_managed();
+                let restart = start_existing_service(&service);
+                return Err(format!("new service core could not start: {start}; rollback: {rollback:?}; restart: {restart:?}"));
+            }
+            return Err(format!(
+                "service core change: {result:?}; restart failed: {start}"
+            ));
+        }
+    }
+    result
+}
+
+#[cfg(not(windows))]
+fn update_managed_core(_config_dir: &Path, _id: Option<&str>) -> Result<(), String> {
+    Err("core service updates are only supported on Windows".into())
 }
 
 #[cfg(windows)]

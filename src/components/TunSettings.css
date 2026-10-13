@@ -1,0 +1,13 @@
+.tun-panel{width:min(660px,92vw);max-height:88vh;display:flex;flex-direction:column}
+.tun-panel header{padding:16px 20px;border-bottom:1px solid var(--line);font-size:15px;font-weight:600}
+.tun-body{padding:16px 20px;overflow:auto}
+.tun-body p{font-size:12px;color:var(--text-2);line-height:1.6;margin:0 0 14px}
+.tun-body .tun-error{color:var(--red);overflow-wrap:anywhere}
+.tun-body fieldset{padding:0;margin:0;border:0;display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.tun-body label{display:flex;flex-direction:column;gap:8px;font-size:12px;min-width:0}
+.tun-body select,.tun-body textarea{width:100%;padding:9px;border:1px solid var(--line-2);border-radius:var(--radius-sm);background:var(--card-2);color:var(--text);font-family:inherit}
+.tun-body textarea{resize:vertical;font-family:var(--mono);line-height:1.5}
+.tun-body .tun-switch{display:flex;justify-content:space-between;align-items:center;font-size:12px;gap:8px}
+.tun-body .tun-list{grid-column:1/-1}
+.tun-body small{color:var(--text-3)}
+.tun-panel footer{padding:12px 20px;display:flex;justify-content:flex-end;gap:8px;border-top:1px solid var(--line)}

@@ -6,6 +6,7 @@ import Seg from '../components/ui/Seg'
 import Spark from '../components/ui/Spark'
 import { useSmoothTraffic } from '../hooks/useSmoothTraffic'
 import { call } from '../services/ipc'
+import { fetchIpInfo, maskIp, type IpInfo } from '../services/ipInfo'
 import { probeUrl } from '../services/probe'
 import { usePollingQuery } from '../hooks/usePollingQuery'
 import { useAppStore } from '../stores/app'
@@ -47,9 +48,59 @@ function tunText(settingsTun: boolean, adapter: TunAdapterStatus | null): string
   return '网卡未就绪'
 }
 
+const SHOW_IP_KEY = 'dashboard:show-ip'
+const IP_CACHE_MS = 5 * 60_000
+/** 页面切换不重复查询; 代理链路(系统代理 / TUN / 模式)变化或手动刷新时重查 */
+let ipCache: { key: string; at: number; info: IpInfo } | null = null
+
+function useExitIp(routeKey: string) {
+  const [info, setInfo] = useState<IpInfo | null>(() => (ipCache?.key === routeKey ? ipCache.info : null))
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const controller = useRef<AbortController | null>(null)
+
+  const load = useCallback((force: boolean): void => {
+    if (!force && ipCache && ipCache.key === routeKey && Date.now() - ipCache.at < IP_CACHE_MS) {
+      setInfo(ipCache.info)
+      return
+    }
+    controller.current?.abort()
+    const current = new AbortController()
+    controller.current = current
+    setBusy(true)
+    setError('')
+    fetchIpInfo(current.signal).then((next) => {
+      if (current.signal.aborted) return
+      ipCache = { key: routeKey, at: Date.now(), info: next }
+      setInfo(next)
+    }, (reason: unknown) => {
+      if (current.signal.aborted) return
+      setInfo(null)
+      setError(reason instanceof Error ? reason.message : String(reason))
+    }).finally(() => {
+      if (controller.current === current) setBusy(false)
+    })
+  }, [routeKey])
+
+  useEffect(() => {
+    load(false)
+    return () => controller.current?.abort()
+  }, [load])
+
+  return { info, error, busy, reload: () => load(true) }
+}
+
 export default function Dashboard() {
   const settings = useAppStore((s) => s.settings)
   const runtimeMode = useAppStore((s) => s.runtimeMode)
+  const exitIp = useExitIp(`${settings.sysProxy}|${settings.tun}|${runtimeMode ?? settings.mode}`)
+  const [showIp, setShowIp] = useState(() => {
+    try { return localStorage.getItem(SHOW_IP_KEY) === '1' } catch { return false }
+  })
+  const toggleShowIp = (): void => {
+    try { localStorage.setItem(SHOW_IP_KEY, showIp ? '0' : '1') } catch { /* ignore */ }
+    setShowIp(!showIp)
+  }
   const [sumRange, setSumRange] = useState<StatRange>('day')
   const [rankBy, setRankBy] = useState<StatDim>('proxy')
   const { data: trend, error: trendError, refresh: refreshTrend } = usePollingQuery(queryTrend, EMPTY_SERIES)
@@ -114,7 +165,8 @@ export default function Dashboard() {
           iconColor="var(--cyan)"
           title="网络状态"
           actions={
-            <button className="icon-btn" title="刷新网络状态" onClick={probeNet} disabled={netBusy}>
+            <button className="icon-btn" title="刷新网络状态" onClick={() => { probeNet(); exitIp.reload() }}
+              disabled={netBusy && exitIp.busy}>
               <Icon name="refresh" />
             </button>
           }
@@ -157,6 +209,34 @@ export default function Dashboard() {
             <div className="stat-cell">
               <div className="stat-label">TUN</div>
               <b title={tunAdapter?.detail ?? undefined}>{tunText(settings.tun, tunAdapter)}</b>
+            </div>
+          </div>
+          <div className="stat-grid stat-sub ip-row" title="本机当前网络(系统代理 / TUN 生效时即代理出口)看到的公网 IP">
+            <div className="stat-cell">
+              <div className="stat-label">
+                出口 IP
+                <button type="button" className="ip-eye" aria-label={showIp ? '隐藏出口 IP' : '显示出口 IP'}
+                  aria-pressed={showIp} onClick={toggleShowIp}>
+                  <Icon name={showIp ? 'eye-off' : 'eye'} size={11} />
+                </button>
+              </div>
+              <b className="num" title={exitIp.error || undefined}>
+                {exitIp.info ? (showIp ? exitIp.info.ip : maskIp(exitIp.info.ip))
+                  : exitIp.busy ? '查询中…' : exitIp.error ? '查询失败' : '—'}
+              </b>
+            </div>
+            <div className="stat-cell">
+              <div className="stat-label">位置</div>
+              <b>{exitIp.info
+                ? [exitIp.info.countryCode, exitIp.info.region, exitIp.info.city]
+                  .filter((part, i, all) => part && all.indexOf(part) === i).join(' · ') || '—'
+                : '—'}</b>
+            </div>
+            <div className="stat-cell">
+              <div className="stat-label">运营商</div>
+              <b title={exitIp.info ? `${exitIp.info.isp} (${exitIp.info.source})` : undefined}>
+                {exitIp.info ? [exitIp.info.asn, exitIp.info.isp].filter(Boolean).join(' ') || '—' : '—'}
+              </b>
             </div>
           </div>
         </Card>

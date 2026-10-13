@@ -8,6 +8,7 @@ import type {
   ConnItem,
   ConnectionsPayload,
   CoreStatus,
+  DnsQueryResult,
   EnhancerMeta,
   LogItem,
   ProfileMeta,
@@ -18,6 +19,10 @@ import type {
   RuleItem,
   RuleProviderItem,
 } from '../types/clash'
+import { DEFAULT_TUN_OPTIONS } from '../types/tun'
+import { DEFAULT_PROFILE_DOWNLOAD_OPTIONS, type ProfileDownloadOptions, type ProfileTopology } from '../types/profileFeatures'
+import type { UpdateState } from '../types/updates'
+import type { BackupEntry, WebDavConfig } from '../types/backup'
 
 /* ============================== 工具 ============================== */
 
@@ -46,8 +51,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
   guardIntervalSec: 30,
   bypass: 'localhost;127.*;10.*;192.168.*',
   tun: false,
+  tunOptions: { ...DEFAULT_TUN_OPTIONS },
   autostart: true,
   silentStart: false,
+  lightweightOnClose: false,
   mixedPort: 7897,
   externalController: '127.0.0.1:9097',
   secret: 'MOCK_CONTROLLER_SECRET',
@@ -73,6 +80,12 @@ export const DEFAULT_SETTINGS: AppSettings = {
   respectRules: false,
   useHosts: false,
   useSystemHosts: false,
+  delayTestUrl: 'https://www.gstatic.com/generate_204',
+  delayTestTimeout: 5000,
+  autoCloseConnections: true,
+  unifiedDelay: false,
+  findProcessMode: '',
+  sniffer: false,
 }
 
 let settings: AppSettings = { ...DEFAULT_SETTINGS }
@@ -184,7 +197,7 @@ function builtinPruneEnhancer(): EnhancerMeta {
   }
 }
 
-interface MockProfile { meta: ProfileMeta; content: string }
+interface MockProfile { meta: ProfileMeta; content: string; topology?: Omit<ProfileTopology, 'content'> }
 
 let profileSeq = 4
 
@@ -269,6 +282,56 @@ function findProfile(id: string): MockProfile {
   const p = profiles.find((it) => it.meta.id === id)
   if (!p) throw new Error(`订阅不存在: ${id}`)
   return p
+}
+
+let globalEnhancers: EnhancerMeta[] = []
+function enhancersFor(id: string): EnhancerMeta[] {
+  return id === '__global__' ? globalEnhancers : (findProfile(id).meta.enhancers ??= [])
+}
+
+const updateState: UpdateState = {
+  supported: true, currentBuildId: 'dev', appChecked: false, appDownloaded: false,
+  app: null, core: null, installedCores: [{ id: 'bundled', version: 'v1.19.27', bundled: true, active: true }],
+  phase: 'idle', kind: null, downloaded: 0, total: 0, error: null,
+}
+
+interface MockBackup { entry: BackupEntry; settings: AppSettings; profiles: MockProfile[]; global: EnhancerMeta[]; enhancers: Record<string, string> }
+let backupSeq = 0
+const backups: MockBackup[] = []
+const remoteBackups: MockBackup[] = []
+let webdav: WebDavConfig = { url: '', username: '', passwordSaved: false }
+const copy = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T
+const preservedBackupSettings = ['sysProxy', 'guard', 'guardIntervalSec', 'bypass', 'tun', 'tunOptions', 'autostart', 'silentStart', 'hotkeys', 'mixedPort', 'externalController', 'secret', 'allowLan'] as const
+
+function createBackup(label: string): MockBackup {
+  const snapshot: MockBackup = copy({
+    entry: { id: `mock-backup-${++backupSeq}`, label: label.trim() || '手动备份', createdAt: Date.now(), appVersion: '2.4.8', sizeBytes: 0, source: 'local' },
+    settings, profiles, global: globalEnhancers, enhancers: enhancerContents,
+  })
+  snapshot.entry.sizeBytes = new Blob([JSON.stringify(snapshot)]).size
+  backups.unshift(snapshot)
+  return snapshot
+}
+
+function findBackup(args: Record<string, unknown>, entries = backups): MockBackup {
+  const found = entries.find((item) => item.entry.id === argString(args, 'id'))
+  if (!found) throw new Error('备份不存在')
+  return found
+}
+
+function removeBackup(args: Record<string, unknown>, entries = backups): void {
+  const found = findBackup(args, entries)
+  entries.splice(entries.indexOf(found), 1)
+}
+
+function mockImportSource(value: string): { url: string; name?: string } {
+  const parsed = new URL(value)
+  if (['http:', 'https:'].includes(parsed.protocol)) return { url: parsed.href }
+  if (!['clash:', 'clash-verge:', 'clashnova:'].includes(parsed.protocol) || parsed.hostname !== 'install-config') throw new Error('不支持的订阅协议')
+  if (parsed.searchParams.getAll('url').length !== 1) throw new Error('协议链接缺少唯一的 url 参数')
+  const url = new URL(parsed.searchParams.get('url')!)
+  if (!['http:', 'https:'].includes(url.protocol)) throw new Error('订阅下载地址仅支持 HTTP(S)')
+  return { url: url.href, name: parsed.searchParams.get('name') || undefined }
 }
 
 /* ============================== 代理(契约 C /proxies) ============================== */
@@ -364,6 +427,37 @@ export function mockTestDelay(name: string): number {
     p.history = [...p.history.slice(-9), { time: new Date().toISOString(), delay }]
   }
   return delay
+}
+
+/** GET /group/{name}/delay 的 mock 实现: 返回成员延迟; URLTest 组顺带切到最快成员 */
+export function mockTestGroupDelay(groupName: string, timeout: number): Record<string, number> {
+  const g = proxyState[groupName]
+  const result: Record<string, number> = {}
+  for (const name of g?.all ?? []) {
+    const delay = mockTestDelay(name)
+    if (delay <= timeout) result[name] = delay
+  }
+  if (g?.type === 'URLTest') {
+    const fastest = Object.entries(result).sort((a, b) => a[1] - b[1])[0]
+    if (fastest) g.now = fastest[0]
+  }
+  return result
+}
+
+/** GET /dns/query 的 mock 实现 */
+export function mockQueryDns(name: string, type: string): DnsQueryResult {
+  const host = name.replace(/\.$/, '')
+  if (type === 'AAAA') {
+    return { status: 0, answers: [{ name: `${host}.`, type: 28, TTL: 300, data: '2001:db8::1' }] }
+  }
+  if (type !== 'A') return { status: 0, answers: [] }
+  return {
+    status: 0,
+    answers: [
+      { name: `${host}.`, type: 5, TTL: 120, data: `edge.${host}.` },
+      { name: `edge.${host}.`, type: 1, TTL: 60, data: `198.18.0.${Math.round(rand(2, 250))}` },
+    ],
+  }
 }
 
 /* ============================== 规则(契约 C /rules) ============================== */
@@ -490,6 +584,12 @@ export function mockConnections(): ConnectionsPayload {
         network: c.seed.network,
         process: c.seed.process,
         processPath: c.seed.process === 'System' ? undefined : `C:\\Program Files\\${c.seed.process}`,
+        type: 'HTTP',
+        inboundName: 'DEFAULT-MIXED',
+        inboundIP: '127.0.0.1',
+        inboundPort: '7897',
+        dnsMode: 'fake-ip',
+        remoteDestination: c.seed.chains[0] === 'DIRECT' || c.seed.chains[0] === 'REJECT' ? c.seed.ip : '',
       },
       rule: c.seed.rule,
       rulePayload: c.seed.rulePayload,
@@ -508,6 +608,13 @@ export function mockConnections(): ConnectionsPayload {
 export function mockCloseConnection(id: string): void {
   const c = connStates.find((it) => it.id === id)
   if (c) c.closed = true
+}
+
+/** 关闭链路经过指定组/节点的连接 */
+export function mockCloseGroupConnections(group: string): void {
+  for (const c of connStates) {
+    if (c.seed.chains.includes(group)) c.closed = true
+  }
 }
 
 /** DELETE /connections */
@@ -590,6 +697,10 @@ export const mockHandlers: Record<string, MockHandler> = {
     settings = { ...settings, ...(args['patch'] as Partial<AppSettings>) }
     return { ...settings }
   },
+  tray_panel_visible: () => true,
+  hide_tray_panel: () => undefined,
+  tray_open_main: () => undefined,
+  tray_quit_app: () => undefined,
   core_status: () => coreStatus(),
   start_core: () => {
     core.running = true
@@ -604,12 +715,16 @@ export const mockHandlers: Record<string, MockHandler> = {
     return undefined
   },
   list_profiles: () => profiles.map((p) => ({ ...p.meta })),
+  list_global_enhancers: () => copy(globalEnhancers),
+  pending_profile_imports: () => [],
+  dismiss_profile_import: () => undefined,
+  confirm_profile_import: () => { throw new Error('订阅请求已处理') },
   import_profile: (args) => {
-    const url = argString(args, 'url')
+    const { url, name } = mockImportSource(argString(args, 'url'))
     profileSeq += 1
     const meta: ProfileMeta = {
       id: `p-${profileSeq}`,
-      name: new URL(url, 'https://example.com').hostname || `订阅 ${profileSeq}`,
+      name: name || new URL(url).hostname || `订阅 ${profileSeq}`,
       kind: 'remote',
       url,
       updatedAt: Date.now(),
@@ -618,6 +733,7 @@ export const mockHandlers: Record<string, MockHandler> = {
       quota: { used: 0, total: 100 * GB, expireAt: Date.now() + 30 * DAY },
       current: false,
       enhancers: [builtinPruneEnhancer()],
+      downloadOptions: { ...DEFAULT_PROFILE_DOWNLOAD_OPTIONS, ...(args.options as ProfileDownloadOptions | undefined) },
     }
     enhancerContents[`${meta.id}/${BUILTIN_PRUNE_ENHANCER_ID}`] = BUILTIN_PRUNE_SCRIPT
     profiles.push({ meta, content: BIGAIRPORT_YAML })
@@ -662,6 +778,7 @@ export const mockHandlers: Record<string, MockHandler> = {
     p.meta.name = name
     p.meta.url = rawUrl || undefined
     p.meta.autoUpdateMin = autoUpdateMin
+    if (args.downloadOptions) p.meta.downloadOptions = copy(args.downloadOptions as ProfileDownloadOptions)
     return { ...p.meta }
   },
   select_profile: (args) => {
@@ -684,6 +801,22 @@ export const mockHandlers: Record<string, MockHandler> = {
     p.meta.sizeBytes = new Blob([p.content]).size
     p.meta.updatedAt = Date.now()
     return undefined
+  },
+  read_profile_topology: (args) => {
+    const p = findProfile(argString(args, 'id'))
+    p.topology ??= p.meta.kind === 'local' ? { proxies: [], groups: [] } : {
+      proxies: [{ name: 'HK-PCCW', type: 'trojan', server: 'hk1.example.invalid', port: 443, password: 'mock' }],
+      groups: [{ name: 'Streaming', type: 'select', proxies: ['HK-PCCW'] }],
+    }
+    return copy({ content: p.content, ...p.topology })
+  },
+  save_profile_topology: (args) => {
+    const p = findProfile(argString(args, 'id'))
+    if (p.content !== args.originalContent) throw new Error('订阅已被其他操作修改，请重新打开编辑器')
+    p.topology = copy({ proxies: args.proxies as Record<string, unknown>[], groups: args.groups as Record<string, unknown>[] })
+    p.content = JSON.stringify({ proxies: p.topology.proxies, 'proxy-groups': p.topology.groups, rules: ['MATCH,DIRECT'] }, null, 2)
+    p.meta.sizeBytes = new Blob([p.content]).size
+    p.meta.updatedAt = Date.now()
   },
   set_system_proxy: (args) => {
     settings = { ...settings, sysProxy: Boolean(args['enable']) }
@@ -752,7 +885,100 @@ export const mockHandlers: Record<string, MockHandler> = {
     return undefined
   },
   exempt_uwp_loopback: () => undefined,
-  check_update: () => null,
+  check_update: () => { updateState.appChecked = true; return null },
+  get_update_state: () => copy(updateState),
+  check_app_update: () => { updateState.appChecked = true; return copy(updateState.app) },
+  check_core_update: () => {
+    updateState.core = { version: 'v1.19.27', size: 17445304, sha256: '0'.repeat(64) }
+    return copy(updateState.core)
+  },
+  download_app_update: () => {
+    if (!updateState.app) throw new Error('请先检查应用更新')
+    updateState.appDownloaded = true
+    updateState.phase = 'ready'
+    updateState.kind = 'app'
+  },
+  download_core_update: () => {
+    if (!updateState.core) throw new Error('请先检查内核更新')
+    if (!updateState.installedCores.some((item) => item.id === 'mock-core')) {
+      updateState.installedCores.push({ id: 'mock-core', version: updateState.core.version, bundled: false, active: false })
+    }
+    updateState.phase = 'idle'
+  },
+  cancel_update: () => { updateState.phase = 'cancelled'; updateState.appDownloaded = false },
+  install_app_update: (args) => {
+    if (args.confirm !== true || !updateState.appDownloaded) throw new Error('需要先下载并确认安装')
+    // 浏览器模拟不退出进程或运行安装程序。
+    updateState.phase = 'idle'
+  },
+  switch_core_version: (args) => {
+    if (args.confirm !== true) throw new Error('需要确认切换内核')
+    const selected = updateState.installedCores.find((item) => item.id === args.id)
+    if (!selected) throw new Error('内核版本不存在')
+    for (const item of updateState.installedCores) item.active = item === selected
+    updateState.phase = 'idle'
+  },
+  backup_list: () => backups.map((item) => copy(item.entry)),
+  backup_create: (args) => copy(createBackup(argString(args, 'label')).entry),
+  backup_delete: (args) => removeBackup(args),
+  backup_export: (args) => {
+    const backup = findBackup(args)
+    return { filename: `${backup.entry.id}${args.redacted ? '-redacted' : ''}.json`, content: JSON.stringify(args.redacted
+      ? { format: 'clashnova-mock-backup', redacted: true, profileCount: backup.profiles.length }
+      : { format: 'clashnova-mock-backup', redacted: false, ...backup }, null, 2) }
+  },
+  backup_import: (args) => {
+    const value = JSON.parse(argString(args, 'content')) as MockBackup & { format: string; redacted: boolean }
+    if (value.redacted || value.format !== 'clashnova-mock-backup' || !value.entry || !value.settings || !Array.isArray(value.profiles)) throw new Error('备份格式无效或为不可恢复的脱敏摘要')
+    const imported = copy(value)
+    imported.entry.id = `mock-backup-${++backupSeq}`
+    imported.entry.source = 'local'
+    backups.unshift(imported)
+    return copy(imported.entry)
+  },
+  backup_preview: (args) => {
+    const backup = findBackup(args)
+    return { entry: copy(backup.entry), profileCount: backup.profiles.length,
+      enhancerCount: backup.global.length + backup.profiles.reduce((total, item) => total + (item.meta.enhancers?.length ?? 0), 0),
+      fileCount: backup.profiles.length + 2, preservedSettings: [...preservedBackupSettings], warnings: [] }
+  },
+  backup_restore: (args) => {
+    const backup = copy(findBackup(args))
+    createBackup('恢复前自动备份')
+    const local = Object.fromEntries(preservedBackupSettings.map((key) => [key, settings[key]]))
+    settings = { ...backup.settings, ...local }
+    profiles = backup.profiles
+    globalEnhancers = backup.global
+    for (const key of Object.keys(enhancerContents)) delete enhancerContents[key]
+    Object.assign(enhancerContents, backup.enhancers)
+    window.dispatchEvent(new Event('clashnova-profiles-changed'))
+    return copy(settings)
+  },
+  backup_webdav_get: () => copy(webdav),
+  backup_webdav_save: (args) => {
+    const config = args.config as WebDavConfig & { password?: string }
+    if (!config.url) { webdav = { url: '', username: '', passwordSaved: false }; return }
+    const url = new URL(config.url)
+    if (url.protocol !== 'https:' && !(url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname))) throw new Error('WebDAV 需要 HTTPS')
+    const sameAccount = Boolean(webdav.url) && new URL(webdav.url).origin === url.origin && webdav.username === config.username
+    webdav = { url: url.href, username: config.username, passwordSaved: config.password === undefined ? sameAccount && webdav.passwordSaved : Boolean(config.password) }
+  },
+  backup_webdav_list: () => remoteBackups.map((item) => copy(item.entry)),
+  backup_webdav_upload: (args) => {
+    if (!webdav.url) throw new Error('请先配置 WebDAV')
+    const backup = copy(findBackup(args))
+    if (remoteBackups.some((item) => item.entry.id === backup.entry.id)) throw new Error('远端备份已存在')
+    backup.entry.source = 'webdav'
+    remoteBackups.unshift(backup)
+  },
+  backup_webdav_download: (args) => {
+    const backup = copy(findBackup(args, remoteBackups))
+    backup.entry.id = `mock-backup-${++backupSeq}`
+    backup.entry.source = 'local'
+    backups.unshift(backup)
+    return copy(backup.entry)
+  },
+  backup_webdav_delete: (args) => removeBackup(args, remoteBackups),
   reset_settings: () => {
     settings = { ...DEFAULT_SETTINGS }
     return { ...settings }
@@ -770,6 +996,20 @@ export const mockHandlers: Record<string, MockHandler> = {
   },
   get_platform: () => navigator.userAgent.includes('Windows') ? 'Windows' : navigator.userAgent.includes('Mac') ? 'macOS' : 'Linux',
   probe_url: () => Math.round(30 + Math.random() * 300),
+  media_probe: () => {
+    if (!core.running) throw new Error('内核未运行，请先启动内核')
+    return { proxyPort: settings.mixedPort, results: ['youtube', 'netflix', 'disney'].map((service) => ({
+      service, status: 'reachable', elapsedMs: Math.round(rand(30, 150)), httpStatus: 200,
+      detail: '模拟页面可达；不表示账号或地区片库已解锁',
+    })) }
+  },
+  media_cancel: () => undefined,
+  diagnostics_run: (args) => ({
+    schemaVersion: 1, source: 'mock', appVersion: '2.4.8', platform: 'mock',
+    generatedAt: Date.now(), durationMs: 0, includeInternet: Boolean(args['includeInternet']),
+    checks: [{ id: 'simulation', title: '模拟诊断', status: 'unknown',
+      detail: '浏览器模拟模式没有读取系统状态或探测网络；请在 Windows 客户端运行真实诊断。', suggestion: '', elapsedMs: null }],
+  }),
   get_runtime_config: () => `# ClashNova 运行时配置 (mock)
 port: 7890
 socks-port: 7891
@@ -799,20 +1039,19 @@ rules: []
   },
   save_enhancer: (args) => {
     const pid = argString(args, 'profileId')
-    const p = findProfile(pid)
+    const enhancers = enhancersFor(pid)
     const kind = argString(args, 'kind') as EnhancerMeta['kind']
     const name = argString(args, 'name')
     const eid = typeof args['enhancerId'] === 'string' ? (args['enhancerId'] as string) : null
-    p.meta.enhancers ??= []
     let meta: EnhancerMeta
     if (eid) {
-      const found = p.meta.enhancers.find((e) => e.id === eid)
+      const found = enhancers.find((e) => e.id === eid)
       if (!found) throw new Error(`增强项不存在: ${eid}`)
       found.name = name
       meta = found
     } else {
       meta = { id: `e-${Date.now().toString(36)}`, kind, name, enabled: true }
-      p.meta.enhancers.push(meta)
+      enhancers.push(meta)
     }
     enhancerContents[`${pid}/${meta.id}`] = argString(args, 'content')
     return { ...meta }
@@ -820,24 +1059,24 @@ rules: []
   delete_enhancer: (args) => {
     const pid = argString(args, 'profileId')
     const eid = argString(args, 'enhancerId')
-    const p = findProfile(pid)
-    p.meta.enhancers = (p.meta.enhancers ?? []).filter((e) => e.id !== eid)
+    const enhancers = enhancersFor(pid)
+    const index = enhancers.findIndex((e) => e.id === eid)
+    if (index < 0) throw new Error('增强项不存在')
+    enhancers.splice(index, 1)
     delete enhancerContents[`${pid}/${eid}`]
     return undefined
   },
   toggle_enhancer: (args) => {
-    const p = findProfile(argString(args, 'profileId'))
-    const e = (p.meta.enhancers ?? []).find((it) => it.id === args['enhancerId'])
+    const e = enhancersFor(argString(args, 'profileId')).find((it) => it.id === args['enhancerId'])
     if (e) e.enabled = Boolean(args['enabled'])
     return undefined
   },
   reorder_enhancers: (args) => {
-    const p = findProfile(argString(args, 'profileId'))
+    const enhancers = enhancersFor(argString(args, 'profileId'))
     const ids = args['enhancerIds']
     if (!Array.isArray(ids) || ids.some((id) => typeof id !== 'string')) {
       throw new Error('参数 enhancerIds 缺失或类型错误')
     }
-    const enhancers = p.meta.enhancers ?? []
     if (ids.length !== enhancers.length) throw new Error('增强项数量不匹配')
     const uniqueIds = new Set(ids)
     if (uniqueIds.size !== ids.length) throw new Error('增强项 ID 重复')
@@ -845,7 +1084,7 @@ rules: []
     for (const id of ids) {
       if (!byId.has(id)) throw new Error(`增强项不存在: ${id}`)
     }
-    p.meta.enhancers = ids.map((id) => byId.get(id)!)
+    enhancers.splice(0, enhancers.length, ...ids.map((id) => byId.get(id)!))
     return undefined
   },
 }

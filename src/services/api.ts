@@ -4,6 +4,9 @@
  * mock 模式直接返回 mock.ts 造数。
  */
 import type {
+  ConnectionsPayload,
+  DnsAnswer,
+  DnsQueryResult,
   OutboundMode,
   ProxiesPayload,
   ProxyProviderItem,
@@ -15,13 +18,16 @@ import { createTaskQueue } from '../utils/taskQueue'
 import {
   mockCloseAllConnections,
   mockCloseConnection,
+  mockCloseGroupConnections,
   mockProxies,
   mockProxyProviders,
+  mockQueryDns,
   mockRuleProviders,
   mockRules,
   mockSelectProxy,
   mockSettings,
   mockTestDelay,
+  mockTestGroupDelay,
   mockUpdateProxyProvider,
   mockUpdateRuleProvider,
 } from './mock'
@@ -58,7 +64,7 @@ export function apiConfig(): Readonly<ApiConfig> {
   return { ...config }
 }
 
-const DELAY_TEST_URL = 'https://www.gstatic.com/generate_204'
+export const DEFAULT_DELAY_TEST_URL = 'https://www.gstatic.com/generate_204'
 
 export async function ensureConfigured(): Promise<void> {
   if (configReady) return
@@ -74,6 +80,9 @@ export async function ensureConfigured(): Promise<void> {
 async function request<T>(method: string, path: string, body?: unknown, timeoutMs = 10_000): Promise<T> {
   await ensureConfigured()
   const revision = configRevision
+  // 内核停止后，监听端口可能已被其他进程占用；状态确认前不发送认证头。
+  if (!(await call('core_status')).running) throw new Error('内核未运行')
+  if (revision !== configRevision) throw new DOMException('控制器配置已变更', 'AbortError')
   const controller = new AbortController()
   activeRequests.add(controller)
   const timer = setTimeout(() => controller.abort(), timeoutMs)
@@ -181,7 +190,7 @@ export async function selectProxy(group: string, name: string): Promise<void> {
 }
 
 /** GET /proxies/{name}/delay — 单节点测延迟(ms); 超时抛错 */
-export async function testDelay(name: string, timeout = 5000): Promise<number> {
+export async function testDelay(name: string, timeout = 5000, url = DEFAULT_DELAY_TEST_URL): Promise<number> {
   await ensureConfigured()
   const revision = configRevision
   return queueDelay(`${revision}:${name}`, async () => {
@@ -192,13 +201,62 @@ export async function testDelay(name: string, timeout = 5000): Promise<number> {
       if (delay > timeout) throw new Error('超时')
       return delay
     }
-    const qs = `timeout=${timeout}&url=${encodeURIComponent(DELAY_TEST_URL)}`
+    const qs = `timeout=${timeout}&url=${encodeURIComponent(url)}`
     const payload = await request<{ delay: number }>(
       'GET', `/proxies/${encodeURIComponent(name)}/delay?${qs}`, undefined, timeout + 2000,
     )
     if (!Number.isFinite(payload.delay) || payload.delay <= 0) throw new Error('测速失败')
     return payload.delay
   })
+}
+
+/**
+ * GET /group/{name}/delay — 内核并发测整组, 返回 {成员: 延迟}; 超时成员不出现在结果里。
+ * mihomo 全部超时时回 504, 这里按空结果处理。URLTest/Fallback 组测完会清掉手动固定的节点并重选。
+ */
+export async function testGroupDelay(
+  group: string, timeout = 5000, url = DEFAULT_DELAY_TEST_URL,
+): Promise<Record<string, number>> {
+  if (isMock) {
+    await new Promise((resolve) => setTimeout(resolve, 300 + Math.random() * 600))
+    return mockTestGroupDelay(group, timeout)
+  }
+  const qs = `timeout=${timeout}&url=${encodeURIComponent(url)}`
+  try {
+    const payload = await request<Record<string, unknown> | null>(
+      'GET', `/group/${encodeURIComponent(group)}/delay?${qs}`, undefined, timeout + 3000,
+    )
+    const result: Record<string, number> = {}
+    for (const [name, delay] of Object.entries(recordOrEmpty<unknown>(payload))) {
+      if (typeof delay === 'number' && delay > 0) result[name] = delay
+    }
+    return result
+  } catch (error) {
+    if (error instanceof Error && error.message.endsWith('HTTP 504')) return {}
+    throw error
+  }
+}
+
+/**
+ * 切换节点后关闭链路经过该组的旧连接, 让新连接立即走新节点。
+ * 清理失败不影响切换结果, 错误吞掉。
+ */
+export async function closeGroupConnections(group: string): Promise<void> {
+  if (isMock) {
+    mockCloseGroupConnections(group)
+    return
+  }
+  try {
+    const payload = await request<Partial<ConnectionsPayload> | null>('GET', '/connections')
+    const ids = arrayOrEmpty<{ id?: unknown; chains?: unknown }>(payload?.connections)
+      .filter((conn) => typeof conn.id === 'string' && Array.isArray(conn.chains) && conn.chains.includes(group))
+      .map((conn) => conn.id as string)
+    for (let i = 0; i < ids.length; i += 8) {
+      await Promise.all(ids.slice(i, i + 8).map((id) => closeConnection(id).catch(() => undefined)))
+    }
+  } catch {
+    // 切换已成功; 旧连接会在自然结束后释放。
+  }
 }
 
 /** PATCH /configs body {mode} — 切换出站模式 */
@@ -240,6 +298,43 @@ export async function closeAllConnections(): Promise<void> {
     return
   }
   await request('DELETE', '/connections')
+}
+
+/** POST /cache/fakeip/flush — 清空 Fake-IP 映射池 */
+export async function flushFakeIp(): Promise<void> {
+  if (isMock) {
+    await mockDelayMs()
+    return
+  }
+  await request('POST', '/cache/fakeip/flush')
+}
+
+/** POST /cache/dns/flush — 清空内核 DNS 缓存 */
+export async function flushDnsCache(): Promise<void> {
+  if (isMock) {
+    await mockDelayMs()
+    return
+  }
+  await request('POST', '/cache/dns/flush')
+}
+
+/** GET /dns/query?name=&type= — 经内核 DNS 解析; 内核未启用 DNS 时 mihomo 回 500 */
+export async function queryDns(name: string, type = 'A'): Promise<DnsQueryResult> {
+  if (isMock) {
+    await mockDelayMs()
+    return mockQueryDns(name, type)
+  }
+  const qs = `name=${encodeURIComponent(name)}&type=${encodeURIComponent(type)}`
+  const payload = await request<{ Status?: unknown; Answer?: unknown } | null>('GET', `/dns/query?${qs}`)
+  return {
+    status: typeof payload?.Status === 'number' ? payload.Status : -1,
+    answers: arrayOrEmpty<Partial<DnsAnswer>>(payload?.Answer).map((answer) => ({
+      name: typeof answer.name === 'string' ? answer.name : '',
+      type: typeof answer.type === 'number' ? answer.type : 0,
+      TTL: typeof answer.TTL === 'number' ? answer.TTL : 0,
+      data: typeof answer.data === 'string' ? answer.data.trim() : '',
+    })),
+  }
 }
 
 /* ---------------- 提供者(M2) ---------------- */

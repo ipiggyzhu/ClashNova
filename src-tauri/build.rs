@@ -52,6 +52,8 @@ fn ensure_service_resource_files() {
 }
 
 fn main() {
+    println!("cargo:rerun-if-env-changed=GITHUB_SHA");
+    println!("cargo:rerun-if-env-changed=CLASHNOVA_BUILD_ID");
     let build_id = std::env::var("GITHUB_SHA")
         .or_else(|_| std::env::var("CLASHNOVA_BUILD_ID"))
         .unwrap_or_else(|_| "dev".to_string());

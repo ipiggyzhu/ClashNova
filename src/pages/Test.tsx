@@ -1,10 +1,25 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import './Test.css'
 import Button from '../components/ui/Button'
+import Badge from '../components/ui/Badge'
+import Card from '../components/ui/Card'
 import Icon from '../components/ui/Icon'
 import Input from '../components/ui/Input'
 import { probeUrl } from '../services/probe'
 import { delayTone } from '../utils/format'
+import { call } from '../services/ipc'
+import { useAppStore } from '../stores/app'
+import type { MediaReport, MediaService, MediaStatus } from '../types/media'
+import NetworkDiagnostics from '../components/NetworkDiagnostics'
+import DnsQuery from '../components/DnsQuery'
+
+const MEDIA_SERVICES: { id: MediaService; name: string }[] = [
+  { id: 'youtube', name: 'YouTube' },
+  { id: 'netflix', name: 'Netflix' },
+  { id: 'disney', name: 'Disney+' },
+]
+const MEDIA_LABELS: Record<MediaStatus, string> = { reachable: '页面可达', restricted: '明确限制提示', unknown: '未能判定', error: '检测失败' }
+const MEDIA_TONES = { reachable: 'green', restricted: 'orange', unknown: 'gray', error: 'red' } as const
 
 interface TestSite {
   name: string
@@ -126,6 +141,11 @@ export default function Test() {
   const [url, setUrl] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [testingAll, setTestingAll] = useState(false)
+  const [mediaReport, setMediaReport] = useState<MediaReport | null>(null)
+  const [mediaBusy, setMediaBusy] = useState(false)
+  const [mediaError, setMediaError] = useState('')
+  const mediaRequest = useRef<string | null>(null)
+  const coreRunning = useAppStore((state) => state.coreStatus.running)
   const aliveRef = useRef(true)
   const pendingTests = useRef(new Map<string, Promise<void>>())
   const batchBusy = useRef(false)
@@ -135,8 +155,41 @@ export default function Test() {
     aliveRef.current = true
     return () => {
       aliveRef.current = false
+      const requestId = mediaRequest.current
+      mediaRequest.current = null
+      if (requestId) void call('media_cancel', { requestId }).catch(() => {})
     }
   }, [])
+
+  const testMedia = (): void => {
+    if (mediaRequest.current) return
+    const requestId = crypto.randomUUID()
+    mediaRequest.current = requestId
+    setMediaBusy(true)
+    setMediaError('')
+    setMediaReport(null)
+    void call('media_probe', { requestId }).then((report) => {
+      if (aliveRef.current && mediaRequest.current === requestId) setMediaReport(report)
+    }).catch((reason) => {
+      if (aliveRef.current && mediaRequest.current === requestId) setMediaError(String(reason instanceof Error ? reason.message : reason))
+    }).finally(() => {
+      if (aliveRef.current && mediaRequest.current === requestId) {
+        mediaRequest.current = null
+        setMediaBusy(false)
+      }
+    })
+  }
+
+  const cancelMedia = (): void => {
+    const requestId = mediaRequest.current
+    if (!requestId) return
+    mediaRequest.current = null
+    setMediaBusy(false)
+    setMediaError('媒体检测已取消')
+    void call('media_cancel', { requestId }).catch((reason) => {
+      if (aliveRef.current) setMediaError(`取消媒体检测失败：${String(reason)}`)
+    })
+  }
 
   useEffect(() => {
     try { localStorage.setItem(STORE_KEY, JSON.stringify(sites)) }
@@ -208,6 +261,29 @@ export default function Test() {
 
   return (
     <div className="pg-test">
+      <NetworkDiagnostics />
+      <Card className="media-check" title="媒体页面可用性" icon={<Icon name="zap" />} actions={
+        mediaBusy ? <Button size="sm" onClick={cancelMedia}>取消媒体检测</Button>
+          : <Button size="sm" variant="primary" onClick={testMedia} disabled={!coreRunning}>检测媒体服务</Button>
+      }>
+        <p className="media-note">手动检测会向 YouTube、Netflix、Disney+ 官方页面发送不含登录凭据的匿名请求。所有请求经当前 mihomo 混合端口并遵循当前策略，不切换节点、不在失败后直连兜底。</p>
+        <p className="media-note">结果仅代表页面响应，不证明视频播放、账号、地区片库或单个节点的全站解锁。最多并发 3 站、单站 12 秒、响应体上限 512 KiB。</p>
+        {!coreRunning && <p className="media-note">内核已停止，请先启动 mihomo。</p>}
+        {mediaReport && <p className="media-note">本次检测经 127.0.0.1:{mediaReport.proxyPort} · 当前 mihomo 策略</p>}
+        <div className="media-grid" aria-live="polite">
+          {MEDIA_SERVICES.map((service) => {
+            const result = mediaReport?.results.find((result) => result.service === service.id)
+            return <section className="media-result" key={service.id} aria-label={`${service.name} 媒体检测结果`}>
+              <div className="media-result-head"><h4>{service.name}</h4><Badge tone={result ? MEDIA_TONES[result.status] : 'gray'}>
+                {mediaBusy ? '检测中…' : result ? MEDIA_LABELS[result.status] : '未检测'}
+              </Badge></div>
+              {result && <><p className="media-detail">{result.detail}</p><p className="media-metrics">{result.httpStatus != null ? `HTTP ${result.httpStatus} · ` : ''}{result.elapsedMs} ms</p></>}
+            </section>
+          })}
+        </div>
+        {mediaError && <p className="media-error" role="alert">{mediaError}</p>}
+      </Card>
+      <DnsQuery />
       <div className="toolbar">
         <Input placeholder="名称" value={name} onChange={(e) => setName(e.target.value)} />
         <Input

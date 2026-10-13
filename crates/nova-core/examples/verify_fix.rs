@@ -11,6 +11,7 @@ fn ov(tun: bool) -> RuntimeOverrides {
         ipv6: false,
         log_level: "info".into(),
         tun_enable: tun,
+        tun_options: nova_core::TunOptions::default(),
         dns_override: String::new(),
         hosts: String::new(),
         enable_dns: true,
@@ -23,6 +24,9 @@ fn ov(tun: bool) -> RuntimeOverrides {
         respect_rules: true,
         use_hosts: false,
         use_system_hosts: false,
+        unified_delay: false,
+        find_process_mode: String::new(),
+        sniffer: false,
     }
 }
 

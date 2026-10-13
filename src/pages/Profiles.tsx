@@ -9,11 +9,15 @@ import Icon from '../components/ui/Icon'
 import Input from '../components/ui/Input'
 import Toggle from '../components/ui/Toggle'
 import ProfileMenu from '../components/ProfileMenu'
+import ProfileDownloadFields from '../components/ProfileDownloadFields'
+import ProfileTopologyEditor from '../components/ProfileTopologyEditor'
 import type { ProfileMenuState } from '../components/ProfileMenu'
 import { getProxies } from '../services/api'
 import { call, isMock } from '../services/ipc'
 import { useNotificationStore } from '../stores/notifications'
 import type { EnhancerMeta, ProfileMeta } from '../types/clash'
+import { DEFAULT_PROFILE_DOWNLOAD_OPTIONS } from '../types/profileFeatures'
+import type { ProfileDownloadOptions } from '../types/profileFeatures'
 import { daysLeft, fmtBytes, fmtRelTime } from '../utils/format'
 
 /** 新建增强项的初始模板 */
@@ -74,6 +78,7 @@ interface ProfileMetaEditorState {
   name: string
   url: string
   autoUpdateMin: string
+  downloadOptions: ProfileDownloadOptions
 }
 
 const RULE_TYPES = [
@@ -97,6 +102,11 @@ const errorMessage = (err: unknown): string => err instanceof Error ? err.messag
 export default function Profiles() {
   const [profiles, setProfiles] = useState<ProfileMeta[]>([])
   const [url, setUrl] = useState('')
+  const [downloadOptions, setDownloadOptions] = useState({ ...DEFAULT_PROFILE_DOWNLOAD_OPTIONS })
+  const [showDownloadOptions, setShowDownloadOptions] = useState(false)
+  const [globalEnhancers, setGlobalEnhancers] = useState<EnhancerMeta[]>([])
+  const [enhancerScope, setEnhancerScope] = useState<'profile' | 'global'>('profile')
+  const [topologyProfile, setTopologyProfile] = useState<ProfileMeta | null>(null)
   const [newProfile, setNewProfile] = useState<{ name: string; content: string } | null>(null)
   const [busyIds, setBusyIds] = useState(new Set<string>())
   const busyRef = useRef(new Set<string>())
@@ -127,9 +137,10 @@ export default function Profiles() {
   const refresh = useCallback(async () => {
     const revision = ++refreshRevision.current
     try {
-      const next = await call('list_profiles')
+      const [next, global] = await Promise.all([call('list_profiles'), call('list_global_enhancers')])
       if (revision === refreshRevision.current) {
         setProfiles(next)
+        setGlobalEnhancers(global)
         setListError('')
       }
     } catch (err) {
@@ -139,6 +150,8 @@ export default function Profiles() {
 
   useEffect(() => {
     void refresh()
+    const changed = (): void => { void refresh() }
+    window.addEventListener('clashnova-profiles-changed', changed)
     let disposed = false
     let unlisten: (() => void) | undefined
     if (!isMock) {
@@ -154,6 +167,7 @@ export default function Profiles() {
       runtimeRevision.current += 1
       editorRevision.current += 1
       ruleTargetsRevision.current += 1
+      window.removeEventListener('clashnova-profiles-changed', changed)
       unlisten?.()
     }
   }, [notify, refresh])
@@ -179,7 +193,7 @@ export default function Profiles() {
     const u = url.trim()
     if (!u) return
     await runOperation('import-url', '导入订阅失败', async () => {
-      await call('import_profile', { url: u })
+      await call('import_profile', { url: u, options: downloadOptions })
       setUrl((current) => current.trim() === u ? '' : current)
       await refresh()
     })
@@ -303,6 +317,7 @@ export default function Profiles() {
       name: p.name,
       url: p.url ?? '',
       autoUpdateMin: p.autoUpdateMin ? String(p.autoUpdateMin) : '',
+      downloadOptions: { ...DEFAULT_PROFILE_DOWNLOAD_OPTIONS, ...p.downloadOptions },
     })
   }
 
@@ -333,6 +348,7 @@ export default function Profiles() {
         name,
         url: url || null,
         autoUpdateMin: interval && interval > 0 ? interval : null,
+        downloadOptions: metaEditor.downloadOptions,
       })
       await refresh()
       setMetaEditor(null)
@@ -342,29 +358,30 @@ export default function Profiles() {
 
   /* ---- 增强链 ---- */
   const currentProfile = profiles.find((p) => p.current) ?? null
-  const enhancers = currentProfile?.enhancers ?? []
+  const enhancerProfileId = enhancerScope === 'global' ? '__global__' : currentProfile?.id
+  const enhancers = enhancerScope === 'global' ? globalEnhancers : currentProfile?.enhancers ?? []
   const newSaving = busyIds.has('new-profile')
   const editorSaving = !!editor && busyIds.has(editor.profile.id)
   const enhancerSaving = !!enhEditor && busyIds.has(enhEditor.pid)
-  const currentBusy = !!currentProfile && busyIds.has(currentProfile.id)
+  const currentBusy = !!enhancerProfileId && busyIds.has(enhancerProfileId)
 
   const openEnhEditor = async (
     enh: EnhancerMeta | null,
     kind: EnhancerMeta['kind'],
-    profile = currentProfile,
+    profileId = enhancerProfileId,
   ): Promise<void> => {
-    if (!profile) return
+    if (!profileId) return
     if (busyRef.current.has(`read-enh-${enh?.id ?? kind}`)) return
     const revision = ++editorRevision.current
     await runOperation(`read-enh-${enh?.id ?? kind}`, '读取增强项失败', async () => {
       const content = enh
-        ? await call('read_enhancer', { profileId: profile.id, enhancerId: enh.id })
+        ? await call('read_enhancer', { profileId, enhancerId: enh.id })
         : ENH_TEMPLATES[kind]
       if (revision !== editorRevision.current) return
       const name = enh?.name ?? (kind === 'merge' ? 'New Merge' : 'New Script')
       setDialogError('')
       setEnhEditor({
-        pid: profile.id,
+        pid: profileId,
         enh,
         kind: enh?.kind ?? kind,
         name,
@@ -463,31 +480,31 @@ export default function Profiles() {
   }
 
   const toggleEnh = async (enh: EnhancerMeta, enabled: boolean): Promise<void> => {
-    if (!currentProfile) return
-    await runOperation(currentProfile.id, '切换增强项失败', async () => {
-      await call('toggle_enhancer', { profileId: currentProfile.id, enhancerId: enh.id, enabled })
+    if (!enhancerProfileId) return
+    await runOperation(enhancerProfileId, '切换增强项失败', async () => {
+      await call('toggle_enhancer', { profileId: enhancerProfileId, enhancerId: enh.id, enabled })
       await refresh()
     })
   }
 
   const deleteEnh = async (enh: EnhancerMeta): Promise<void> => {
-    if (!currentProfile) return
-    await runOperation(currentProfile.id, '删除增强项失败', async () => {
-      await call('delete_enhancer', { profileId: currentProfile.id, enhancerId: enh.id })
+    if (!enhancerProfileId) return
+    await runOperation(enhancerProfileId, '删除增强项失败', async () => {
+      await call('delete_enhancer', { profileId: enhancerProfileId, enhancerId: enh.id })
       setConfirmDelEnh(null)
       await refresh()
     })
   }
 
   const reorderEnhancers = async (fromIndex: number, toIndex: number): Promise<void> => {
-    if (!currentProfile || fromIndex === toIndex || busyRef.current.has(currentProfile.id)) return
+    if (!enhancerProfileId || fromIndex === toIndex || busyRef.current.has(enhancerProfileId)) return
     const newEnhancers = [...enhancers]
     const [moved] = newEnhancers.splice(fromIndex, 1)
     newEnhancers.splice(toIndex, 0, moved)
 
-    await runOperation(currentProfile.id, '重排序失败', async () => {
+    await runOperation(enhancerProfileId, '重排序失败', async () => {
       await call('reorder_enhancers', {
-        profileId: currentProfile.id,
+        profileId: enhancerProfileId,
         enhancerIds: newEnhancers.map(e => e.id)
       })
       await refresh()
@@ -539,6 +556,9 @@ export default function Profiles() {
             <Icon name="download" size={13} />
             {importing ? '导入中…' : '导入'}
           </Button>
+          <Button aria-expanded={showDownloadOptions} onClick={() => setShowDownloadOptions((value) => !value)}>
+            下载选项
+          </Button>
           <Button onClick={openNewProfile}>
             <Icon name="plus" size={13} />新建
           </Button>
@@ -559,6 +579,7 @@ export default function Profiles() {
             <Icon name="settings" size={13} />查看运行配置
           </Button>
         </div>
+        {showDownloadOptions && <ProfileDownloadFields value={downloadOptions} onChange={setDownloadOptions} disabled={importing} />}
       </Card>
 
       {/* ---- 订阅卡 ---- */}
@@ -654,12 +675,19 @@ export default function Profiles() {
         iconColor="var(--purple)"
         title="配置增强链"
         actions={
-          <span className="chip">
-            {currentProfile ? `作用于 ${currentProfile.name} · 自上而下` : '无可用订阅'}
-          </span>
+          <div className="enh-scope" aria-label="增强作用范围">
+            <Button size="sm" aria-pressed={enhancerScope === 'profile'} variant={enhancerScope === 'profile' ? 'primary' : 'default'}
+              disabled={currentBusy} onClick={() => { setEnhancerScope('profile'); setConfirmDelEnh(null) }}>当前订阅</Button>
+            <Button size="sm" aria-pressed={enhancerScope === 'global'} variant={enhancerScope === 'global' ? 'primary' : 'default'}
+              disabled={currentBusy} onClick={() => { setEnhancerScope('global'); setConfirmDelEnh(null) }}>全局增强</Button>
+          </div>
         }
         flush
       >
+        <div className="enh-scope-hint">
+          {enhancerScope === 'global' ? '作用于全部订阅，在订阅增强之后应用。内置清理最后执行，应用设置保持最高优先级。'
+            : currentProfile ? `作用于 ${currentProfile.name} · 自上而下（内置清理最后执行）` : '无可用订阅；可切换到全局增强。'}
+        </div>
         {enhancers.map((e, index) => (
           <div
             className={`enh-row ${draggedEnhIndex === index ? 'dragging' : ''}`}
@@ -680,6 +708,10 @@ export default function Profiles() {
             {e.id.startsWith(BUILTIN_ENHANCER_PREFIX) && <span className="chip builtin">内置</span>}
             <span className="chip">{e.kind === 'merge' ? 'YAML' : 'JavaScript'}</span>
             <span className="spacer" />
+            <Button size="sm" aria-label={`上移增强项：${e.name}`} disabled={currentBusy || index === 0}
+              onClick={() => void reorderEnhancers(index, index - 1)}>↑</Button>
+            <Button size="sm" aria-label={`下移增强项：${e.name}`} disabled={currentBusy || index === enhancers.length - 1}
+              onClick={() => void reorderEnhancers(index, index + 1)}>↓</Button>
             <Toggle label={`启用增强项：${e.name}`} on={e.enabled} onChange={(on) => void toggleEnh(e, on)} disabled={currentBusy} />
             <Button size="sm" onClick={() => void openEnhEditor(e, e.kind)} disabled={currentBusy || busyIds.has(`read-enh-${e.id}`)}>编辑</Button>
             {confirmDelEnh === e.id ? (
@@ -694,7 +726,7 @@ export default function Profiles() {
             )}
           </div>
         ))}
-        {currentProfile && (
+        {enhancerProfileId && (
           <div className="enh-add">
             <Button size="sm" onClick={() => void openEnhEditor(null, 'merge')}>
               <Icon name="plus" size={12} />新建 Merge
@@ -825,12 +857,14 @@ export default function Profiles() {
             case 'meta': openMetaEditor(profile); break
             case 'edit': void openEditor(profile); break
             case 'rule': void openRuleEditor(profile); break
-            case 'merge': void openEnhEditor(null, 'merge', profile); break
-            case 'script': void openEnhEditor(null, 'script', profile); break
+            case 'topology': setTopologyProfile(profile); break
+            case 'merge': void openEnhEditor(null, 'merge', profile.id); break
+            case 'script': void openEnhEditor(null, 'script', profile.id); break
             case 'delete': setConfirmDel(profile); break
           }
         }} />
       )}
+      {topologyProfile && <ProfileTopologyEditor profile={topologyProfile} onClose={() => setTopologyProfile(null)} onSaved={refresh} />}
       {metaEditor && (
         <Dialog className="editor-mask" panelClassName="meta-dialog" title="编辑订阅信息"
           onClose={() => setMetaEditor(null)} dismissible={!metaSaving}>
@@ -883,6 +917,11 @@ export default function Profiles() {
                   }}
                 />
               </label>
+              {metaEditor.profile.kind === 'remote' && <ProfileDownloadFields
+                value={metaEditor.downloadOptions}
+                onChange={(downloadOptions) => setMetaEditor({ ...metaEditor, downloadOptions })}
+                disabled={metaSaving}
+              />}
             </div>
             {dialogError && <div className="editor-error" role="alert">{dialogError}</div>}
             <div className="efoot">

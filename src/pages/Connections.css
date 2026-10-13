@@ -8,19 +8,20 @@
 .pg-connections .tbl thead{position:sticky;top:0;background:var(--glass-strong);backdrop-filter:var(--glass-filter);z-index:1}
 .pg-connections .tbl .conn-row{height:56px}
 .pg-connections .tbl .conn-row td{height:56px;box-sizing:border-box;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.pg-connections .tbl .conn-row .chip{max-width:100%;overflow:hidden;text-overflow:ellipsis}
-.pg-connections .conn-card .tbl{min-width:1120px;table-layout:fixed}
+.pg-connections .tbl .conn-row .chip{display:inline-block;vertical-align:middle;max-width:100%;overflow:hidden;text-overflow:ellipsis}
+.pg-connections .conn-card .tbl{min-width:860px;table-layout:fixed}
 .pg-connections .tbl th,
-.pg-connections .tbl td{text-align:center}
-.pg-connections .tbl th:nth-child(1){width:22%}
-.pg-connections .tbl th:nth-child(2){width:13%}
-.pg-connections .tbl th:nth-child(3){width:15%}
-.pg-connections .tbl th:nth-child(4){width:20%}
+.pg-connections .tbl td{text-align:center;padding-left:8px;padding-right:8px}
+.pg-connections .tbl th:nth-child(1){width:32%}
+.pg-connections .tbl th:nth-child(2){width:19%}
+.pg-connections .tbl th:nth-child(3){width:23%}
+.pg-connections .tbl th:nth-child(4){width:26%}
+/* 数值/操作列定宽, 否则百分比在默认窗口下挤到装不下 "12.4 KB/s"、"1:02:03" 和关闭按钮 */
 .pg-connections .tbl th:nth-child(5),
-.pg-connections .tbl th:nth-child(6),
-.pg-connections .tbl th:nth-child(7){width:8%}
-.pg-connections .tbl th:nth-child(8){width:5%}
-.pg-connections .tbl th:nth-child(9){width:3%}
+.pg-connections .tbl th:nth-child(6){width:70px}
+.pg-connections .tbl th:nth-child(7){width:88px}
+.pg-connections .tbl th:nth-child(8){width:76px}
+.pg-connections .tbl th:nth-child(9){width:46px}
 .pg-connections .host-cell .h{font-weight:600}
 .pg-connections .host-cell .h,
 .pg-connections .host-cell .ip,
@@ -39,3 +40,15 @@
 .pg-connections .icon-btn{margin:0 auto}
 .pg-connections .dur{color:var(--text-3)}
 .pg-connections .empty{padding:40px;text-align:center;color:var(--text-3);font-size:12.5px}
+.pg-connections .tbl .conn-row{cursor:pointer}
+.pg-connections .tbl .conn-row:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.conn-detail{width:min(560px,92vw);max-height:84vh;display:flex;flex-direction:column}
+.conn-detail header{display:flex;align-items:center;gap:10px;padding:16px 18px 12px;border-bottom:1px solid var(--line)}
+.conn-detail header h3{margin:0;font-size:15px}
+.conn-detail header .icon-btn{margin-left:auto}
+.conn-detail dl{margin:0;padding:8px 18px;overflow:auto}
+.conn-detail dl div{display:grid;grid-template-columns:96px 1fr;gap:12px;padding:6px 0;border-bottom:1px solid var(--line)}
+.conn-detail dl div:last-child{border-bottom:none}
+.conn-detail dt{color:var(--text-3);font-size:12px}
+.conn-detail dd{margin:0;font-size:12px;font-family:var(--mono);overflow-wrap:anywhere;user-select:text}
+.conn-detail footer{display:flex;justify-content:flex-end;gap:8px;padding:12px 18px;border-top:1px solid var(--line)}

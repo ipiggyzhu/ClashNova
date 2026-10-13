@@ -1,0 +1,52 @@
+html[data-tray] body{background:transparent}
+.tray-root{height:100%;padding:8px;overflow:hidden}
+.tray-panel{height:100%;display:flex;flex-direction:column;min-width:0;color:var(--text);
+  background:radial-gradient(ellipse at top right,color-mix(in srgb,var(--accent) 12%,transparent),transparent 70%),var(--bg);
+  border:1px solid var(--line-2);border-radius:var(--radius-lg);box-shadow:var(--shadow);overflow:hidden}
+.tray-header{display:flex;align-items:center;gap:8px;padding:10px 12px;flex-shrink:0;border-bottom:1px solid var(--line)}
+.tray-header img{border-radius:7px;flex-shrink:0}
+.tray-header strong{font-size:13px}
+.tray-state{display:flex;align-items:center;gap:5px;font-size:10px;color:var(--text-3);margin-left:auto;white-space:nowrap}
+.tray-state i{width:6px;height:6px;border-radius:50%;background:var(--text-3)}
+.tray-state.running i{background:var(--green)}
+.tray-header .icon-btn{width:24px;height:24px;flex-shrink:0}
+.tray-scroll{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain}
+.tray-rates{margin:10px;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:9px 10px}
+.tray-plots{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px}
+.tray-plots>div{min-width:0}
+.tray-plots span{display:block;font-size:10px;color:var(--text-3)}
+.tray-plots b{display:block;font-size:15px;font-weight:600;color:var(--accent);white-space:nowrap}
+.tray-plots>div+div b{color:var(--purple)}
+.tray-metrics{display:flex;justify-content:space-between;gap:8px;border-top:1px solid var(--line);padding-top:5px;font-size:10px;color:var(--text-3)}
+.tray-metrics b{font-size:10px;font-weight:500;color:var(--text-2)}
+.tray-row,.tray-mode{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 12px;font-size:12px}
+.tray-controls{border-bottom:1px solid var(--line);padding-bottom:6px}
+.tray-mode .seg{flex-shrink:0}
+.tray-mode .seg-item{padding:4px 8px;font-size:11px}
+.tray-section-title{display:flex;justify-content:space-between;align-items:center;padding:5px 12px;color:var(--text-3);font-size:10px}
+.tray-section-title .icon-btn{width:24px;height:24px}
+.tray-group{display:flex;gap:10px;align-items:center;padding:6px 12px;min-width:0}
+.tray-group:hover{background:var(--card)}
+.tray-group>span{min-width:0;flex:1}
+.tray-group b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;font-weight:500}
+.tray-group small{color:var(--text-3);font-size:9px}
+.tray-panel select{font:inherit;color:var(--text);background:var(--card-2);border:1px solid var(--line-2);
+  border-radius:var(--radius-sm);padding:5px 6px;min-width:0;width:54%;text-overflow:ellipsis}
+.tray-panel select:disabled{color:var(--text-3);cursor:not-allowed}
+.tray-panel select option{background:var(--bg)}
+.tray-panel :is(button,select):focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.tray-profile{margin-top:8px;border-top:1px solid var(--line)}
+.tray-quota{padding:0 12px 10px}
+.tray-quota>div:first-child{display:flex;justify-content:space-between;gap:6px;font-size:10px;color:var(--text-3)}
+.tray-quota-bar{height:4px;background:var(--card-3);border-radius:3px;overflow:hidden;margin-top:6px}
+.tray-quota-bar i{display:block;height:100%;background:var(--green);border-radius:inherit}
+.tray-quota-bar.warning i{background:var(--orange)}
+.tray-empty{padding:10px 12px;font-size:11px;color:var(--text-3)}
+.tray-error{margin:8px 10px;padding:8px;border-radius:var(--radius-sm);background:color-mix(in srgb,var(--red) 12%,transparent);
+  color:var(--red);font-size:11px;overflow-wrap:anywhere}
+.tray-footer{flex-shrink:0;border-top:1px solid var(--line);padding:9px 12px;background:var(--glass)}
+.tray-footer>div{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.tray-footer>div+div{margin-top:7px}
+.tray-footer>div>button:not(.btn){font:inherit;font-size:10px;color:var(--text-3);border:0;background:none;cursor:pointer}
+.tray-footer>div>button.tray-quit{color:var(--red)}
+.tray-footer button:disabled{cursor:not-allowed;opacity:.5}

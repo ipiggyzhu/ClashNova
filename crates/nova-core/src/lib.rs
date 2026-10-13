@@ -11,16 +11,20 @@ pub mod config_gen;
 pub mod merge;
 pub mod script;
 pub mod subscription;
+pub mod tun;
 
 pub use chain::{apply_chain, EnhancerItem};
 pub use config_gen::{build_runtime_config, RuntimeOverrides};
 pub use merge::deep_merge;
 pub use script::run_script;
 pub use subscription::parse_subscription;
+pub use tun::TunOptions;
 
 /// nova-core 统一错误类型。
 #[derive(Debug, thiserror::Error)]
 pub enum CoreError {
+    #[error("TUN 设置无效: {0}")]
+    InvalidTun(String),
     /// YAML 解析/序列化失败。
     #[error("YAML 解析失败: {0}")]
     Yaml(#[from] serde_yaml::Error),

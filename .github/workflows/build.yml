@@ -67,6 +67,9 @@ jobs:
           sudo apt-get install -y pkg-config build-essential libssl-dev libwebkit2gtk-4.1-dev libdbus-1-dev librsvg2-dev libxdo-dev libayatana-appindicator3-dev
       - run: npm ci
       - run: node scripts/gen-icons.mjs
+      - name: Run Windows installer regression tests
+        if: runner.os == 'Windows'
+        run: node --test tests/unit/windows-installer.test.mjs tests/unit/windows-manifest.test.mjs
       - name: Verify Windows core
         if: runner.os == 'Windows'
         run: node scripts/fetch-mihomo.mjs
@@ -140,7 +143,6 @@ jobs:
           WINDOWS_TIMESTAMP_URL: ${{ vars.WINDOWS_TIMESTAMP_URL }}
         run: |
           $targets = @(
-            'src-tauri/binaries/mihomo-x86_64-pc-windows-msvc.exe',
             'target/release/clashnova-service.exe',
             'target/release/clashnova-service-install.exe',
             'target/release/clashnova-service-uninstall.exe'
@@ -177,19 +179,12 @@ jobs:
       - name: Validate NSIS hook PowerShell
         shell: pwsh
         run: |
-          $content = Get-Content -LiteralPath src-tauri/nsis-hooks.nsh -Raw
-          $matches = [regex]::Matches(
-            $content,
-            '-Command "& \{ (?<script>.*?) \}"',
-            [System.Text.RegularExpressions.RegexOptions]::Singleline
-          )
-          if ($matches.Count -lt 2) {
-            throw "Expected at least 2 PowerShell hook commands, found $($matches.Count)."
-          }
-          foreach ($match in $matches) {
-            $script = $match.Groups['script'].Value.Replace('$$', '$')
-            [scriptblock]::Create($script) | Out-Null
-          }
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Join-Path $PWD 'src-tauri/nsis-processes.ps1'), [ref]$tokens, [ref]$errors
+          ) | Out-Null
+          if ($errors.Count) { throw ($errors | Out-String) }
 
       - name: Build Tauri NSIS installer
         shell: pwsh
@@ -216,6 +211,9 @@ jobs:
               .\scripts\sign-windows.ps1 $_.FullName
             }
           }
+
+      - name: Generate verified Windows build manifest
+        run: node scripts/windows-update-manifest.mjs
 
       - name: Publish installers to GitHub Release
         shell: bash
@@ -248,6 +246,8 @@ jobs:
           fi
 
           gh release upload "$release_tag" "${installers[@]}" --clobber
+          version="$(node -e "console.log(require('./src-tauri/tauri.conf.json').version)")"
+          gh release upload "$release_tag" "target/release/bundle/nsis/ClashNova_${version}_windows-build.json" --clobber
 
   release-linux:
     runs-on: ubuntu-latest

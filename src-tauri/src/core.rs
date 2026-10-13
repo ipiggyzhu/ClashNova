@@ -65,7 +65,7 @@ fn add_dev_target_mihomo_candidate(candidates: &mut Vec<PathBuf>, exe_dir: &Path
 }
 
 #[cfg(windows)]
-fn find_mihomo_binary(app: &AppHandle) -> Result<PathBuf, String> {
+fn find_bundled_mihomo_binary(app: &AppHandle) -> Result<PathBuf, String> {
     let exe = std::env::current_exe().map_err(|e| format!("获取当前可执行文件路径失败: {e}"))?;
     let exe_dir = exe.parent().ok_or("无法获取当前可执行文件所在目录")?;
     let mut candidates = Vec::new();
@@ -116,7 +116,7 @@ fn find_mihomo_binary(app: &AppHandle) -> Result<PathBuf, String> {
 }
 
 #[cfg(not(windows))]
-fn find_mihomo_binary(app: &AppHandle) -> Result<PathBuf, String> {
+fn find_bundled_mihomo_binary(app: &AppHandle) -> Result<PathBuf, String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let target = if cfg!(target_os = "macos") {
         "apple-darwin"
@@ -137,6 +137,26 @@ fn find_mihomo_binary(app: &AppHandle) -> Result<PathBuf, String> {
         .ok_or_else(|| "找不到 mihomo 内核".into())
 }
 
+fn find_mihomo_binary(app: &AppHandle) -> Result<PathBuf, String> {
+    #[cfg(windows)]
+    if let Some(binary) = crate::core_update::selected_binary(&app.state::<AppState>().dirs.config)?
+    {
+        return Ok(binary);
+    }
+    find_bundled_mihomo_binary(app)
+}
+
+#[cfg(windows)]
+fn verify_managed_core(app: &AppHandle) -> Result<PathBuf, String> {
+    let expected = find_mihomo_binary(app)?;
+    let managed = crate::service_paths::managed_core_binary_path();
+    let expected_hash = crate::update_io::hash_file(&expected, crate::update_io::MAX_BINARY)?;
+    if crate::update_io::hash_file(&managed, crate::update_io::MAX_BINARY)? != expected_hash {
+        return Err("服务内核与当前选择不同，请在更新设置中重新应用所选版本".into());
+    }
+    Ok(managed)
+}
+
 /// 在替换 runtime.yaml 之前让同版本内核执行语义预检。
 pub fn validate_runtime(app: &AppHandle, content: &str) -> Result<(), String> {
     use std::io::Read;
@@ -153,7 +173,7 @@ pub fn validate_runtime(app: &AppHandle, content: &str) -> Result<(), String> {
     let result = (|| {
         #[cfg(windows)]
         let binary = if state.settings_snapshot().tun || is_service_core_running() {
-            crate::service_paths::managed_core_binary_path()
+            verify_managed_core(app)?
         } else {
             find_mihomo_binary(app)?
         };
@@ -264,6 +284,21 @@ pub(crate) fn is_sidecar_running(app: &AppHandle) -> bool {
         .unwrap_or(false)
 }
 
+/// 只读查询诊断用 PID，不启动、刷新或修复内核。
+pub(crate) async fn diagnostic_pid(app: &AppHandle) -> Option<u32> {
+    let pid = app.state::<AppState>().core.lock().ok()
+        .and_then(|core| core.child.as_ref().map(CommandChild::pid));
+    if pid.is_some() {
+        return pid;
+    }
+    tauri::async_runtime::spawn_blocking(service_core_status)
+        .await
+        .ok()
+        .flatten()
+        .filter(|status| status.running)
+        .and_then(|status| status.pid)
+}
+
 pub(crate) async fn is_running(app: &AppHandle) -> bool {
     if is_sidecar_running(app) {
         true
@@ -296,6 +331,10 @@ fn is_service_core_running() -> bool {
     service_core_status()
         .map(|status| status.running)
         .unwrap_or(false)
+}
+
+pub(crate) fn service_core_is_running() -> bool {
+    is_service_core_running()
 }
 
 fn service_core_uptime_sec(start_time: Option<i64>) -> u64 {
@@ -538,8 +577,7 @@ fn spawn_core(app: &AppHandle, expected_generation: Option<u64>) -> Result<(), S
     let runtime_config = state.dirs.runtime_config().to_string_lossy().to_string();
     let (mut rx, child) = app
         .shell()
-        .sidecar("mihomo")
-        .map_err(|e| format!("定位 mihomo sidecar 失败: {e}"))?
+        .command(find_mihomo_binary(app)?)
         // mihomo resolves a relative -f against the process cwd, not -d.
         // Installed builds therefore must pass the absolute runtime path.
         .args(["-d", &config_dir, "-f", &runtime_config])
@@ -869,7 +907,7 @@ fn start_core_via_service(app: &AppHandle) -> Result<(), String> {
     let settings = state.settings_snapshot();
 
     #[cfg(windows)]
-    let mihomo_path = crate::service_paths::managed_core_binary_path();
+    let mihomo_path = verify_managed_core(app)?;
     #[cfg(not(windows))]
     let mihomo_path = find_mihomo_binary(app)?;
 

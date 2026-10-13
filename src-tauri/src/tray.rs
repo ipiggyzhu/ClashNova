@@ -1,11 +1,14 @@
 //! 托盘:图标 + 菜单(显示主窗口/系统代理/TUN/出站模式/退出),
-//! 菜单勾选态经 `sync_tray` 与设置保持一致;左键单击唤起主窗口。
+//! 菜单勾选态经 `sync_tray` 与设置保持一致;左键单击打开快捷面板。
 
 use tauri::menu::{CheckMenuItem, MenuBuilder, MenuItem, PredefinedMenuItem, SubmenuBuilder};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, Wry};
 
 use crate::state::AppState;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+static OPENING_WINDOW: AtomicBool = AtomicBool::new(false);
 
 /// 托盘菜单项句柄(manage 进 Tauri 状态, 供 sync_tray 更新勾选态)。
 pub struct TrayHandles {
@@ -21,6 +24,8 @@ pub fn create(app: &AppHandle) -> Result<(), String> {
     let settings = app.state::<AppState>().settings_snapshot();
 
     let show = MenuItem::with_id(app, "tray-show", "显示主窗口", true, None::<&str>)
+        .map_err(|e| e.to_string())?;
+    let panel = MenuItem::with_id(app, "tray-panel", "快捷面板", true, None::<&str>)
         .map_err(|e| e.to_string())?;
     let sys_proxy = CheckMenuItem::with_id(
         app,
@@ -78,6 +83,7 @@ pub fn create(app: &AppHandle) -> Result<(), String> {
 
     let menu = MenuBuilder::new(app)
         .item(&show)
+        .item(&panel)
         .item(&PredefinedMenuItem::separator(app).map_err(|e| e.to_string())?)
         .item(&sys_proxy)
         .item(&tun)
@@ -111,10 +117,11 @@ pub fn create(app: &AppHandle) -> Result<(), String> {
             if let TrayIconEvent::Click {
                 button: MouseButton::Left,
                 button_state: MouseButtonState::Up,
+                position,
                 ..
             } = event
             {
-                show_main_window(tray.app_handle());
+                crate::tray_panel::toggle(tray.app_handle(), position);
             }
         })
         .build(app)
@@ -136,22 +143,45 @@ pub fn sync_tray(app: &AppHandle) {
 }
 
 pub fn show_main_window(app: &AppHandle) {
+    let _ = crate::tray_panel::hide(app);
     if let Some(win) = app.get_webview_window("main") {
         let _ = win.show();
         let _ = win.unminimize();
         let _ = win.set_focus();
+        return;
     }
+    if OPENING_WINDOW.swap(true, Ordering::AcqRel) { return; }
+    let app = app.clone();
+    // WebView2 禁止在同步事件回调里创建窗口；托盘、热键、协议唤起共用此入口。
+    tauri::async_runtime::spawn_blocking(move || {
+        let result = (|| {
+            let config = app.config().app.windows.iter().find(|window| window.label == "main")
+                .ok_or_else(|| "主窗口配置缺失".to_string())?;
+            let window = tauri::WebviewWindowBuilder::from_config(&app, config)
+                .map_err(|err| err.to_string())?.visible(true).build().map_err(|err| err.to_string())?;
+            window.set_focus().map_err(|err| err.to_string())
+        })();
+        OPENING_WINDOW.store(false, Ordering::Release);
+        if let Err(err) = result { log::error!("重建主窗口失败: {err}"); }
+    });
+}
+
+pub fn quit(app: &AppHandle) {
+    let settings = app.state::<AppState>().settings_snapshot();
+    crate::sysproxy_win::clear_on_exit(&settings);
+    let _ = crate::core::stop(app);
+    app.exit(0);
 }
 
 fn on_menu(app: &AppHandle, id: &str) {
     match id {
         "tray-show" => show_main_window(app),
-        "tray-quit" => {
-            let settings = app.state::<AppState>().settings_snapshot();
-            crate::sysproxy_win::clear_on_exit(&settings);
-            let _ = crate::core::stop(app);
-            app.exit(0);
+        "tray-panel" => {
+            if let Ok(position) = app.cursor_position() {
+                crate::tray_panel::toggle(app, position);
+            }
         }
+        "tray-quit" => quit(app),
         "tray-sysproxy" => {
             let enable = !app.state::<AppState>().settings_snapshot().sys_proxy;
             let app = app.clone();

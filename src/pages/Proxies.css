@@ -1,5 +1,5 @@
 .pg-proxies{display:flex;flex-direction:column;gap:14px}
-.pg-proxies .toolbar{display:flex;align-items:center;gap:12px}
+.pg-proxies .toolbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
 .pg-proxies .toolbar .search-wrap{width:240px}
 .pg-proxies .toolbar .search-wrap .input{width:100%}
 .pg-proxies .toolbar .spacer{flex:1}

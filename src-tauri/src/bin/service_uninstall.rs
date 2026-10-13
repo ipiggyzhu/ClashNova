@@ -4,6 +4,8 @@
 
 #[path = "../service_paths.rs"]
 mod service_paths;
+#[path = "../update_io.rs"]
+mod update_io;
 
 #[cfg(windows)]
 use windows_service::{
@@ -22,8 +24,7 @@ fn arg_value(args: &[String], name: &str) -> Option<String> {
 
 fn write_result(path: Option<&str>, ok: bool, message: &str) {
     if let Some(path) = path {
-        let prefix = if ok { "ok" } else { "error" };
-        let _ = std::fs::write(path, format!("{prefix}\n{message}\n"));
+        let _ = service_paths::write_helper_result(std::path::Path::new(path), ok, message);
     }
 }
 

@@ -1,0 +1,30 @@
+.backup-mask { z-index: 9999; }
+.backup-panel, .backup-confirm { width: min(800px, calc(100vw - 40px)); max-height: calc(100vh - 48px); display: flex; flex-direction: column; }
+.backup-confirm { width: min(560px, calc(100vw - 40px)); }
+.backup-head, .backup-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 20px; }
+.backup-head { border-bottom: 1px solid var(--line); }
+.backup-head h3 { margin: 0; font-size: 15px; }
+.backup-footer { border-top: 1px solid var(--line); color: var(--text-3); font-size: 12px; }
+.backup-body { padding: 16px 20px; overflow-y: auto; min-height: 0; }
+.backup-body section + section { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--line); }
+.backup-body h4 { margin: 0; font-size: 14px; }
+.backup-note { color: var(--text-3); font-size: 12px; line-height: 1.65; }
+.backup-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+.backup-toolbar h4, .backup-toolbar .input { flex: 1; min-width: 150px; }
+.backup-toolbar .btn, .backup-actions .btn { flex-shrink: 0; }
+.backup-list { list-style: none; padding: 0; margin: 0; }
+.backup-list li { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 12px 0; border-bottom: 1px solid var(--line-2); }
+.backup-list li:last-child { border-bottom: 0; }
+.backup-entry-info { min-width: 190px; flex: 1; overflow-wrap: anywhere; }
+.backup-entry-info strong { font-size: 13px; }
+.backup-entry-info small { display: block; margin-top: 4px; color: var(--text-3); font-size: 11px; }
+.backup-entry-info .backup-damaged { color: var(--red); }
+.backup-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.backup-dav-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 14px 0; }
+.backup-dav-fields label { display: grid; gap: 6px; min-width: 0; font-size: 12px; }
+.backup-dav-fields label:first-child { grid-column: 1 / -1; }
+.backup-dav-fields .input { width: 100%; min-width: 0; }
+.backup-error { padding: 10px 12px; margin: 8px 0; border-radius: var(--radius-md); border: 1px solid var(--red); color: var(--red); font-size: 12px; overflow-wrap: anywhere; }
+.backup-empty { color: var(--text-3); text-align: center; font-size: 12px; padding: 12px; }
+.backup-preserved { overflow-wrap: anywhere; color: var(--text-3); font-size: 12px; }
+@media (max-width: 640px) { .backup-dav-fields { grid-template-columns: 1fr; } .backup-footer { flex-wrap: wrap; } }

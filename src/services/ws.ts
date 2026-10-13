@@ -7,7 +7,7 @@
  */
 import type { ConnectionsPayload, LogItem, MemoryPoint, TrafficPoint } from '../types/clash'
 import { apiConfig, ensureConfigured } from './api'
-import { isMock } from './ipc'
+import { call, isMock } from './ipc'
 import { mockConnections, mockNextLog, mockNextMemory, mockNextTraffic } from './mock'
 
 /** 取消订阅函数 */
@@ -35,7 +35,14 @@ function subscribeWs<T>(
     onStatus?.('connecting')
     try {
       await ensureConfigured()
+      const running = (await call('core_status')).running
       if (closed || document.hidden || current !== generation) return
+      if (!running) {
+        onDisconnect?.()
+        onStatus?.('disconnected')
+        timer = setTimeout(() => { void connect() }, RECONNECT_MS)
+        return
+      }
       const { baseUrl, secret } = apiConfig()
       const sep = path.includes('?') ? '&' : '?'
       const socket = new WebSocket(`${baseUrl.replace(/^http/, 'ws')}${path}${sep}token=${encodeURIComponent(secret)}`)

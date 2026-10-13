@@ -5,7 +5,7 @@ use tauri::{AppHandle, Manager};
 use tauri_plugin_opener::OpenerExt;
 
 use crate::core::{self, CoreStatus};
-use crate::profiles::{self, EnhancerMeta, ProfileMeta};
+use crate::profiles::{self, EnhancerMeta, ProfileDownloadOptions, ProfileMeta, ProfileTopology};
 use crate::state::{AppSettings, AppState, FileTransaction};
 use crate::{autostart, hotkeys, service, sysproxy_win, tray};
 
@@ -80,11 +80,13 @@ fn service_ipc_starting_message(err: impl std::fmt::Display) -> String {
 }
 
 #[cfg(windows)]
-fn query_tun_adapter(enabled: bool) -> TunAdapterStatus {
+fn query_tun_adapter(enabled: bool, device: Option<String>) -> TunAdapterStatus {
     use std::os::windows::process::CommandExt;
 
     let script = r#"
 $ErrorActionPreference = 'SilentlyContinue'
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+$device = $env:CLASHNOVA_TUN_DEVICE
 $specific = '(?i)(Mihomo|ClashNova|Clash[ -]?(Meta|Verge)|Clash|SakuraiTunnel|Meta Tunnel)'
 $wintun = '(?i)(Wintun Userspace Tunnel|Meta Tunnel)'
 $adapters = @(Get-NetAdapter -IncludeHidden | Where-Object {
@@ -92,7 +94,7 @@ $adapters = @(Get-NetAdapter -IncludeHidden | Where-Object {
   $desc = [string]$_.InterfaceDescription
   $matchesSpecific = ($name -match $specific) -or ($desc -match $specific)
   $matchesWintun = ($desc -match $wintun) -and ($name -match '(?i)(Mihomo|Clash|Meta|ClashNova|SakuraiTunnel)')
-  $matchesSpecific -or $matchesWintun
+  if ($device) { $name -eq $device } else { $matchesSpecific -or $matchesWintun }
 } | Sort-Object @{Expression = { if ($_.Status -eq 'Up') { 0 } else { 1 } }}, Name)
 if ($adapters.Count -eq 0) {
   [pscustomobject]@{ present = $false; name = $null; status = $null; detail = '未找到 Mihomo/Clash/Wintun 虚拟网卡' } | ConvertTo-Json -Compress
@@ -103,6 +105,7 @@ if ($adapters.Count -eq 0) {
 "#;
 
     let mut cmd = std::process::Command::new("powershell.exe");
+    cmd.env("CLASHNOVA_TUN_DEVICE", device.unwrap_or_default());
     cmd.args([
         "-NoProfile",
         "-ExecutionPolicy",
@@ -174,7 +177,7 @@ if ($adapters.Count -eq 0) {
 }
 
 #[cfg(not(windows))]
-fn query_tun_adapter(enabled: bool) -> TunAdapterStatus {
+fn query_tun_adapter(enabled: bool, _device: Option<String>) -> TunAdapterStatus {
     TunAdapterStatus {
         enabled,
         adapter_present: false,
@@ -184,8 +187,8 @@ fn query_tun_adapter(enabled: bool) -> TunAdapterStatus {
     }
 }
 
-async fn query_tun_adapter_async(enabled: bool) -> TunAdapterStatus {
-    tauri::async_runtime::spawn_blocking(move || query_tun_adapter(enabled))
+async fn query_tun_adapter_async(enabled: bool, device: Option<String>) -> TunAdapterStatus {
+    tauri::async_runtime::spawn_blocking(move || query_tun_adapter(enabled, device))
         .await
         .unwrap_or_else(|err| TunAdapterStatus {
             enabled,
@@ -202,7 +205,8 @@ async fn wait_tun_adapter(
     timeout: Duration,
 ) -> Result<TunAdapterStatus, String> {
     let started = Instant::now();
-    let mut last = query_tun_adapter_async(app.state::<AppState>().settings_snapshot().tun).await;
+    let settings = app.state::<AppState>().settings_snapshot();
+    let mut last = query_tun_adapter_async(settings.tun, settings.tun_options.device.clone()).await;
 
     loop {
         if last.status.as_deref() == Some("unsupported") {
@@ -231,7 +235,7 @@ async fn wait_tun_adapter(
         }
 
         tokio::time::sleep(Duration::from_millis(500)).await;
-        last = query_tun_adapter_async(app.state::<AppState>().settings_snapshot().tun).await;
+        last = query_tun_adapter_async(settings.tun, settings.tun_options.device.clone()).await;
     }
 }
 
@@ -403,6 +407,15 @@ pub async fn patch_settings(
 }
 
 async fn save_settings_inner(app: AppHandle, settings: AppSettings) -> Result<(), String> {
+    settings.tun_options.validate()?;
+    if !(settings.delay_test_url.starts_with("http://")
+        || settings.delay_test_url.starts_with("https://"))
+    {
+        return Err("测速地址必须以 http:// 或 https:// 开头".into());
+    }
+    if !(500..=30_000).contains(&settings.delay_test_timeout) {
+        return Err("测速超时需在 500-30000 毫秒之间".into());
+    }
     let state = app.state::<AppState>();
     let prev = state.settings_snapshot();
     if settings.tun && settings.tun != prev.tun {
@@ -420,6 +433,7 @@ async fn save_settings_inner(app: AppHandle, settings: AppSettings) -> Result<()
         || settings.ipv6 != prev.ipv6
         || settings.log_level != prev.log_level
         || settings.tun != prev.tun
+        || settings.tun_options != prev.tun_options
         || settings.mode != prev.mode
         || settings.dns_override != prev.dns_override
         || settings.hosts != prev.hosts
@@ -432,7 +446,10 @@ async fn save_settings_inner(app: AppHandle, settings: AppSettings) -> Result<()
         || settings.prefer_h3 != prev.prefer_h3
         || settings.respect_rules != prev.respect_rules
         || settings.use_hosts != prev.use_hosts
-        || settings.use_system_hosts != prev.use_system_hosts;
+        || settings.use_system_hosts != prev.use_system_hosts
+        || settings.unified_delay != prev.unified_delay
+        || settings.find_process_mode != prev.find_process_mode
+        || settings.sniffer != prev.sniffer;
     let autostart_changed = settings.autostart != prev.autostart
         || (settings.autostart && settings.silent_start != prev.silent_start);
     let mut transaction =
@@ -588,8 +605,12 @@ pub fn list_profiles(app: AppHandle) -> Result<Vec<ProfileMeta>, String> {
 }
 
 #[tauri::command]
-pub async fn import_profile(app: AppHandle, url: String) -> Result<ProfileMeta, String> {
-    profiles::import(&app, url).await
+pub async fn import_profile(
+    app: AppHandle,
+    url: String,
+    options: Option<ProfileDownloadOptions>,
+) -> Result<ProfileMeta, String> {
+    profiles::import(&app, url, options).await
 }
 
 #[tauri::command]
@@ -613,8 +634,9 @@ pub async fn update_profile_meta(
     name: String,
     url: Option<String>,
     auto_update_min: Option<u32>,
+    download_options: Option<ProfileDownloadOptions>,
 ) -> Result<ProfileMeta, String> {
-    profiles::update_meta(&app, id, name, url, auto_update_min).await
+    profiles::update_meta(&app, id, name, url, auto_update_min, download_options).await
 }
 
 #[tauri::command]
@@ -647,6 +669,28 @@ pub async fn save_profile_content(
 }
 
 /* ---------------- 配置增强链(M2) ---------------- */
+
+#[tauri::command]
+pub fn read_profile_topology(app: AppHandle, id: String) -> Result<ProfileTopology, String> {
+    profiles::read_profile_topology(&app, &id)
+}
+
+#[tauri::command]
+pub async fn save_profile_topology(
+    app: AppHandle,
+    id: String,
+    original_content: String,
+    proxies: Vec<serde_json::Value>,
+    groups: Vec<serde_json::Value>,
+    renames: Option<std::collections::HashMap<String, String>>,
+) -> Result<(), String> {
+    profiles::save_profile_topology(&app, id, original_content, proxies, groups, renames).await
+}
+
+#[tauri::command]
+pub fn list_global_enhancers(app: AppHandle) -> Result<Vec<EnhancerMeta>, String> {
+    profiles::list_global_enhancers(&app)
+}
 
 #[tauri::command]
 pub fn read_enhancer(
@@ -811,9 +855,9 @@ pub async fn service_status() -> String {
 
 #[tauri::command]
 pub async fn check_tun_adapter(app: AppHandle) -> TunAdapterStatus {
-    let settings_tun = app.state::<AppState>().settings_snapshot().tun;
-    let mut status = query_tun_adapter_async(settings_tun).await;
-    if settings_tun && !status.adapter_present {
+    let settings = app.state::<AppState>().settings_snapshot();
+    let mut status = query_tun_adapter_async(settings.tun, settings.tun_options.device).await;
+    if settings.tun && !status.adapter_present {
         if matches!(core::runtime_tun_enabled(&app).await, Ok(true)) {
             status.status = Some("runtime-enabled".into());
             status.detail = Some(match status.detail {
@@ -1036,134 +1080,10 @@ pub async fn exempt_uwp_loopback() -> Result<(), String> {
     .map_err(|e| format!("任务失败: {e}"))?
 }
 
-#[derive(Debug, serde::Deserialize)]
-struct GitHubRelease {
-    tag_name: String,
-    draft: bool,
-    prerelease: bool,
-}
-
-#[derive(Debug, serde::Deserialize)]
-struct GitHubTag {
-    name: String,
-}
-
-#[derive(Debug, Eq, PartialEq)]
-struct ParsedVersion {
-    parts: Vec<u64>,
-}
-
-impl Ord for ParsedVersion {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        let len = self.parts.len().max(other.parts.len());
-        for i in 0..len {
-            let left = self.parts.get(i).copied().unwrap_or(0);
-            let right = other.parts.get(i).copied().unwrap_or(0);
-            match left.cmp(&right) {
-                std::cmp::Ordering::Equal => continue,
-                ordering => return ordering,
-            }
-        }
-        std::cmp::Ordering::Equal
-    }
-}
-
-impl PartialOrd for ParsedVersion {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-fn parse_stable_version(tag: &str) -> Option<(String, ParsedVersion)> {
-    let version = tag.trim().trim_start_matches(|c| c == 'v' || c == 'V');
-    if version.is_empty() || version.contains('-') {
-        return None;
-    }
-    let version = version.split('+').next().unwrap_or(version);
-    let parts = version
-        .split('.')
-        .map(str::parse::<u64>)
-        .collect::<Result<Vec<_>, _>>()
-        .ok()?;
-    if parts.is_empty() {
-        return None;
-    }
-    Some((version.to_string(), ParsedVersion { parts }))
-}
-
-fn newest_version<I>(tags: I) -> Option<String>
-where
-    I: IntoIterator,
-    I::Item: AsRef<str>,
-{
-    tags.into_iter()
-        .filter_map(|tag| parse_stable_version(tag.as_ref()))
-        .max_by(|(_, left), (_, right)| left.cmp(right))
-        .map(|(version, _)| version)
-}
-
-async fn get_github_json<T: serde::de::DeserializeOwned>(
-    client: &reqwest::Client,
-    url: &str,
-) -> Result<T, String> {
-    let resp = client
-        .get(url)
-        .header(
-            "User-Agent",
-            format!("ClashNova/{}", env!("CARGO_PKG_VERSION")),
-        )
-        .header("Accept", "application/vnd.github+json")
-        .timeout(std::time::Duration::from_secs(10))
-        .send()
-        .await
-        .map_err(|e| format!("检查更新失败: {e}"))?;
-    if !resp.status().is_success() {
-        return Err(format!("检查更新失败: HTTP {}", resp.status()));
-    }
-    resp.json().await.map_err(|e| format!("解析失败: {e}"))
-}
-
-async fn latest_release_version(client: &reqwest::Client) -> Result<Option<String>, String> {
-    const RELEASES_API: &str =
-        "https://api.github.com/repos/ipiggyzhu/ClashNova/releases?per_page=20";
-    let releases: Vec<GitHubRelease> = get_github_json(client, RELEASES_API).await?;
-    Ok(newest_version(
-        releases
-            .into_iter()
-            .filter(|release| !release.draft && !release.prerelease)
-            .map(|release| release.tag_name),
-    ))
-}
-
-async fn latest_tag_version(client: &reqwest::Client) -> Result<Option<String>, String> {
-    const TAGS_API: &str = "https://api.github.com/repos/ipiggyzhu/ClashNova/tags?per_page=50";
-    let tags: Vec<GitHubTag> = get_github_json(client, TAGS_API).await?;
-    Ok(newest_version(tags.into_iter().map(|tag| tag.name)))
-}
-
-/// GitHub 最新版本号;比当前稳定版本新则返回 Some(版本)。
-/// Release 列表优先, tags 兜底, 避免 latest release 缺失或标记异常导致误判。
+/// 兼容旧前端入口，统一使用校验后的应用更新结果。
 #[tauri::command]
-pub async fn check_update() -> Result<Option<String>, String> {
-    let client = reqwest::Client::new();
-    let latest = match latest_release_version(&client).await {
-        Ok(Some(version)) => Some(version),
-        Ok(None) => latest_tag_version(&client).await?,
-        Err(release_err) => match latest_tag_version(&client).await {
-            Ok(version) => version,
-            Err(tag_err) => return Err(format!("{release_err}; fallback tags failed: {tag_err}")),
-        },
-    };
-    let Some(latest) = latest else {
-        return Ok(None);
-    };
-    let Some((_, latest_parsed)) = parse_stable_version(&latest) else {
-        return Ok(None);
-    };
-    let Some((_, current_parsed)) = parse_stable_version(env!("CARGO_PKG_VERSION")) else {
-        return Ok(None);
-    };
-    Ok((latest_parsed > current_parsed).then_some(latest))
+pub async fn check_update(app: AppHandle) -> Result<Option<String>, String> {
+    Ok(crate::updater::check_app_update(app).await?.map(|update| update.version))
 }
 
 /// 流量统计: 总量时间序列(range: day|7d|30d)。

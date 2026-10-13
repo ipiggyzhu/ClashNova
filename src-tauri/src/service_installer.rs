@@ -17,6 +17,58 @@ pub fn start_with_installer_sync(config_dir: &Path) -> Result<(), String> {
     run_install_helper(config_dir, "start service", "start")
 }
 
+pub fn update_core_with_installer_sync(config_dir: &Path, id: &str) -> Result<(), String> {
+    if id != "bundled" {
+        crate::core_update::parse_id(id)?;
+    }
+    run_core_helper(config_dir, Some(id))
+}
+
+pub fn rollback_core_with_installer_sync(config_dir: &Path) -> Result<(), String> {
+    run_core_helper(config_dir, None)
+}
+
+#[cfg(windows)]
+fn run_core_helper(config_dir: &Path, id: Option<&str>) -> Result<(), String> {
+    let helper = get_installer_path()?;
+    let action = if id.is_some() {
+        "update-core"
+    } else {
+        "rollback-core"
+    };
+    let result_path = service_result_path(action);
+    let mut command = runas::Command::new(&helper);
+    command
+        .arg("--dir")
+        .arg(config_dir)
+        .arg("--action")
+        .arg(action)
+        .arg("--result")
+        .arg(&result_path)
+        .show(false);
+    if let Some(id) = id {
+        command.arg("--core-id").arg(id);
+    }
+    let result = command
+        .status()
+        .map_err(|_| "启动提权内核更新助手失败或 UAC 已取消".to_string())
+        .and_then(|status| {
+            if status.success() {
+                Ok(())
+            } else {
+                Err(read_result_file(&result_path)
+                    .unwrap_or_else(|| format!("内核更新助手失败，退出码 {:?}", status.code())))
+            }
+        });
+    let _ = std::fs::remove_file(&result_path);
+    result
+}
+
+#[cfg(not(windows))]
+fn run_core_helper(_config_dir: &Path, _id: Option<&str>) -> Result<(), String> {
+    Err("内核更新助手仅支持 Windows".into())
+}
+
 fn run_install_helper(
     config_dir: &Path,
     action_label: &'static str,

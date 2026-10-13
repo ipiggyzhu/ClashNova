@@ -18,6 +18,8 @@ assert.ok(source.includes(declaration), 'lock fixture injection must match the p
 const { fetchMihomo } = await import(`data:text/javascript;base64,${Buffer.from(source.replace(declaration, `const lock = ${JSON.stringify(fixtureLock)}`)).toString('base64')}`)
 
 async function fixture(t) {
+  // Node #64061: Windows 并行文件测试的原始 stdout 可能破坏结果帧，使用结构化诊断。
+  t.mock.method(console, 'log', (...values) => t.diagnostic(values.join(' ')))
   const temp = path.join(root, '.tmp')
   await mkdir(temp, { recursive: true })
   const directory = await mkdtemp(path.join(temp, 'unit-download-'))

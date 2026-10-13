@@ -10,7 +10,7 @@ export interface ProfileMenuState {
   profile: ProfileMeta
 }
 
-export type ProfileMenuAction = 'select' | 'update' | 'meta' | 'edit' | 'rule' | 'merge' | 'script' | 'delete'
+export type ProfileMenuAction = 'select' | 'update' | 'meta' | 'edit' | 'topology' | 'rule' | 'merge' | 'script' | 'delete'
 
 interface ProfileMenuProps {
   state: ProfileMenuState
@@ -23,6 +23,7 @@ const ITEMS: { action: ProfileMenuAction; icon: IconName; label: string }[] = [
   { action: 'update', icon: 'refresh', label: '更新订阅' },
   { action: 'meta', icon: 'settings', label: '编辑订阅信息' },
   { action: 'edit', icon: 'edit', label: '编辑文件' },
+  { action: 'topology', icon: 'proxies', label: '编辑节点与策略组' },
   { action: 'rule', icon: 'rules', label: '添加分流规则' },
   { action: 'merge', icon: 'profiles', label: '新建 Merge 覆写' },
   { action: 'script', icon: 'zap', label: '新建 Script 脚本' },

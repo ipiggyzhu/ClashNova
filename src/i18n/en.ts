@@ -3,6 +3,17 @@
  * 缺失键回退中文原文,新增文案先写中文再补译。
  */
 export const EN: Record<string, string> = {
+  /* 托盘快捷面板 */
+  快捷面板: 'Quick panel', '关闭快捷面板': 'Close quick panel',
+  '关闭快捷面板失败': 'Could not close quick panel', '快捷面板初始化失败': 'Could not initialize quick panel',
+  '快捷面板同步失败': 'Could not synchronize quick panel',
+  实时流量: 'Live traffic', 下载: 'Download', 上传: 'Upload', 内核内存: 'Core memory',
+  出站模式: 'Outbound mode', 策略组: 'Proxy groups', 自动选择: 'Automatic',
+  '内核未运行，启动后可切换策略组': 'Start the core to select proxies',
+  暂无策略组: 'No proxy groups', 切换配置: 'Switch profile', 未选择配置: 'No profile selected',
+  总量未知: 'Unknown quota', 已过期: 'Expired', 剩余天数: 'Days left', 订阅用量: 'Subscription usage',
+  启动内核: 'Start core', 停止内核: 'Stop core', 打开主窗口: 'Open main window',
+  '退出 ClashNova': 'Quit ClashNova',
   /* 侧边栏 */
   概览: 'Overview', 可视化: 'Visualize', 代理: 'Proxy', 配置: 'Config',
   仪表盘: 'Dashboard', 流量统计: 'Traffic', 连接: 'Connections', 日志: 'Logs',
@@ -28,6 +39,16 @@ export const EN: Record<string, string> = {
   守卫模式: 'Guard Mode', 代理绕过: 'Proxy Bypass',
   'TUN 模式': 'TUN Mode', '虚拟网卡接管全部流量, 需服务模式':
     'Virtual NIC takes over all traffic, requires service mode',
+  '虚拟网卡接管全部流量, 首次开启需安装服务':
+    'Virtual NIC takes over all traffic; first use installs a service',
+  服务未安装: 'Service Not Installed', 服务需修复: 'Service Needs Repair', 服务查询失败: 'Service Query Failed',
+  服务已停止: 'Service Stopped', 修复服务: 'Repair Service', 启动服务: 'Start Service', 卸载服务: 'Uninstall Service',
+  安装系统服务: 'Install System Service', 卸载系统服务: 'Uninstall System Service',
+  'TUN 需要以 Windows 服务运行内核才能创建虚拟网卡。安装时会请求一次管理员确认，完成后自动开启 TUN。':
+    'TUN needs the core to run as a Windows service to create the virtual adapter. Installing asks for admin approval once, then TUN turns on automatically.',
+  '将停止内核、移除 ClashNova 系统服务并关闭 TUN 模式，需要管理员确认。':
+    'This stops the core, removes the ClashNova system service and turns TUN off. Admin approval is required.',
+  '安装并开启 TUN': 'Install and Enable TUN', 确认卸载: 'Uninstall', 安装服务失败: 'Could not install service', 卸载服务失败: 'Could not uninstall service',
   服务模式: 'Service Mode', '以 Windows 服务运行内核, TUN 免管理员':
     'Run core as Windows service, TUN without admin',
   开机自启: 'Auto Start', '登录 Windows 时自动启动': 'Launch on Windows login',
@@ -62,6 +83,27 @@ export const EN: Record<string, string> = {
   热键: 'Hotkeys', '显示 / 隐藏主窗口': 'Show / Hide Window',
   切换系统代理: 'Toggle System Proxy', '切换 TUN 模式': 'Toggle TUN Mode',
   出站模式轮换: 'Cycle Outbound Mode',
+  切换到规则模式: 'Switch to Rule Mode', 切换到全局模式: 'Switch to Global Mode',
+  切换到直连模式: 'Switch to Direct Mode',
+  /* 设置-测速与连接 */
+  测速与连接: 'Latency & Connections', 测速地址: 'Latency Test URL',
+  '节点页单点与整组测速使用; 建议 204 端点': 'Used for node and group latency tests; a 204 endpoint is recommended',
+  测速超时: 'Latency Test Timeout', '毫秒, 500-30000': 'Milliseconds, 500-30000',
+  '测速超时需在 500-30000 毫秒之间': 'Latency test timeout must be between 500 and 30000 ms',
+  '测速地址必须以 http:// 或 https:// 开头': 'Latency test URL must start with http:// or https://',
+  切换节点时断开旧连接: 'Close Connections on Switch',
+  '切换后关闭经过该策略组的连接, 让应用立即走新节点': 'After switching, close connections routed through that group so apps use the new node immediately',
+  统一延迟: 'Unified Delay',
+  '测速时扣除握手耗时, 不同协议的延迟可直接比较; 关闭则沿用订阅': 'Exclude handshake time so latency is comparable across protocols; off keeps the profile value',
+  进程匹配: 'Find Process Mode', 跟随订阅: 'Follow Profile',
+  'PROCESS-NAME 规则与连接页进程名依赖此项; always 开销最大': 'PROCESS-NAME rules and process names on the Connections page rely on this; always costs the most',
+  域名嗅探: 'Domain Sniffing',
+  '从 TLS / HTTP / QUIC 还原域名, 改善 IP 直连与 Fake-IP 下的规则命中': 'Recover domains from TLS / HTTP / QUIC to improve rule matching for IP connections and Fake-IP',
+  清空缓存: 'Flush Caches', '内核运行时生效, 不需要重启': 'Applies to the running core without restart',
+  '已清空 Fake-IP 映射': 'Fake-IP pool flushed', '已清空 DNS 缓存': 'DNS cache flushed',
+  清空缓存失败: 'Could not flush cache', 新连接将重新解析域名: 'New connections will resolve domains again',
+  终端代理: 'Terminal Proxy', 复制当前混合端口的代理环境变量命令: 'Copy proxy environment variables for the mixed port',
+  已复制终端代理命令: 'Terminal proxy command copied', 复制失败: 'Copy failed',
   点击录制: 'Click to record', 按下组合键: 'Press keys…', 清除: 'Clear',
   /* 设置-关于 */
   关于: 'About', 检查更新: 'Check Updates', 已是最新: 'Up to date',

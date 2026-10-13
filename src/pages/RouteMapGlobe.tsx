@@ -280,7 +280,6 @@ const GLOBE_THEMES = {
 
 const VECTOR_EARTH_W = 4096
 const VECTOR_EARTH_H = 2048
-const VECTOR_EARTH_CANVASES = new Map<'day' | 'night', HTMLCanvasElement>()
 
 /** 主要城市(经度, 纬度): 用于夜面城市点缀 */
 const MAJOR_CITIES: [number, number][] = [
@@ -302,8 +301,6 @@ const MAJOR_CITIES: [number, number][] = [
  * variant: 'night' 更暗、辉光更强; 'day' 稍亮。全离线, 用已装的 world-atlas 数据。
  */
 function vectorEarthCanvas(variant: 'day' | 'night'): HTMLCanvasElement {
-  const cached = VECTOR_EARTH_CANVASES.get(variant)
-  if (cached) return cached
   const W = VECTOR_EARTH_W
   const H = VECTOR_EARTH_H
   const canvas = document.createElement('canvas')
@@ -375,12 +372,11 @@ function vectorEarthCanvas(variant: 'day' | 'night'): HTMLCanvasElement {
   }
   ctx.restore()
 
-  VECTOR_EARTH_CANVASES.set(variant, canvas)
   return canvas
 }
 
 function buildVectorEarthTexture(variant: 'day' | 'night'): THREE.CanvasTexture {
-  // 只缓存绘制结果；每个实例持有自己的 GPU 纹理，卸载时照常释放。
+  // 不做模块级缓存: 两张 4096x2048 画布常驻约 64MB, 卫星图替换后随纹理一起回收。
   const texture = new THREE.CanvasTexture(vectorEarthCanvas(variant))
   texture.colorSpace = THREE.NoColorSpace
   texture.anisotropy = 8
@@ -554,7 +550,10 @@ export default function RouteMapGlobe({ regions }: { regions: RegionTraffic[] })
       // uniform 纹理由本组件持有，材质/自定义图层由 globe 的析构流程释放。
       disposeTexture(dayNightMaterial.uniforms.dayTexture.value as THREE.Texture | null)
       disposeTexture(dayNightMaterial.uniforms.nightTexture.value as THREE.Texture | null)
+      const renderer = globe.renderer()
       globe._destructor()
+      // dispose 只释放 three.js 资源, WebGL 上下文要等画布被 GC 才归还; 主动丢弃以立即回收显存。
+      renderer.forceContextLoss()
       planeTextures.current.clear()
       pointTextures.current.clear()
       labelCache.current.clear()

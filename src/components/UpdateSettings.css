@@ -1,0 +1,17 @@
+.update-settings .card-body { display: grid; gap: 16px; }
+.update-section + .update-section { border-top: 1px solid var(--line); padding-top: 16px; }
+.update-heading, .update-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.update-heading { justify-content: space-between; }
+.update-heading h4 { margin: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.update-actions { margin-top: 10px; }
+.update-actions select { flex: 1; min-width: 140px; max-width: 100%; padding: 3px 9px; font-size: 11.5px; }
+.update-note { color: var(--text-3); font-size: 12px; line-height: 1.6; margin: 10px 0 0; }
+.update-note .badge { margin-right: 8px; }
+.update-hash { color: var(--text-3); font: 11px var(--mono); overflow-wrap: anywhere; margin: 10px 0; }
+.update-progress { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 12px; }
+.update-progress progress { width: 100%; height: 7px; accent-color: var(--accent); }
+.update-error { color: var(--red); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; margin: 0; }
+.update-dialog { width: min(480px, calc(100vw - 32px)); padding: 24px; }
+.update-dialog h3 { margin: 0 0 12px; }
+.update-dialog p { line-height: 1.7; }
+.update-dialog .update-actions { justify-content: flex-end; margin-top: 20px; }

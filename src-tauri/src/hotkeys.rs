@@ -39,12 +39,10 @@ pub fn sync(app: &AppHandle) -> Result<(), String> {
 fn dispatch(app: &AppHandle, action: &str) {
     match action {
         "show-window" => {
-            if let Some(win) = app.get_webview_window("main") {
-                if win.is_visible().unwrap_or(false) {
-                    let _ = win.hide();
-                } else {
-                    tray::show_main_window(app);
-                }
+            if let Some(win) = app.get_webview_window("main").filter(|win| win.is_visible().unwrap_or(false)) {
+                let _ = win.close();
+            } else {
+                tray::show_main_window(app);
             }
         }
         "toggle-sysproxy" => {
@@ -78,6 +76,25 @@ fn dispatch(app: &AppHandle, action: &str) {
                 };
                 if let Err(e) = commands::apply_mode(&app, next.into()).await {
                     log::warn!("热键轮换模式失败: {e}");
+                }
+                tray::sync_tray(&app);
+            });
+        }
+        "mode-rule" | "mode-global" | "mode-direct" => {
+            let app = app.clone();
+            let mode = action.trim_start_matches("mode-").to_string();
+            tauri::async_runtime::spawn(async move {
+                if let Err(e) = commands::apply_mode(&app, mode).await {
+                    log::warn!("热键切换模式失败: {e}");
+                }
+                tray::sync_tray(&app);
+            });
+        }
+        "restart-core" => {
+            let app = app.clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(e) = commands::restart_core(app.clone()).await {
+                    log::warn!("热键重启内核失败: {e}");
                 }
                 tray::sync_tray(&app);
             });

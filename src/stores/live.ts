@@ -17,12 +17,17 @@ import type { ConnItem, ConnectionsPayload, LogItem, MemoryPoint, TrafficPoint }
 export const TRAFFIC_CAPACITY = 60
 /** logs 环形缓冲容量 */
 export const LOG_CAPACITY = 1024
+/** 已关闭连接历史容量 */
+export const CLOSED_CAPACITY = 500
 const TRAFFIC_STALE_MS = 2500
 const DUPLICATE_TRAFFIC_WINDOW_MS = 50
 const REAL_TRAFFIC_SAMPLE_MS = 1000
 export type LiveStream = 'traffic' | 'connections' | 'memory' | 'logs'
 export type LiveLog = LogItem & { id: number }
+export type ClosedConn = ConnItem & { closedAt: number }
 let logId = 0
+/** 上一份连接快照(id → 连接); null 表示下一份快照只建立基线、不产生关闭记录 */
+let connBaseline: Map<string, ConnItem> | null = null
 let pendingLogs: LiveLog[] = []
 let logTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -106,6 +111,11 @@ function shouldSkipDuplicateTraffic(point: TrafficPoint): boolean {
   return false
 }
 
+const DETAIL_TEXT_KEYS = [
+  'type', 'inboundName', 'inboundUser', 'inboundIP', 'inboundPort', 'dnsMode', 'sniffHost',
+  'remoteDestination', 'specialProxy', 'specialRules', 'destinationIPASN',
+] as const
+
 function normalizeConnection(value: unknown): ConnItem | null {
   if (!value || typeof value !== 'object') return null
   const item = value as Partial<ConnItem>
@@ -116,6 +126,19 @@ function normalizeConnection(value: unknown): ConnItem | null {
       : {}
   const process = stringOrEmpty(metadata.process)
   const processPath = stringOrEmpty(metadata.processPath)
+  const extra: Partial<ConnItem['metadata']> = {}
+  for (const key of DETAIL_TEXT_KEYS) {
+    const value = stringOrEmpty(metadata[key])
+    if (value) extra[key] = value
+  }
+  const uid = numberOrUndefined(metadata.uid)
+  const dscp = numberOrUndefined(metadata.dscp)
+  if (uid !== undefined) extra.uid = uid
+  if (dscp !== undefined) extra.dscp = dscp
+  if (Array.isArray(metadata.destinationGeoIP)) {
+    const geo = metadata.destinationGeoIP.filter((code): code is string => typeof code === 'string' && code !== '')
+    if (geo.length) extra.destinationGeoIP = geo
+  }
   const curUp =
     numberOrUndefined(raw.curUp) ??
     numberOrUndefined(raw.curUpload) ??
@@ -135,6 +158,7 @@ function normalizeConnection(value: unknown): ConnItem | null {
       network: metadata.network === 'udp' ? 'udp' : 'tcp',
       ...(process ? { process } : {}),
       ...(processPath ? { processPath } : {}),
+      ...extra,
     },
     rule: stringOrEmpty(item.rule),
     rulePayload: stringOrEmpty(item.rulePayload),
@@ -156,6 +180,28 @@ function normalizeConnections(payload: ConnectionsPayload | null | undefined): C
       ? (payload as Partial<ConnectionsPayload>).connections!.map(normalizeConnection).filter((item): item is ConnItem => item !== null)
       : [],
   }
+}
+
+/**
+ * 对比上一份快照找出消失的连接。首份快照与断线空快照(总量与连接全为 0)只重置基线,
+ * 避免把"刚订阅 / 断线"误记成全部关闭。
+ */
+function diffClosedConnections(payload: ConnectionsPayload, closed: ClosedConn[]): ClosedConn[] | null {
+  const disconnected = payload.connections.length === 0 && payload.uploadTotal === 0 && payload.downloadTotal === 0
+  const previous = connBaseline
+  const current = new Map(payload.connections.filter(conn => conn.id).map(conn => [conn.id, conn] as const))
+  connBaseline = disconnected ? null : current
+  // 重新出现的 id 说明并未真正关闭, 从历史里移除
+  const revived = closed.some(conn => current.has(conn.id))
+  const kept = revived ? closed.filter(conn => !current.has(conn.id)) : closed
+  if (!previous || disconnected) return revived ? kept : null
+  const now = Date.now()
+  const gone: ClosedConn[] = []
+  for (const [id, conn] of previous) {
+    if (!current.has(id)) gone.push({ ...conn, curUp: 0, curDown: 0, closedAt: now })
+  }
+  if (!gone.length && !revived) return null
+  return [...gone, ...kept].slice(0, CLOSED_CAPACITY)
 }
 
 function fallbackTrafficFromConnections(payload: ConnectionsPayload, previousTraffic: TrafficPoint[]): TrafficPoint | null {
@@ -216,6 +262,8 @@ export interface LiveStore {
   traffic: TrafficPoint[]
   /** 最新连接快照 */
   connections: ConnectionsPayload
+  /** 订阅期间消失的连接(头部为最新, 最多 500 条) */
+  closedConnections: ClosedConn[]
   /** 内核内存占用(WS /memory, 未知时 inuse=0) */
   memory: MemoryPoint
   /** 最近 1024 行日志(尾部为最新) */
@@ -229,11 +277,13 @@ export interface LiveStore {
   pushLog: (log: LogItem | null | undefined) => void
   setLogsPaused: (paused: boolean) => void
   clearLogs: () => void
+  clearClosedConnections: () => void
 }
 
 export const useLiveStore = create<LiveStore>((set, get) => ({
   traffic: [],
   connections: EMPTY_CONNECTIONS,
+  closedConnections: [],
   memory: { inuse: 0 },
   logs: [],
   status: { traffic: 'disconnected', connections: 'disconnected', memory: 'disconnected', logs: 'disconnected' },
@@ -287,8 +337,10 @@ export const useLiveStore = create<LiveStore>((set, get) => ({
     set((s) => {
       const connections = normalizeConnections(payload)
       const fallback = fallbackTrafficFromConnections(connections, s.traffic)
+      const closedConnections = diffClosedConnections(connections, s.closedConnections)
       return {
         connections,
+        ...(closedConnections ? { closedConnections } : {}),
         ...(fallback ? { traffic: [...s.traffic, fallback].slice(-TRAFFIC_CAPACITY) } : {}),
       }
     }),
@@ -317,6 +369,8 @@ export const useLiveStore = create<LiveStore>((set, get) => ({
   },
 
   clearLogs: () => { clearPendingLogs(); set({ logs: [] }) },
+
+  clearClosedConnections: () => set({ closedConnections: [] }),
 }))
 
 /* ---------------- 订阅生命周期(引用计数) ---------------- */
@@ -333,6 +387,7 @@ export function startLiveStreams(streams: readonly LiveStream[]): Unsubscribe {
     const active = subscriptions.get(stream)
     if (active) { active.count += 1; continue }
     const { pushTraffic, setConnections, setMemory, pushLog } = useLiveStore.getState()
+    if (stream === 'connections') connBaseline = null
     const onStatus = (status: StreamStatus): void => {
       useLiveStore.setState((s) => ({ status: { ...s.status, [stream]: status } }))
     }
@@ -353,6 +408,7 @@ export function startLiveStreams(streams: readonly LiveStream[]): Unsubscribe {
         active.release()
         subscriptions.delete(stream)
         if (stream === 'logs') clearPendingLogs()
+        if (stream === 'connections') connBaseline = null
       }
     }
     if (!subscriptions.has('traffic') && !subscriptions.has('connections')) {

@@ -73,6 +73,20 @@ export default function Logs() {
     const el = windowed.containerRef.current
     if (el) el.scrollTop = el.scrollHeight
   }, [logs, list, paused, windowed.containerRef])
+  /** 导出当前筛选结果(与界面所见一致) */
+  const exportLogs = (): void => {
+    if (list.length === 0) return
+    const text = list.map((l) => `${l.time} [${LEVEL_TEXT[l.type]}] ${l.payload}`).join('\n') + '\n'
+    const url = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }))
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[-:]/g, '').replace('T', '-')
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `ClashNova-logs-${stamp}.log`
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+  }
   const statusText = { connected: 'WebSocket 已连接', connecting: 'WebSocket 连接中', disconnected: 'WebSocket 已断开', paused: '窗口隐藏，已暂停连接' }[status]
 
   return (
@@ -102,6 +116,9 @@ export default function Logs() {
         <Button onClick={() => { followTail.current = true; setPaused(!paused) }}>
           <Icon name={paused ? 'play' : 'pause'} size={13} />
           {paused ? '继续' : '暂停'}
+        </Button>
+        <Button onClick={exportLogs} disabled={list.length === 0} title="导出当前筛选结果">
+          <Icon name="download" size={13} />导出
         </Button>
         <Button onClick={clearLogs}>
           <Icon name="trash" size={13} />清空

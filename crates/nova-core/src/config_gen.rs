@@ -20,6 +20,7 @@ pub struct RuntimeOverrides {
     pub ipv6: bool,
     pub log_level: String,
     pub tun_enable: bool,
+    pub tun_options: crate::TunOptions,
     /// DNS 覆写 YAML 片段(dns: 段的子键);空串表示不覆写(M2)。
     pub dns_override: String,
     /// hosts 覆写,每行 `域名 IP`;空串表示不覆写(M2)。
@@ -35,6 +36,45 @@ pub struct RuntimeOverrides {
     pub respect_rules: bool,
     pub use_hosts: bool,
     pub use_system_hosts: bool,
+    /* ---- 内核高级项(false / 空串均表示沿用 profile) ---- */
+    pub unified_delay: bool,
+    /// strict / always / off;其他值(含空串)沿用 profile,缺省 strict。
+    pub find_process_mode: String,
+    pub sniffer: bool,
+}
+
+/// 开启嗅探时补齐的默认项(取自 mihomo 文档示例),profile 已写的键不覆盖。
+const DEFAULT_SNIFFER: &str = r#"
+force-dns-mapping: true
+parse-pure-ip: true
+override-destination: false
+sniff:
+  HTTP:
+    ports: [80, 8080-8880]
+    override-destination: true
+  TLS:
+    ports: [443, 8443]
+  QUIC:
+    ports: [443, 8443]
+"#;
+
+/// 开启嗅探:profile 的 sniffer 段优先,缺失键补默认值,并强制 enable: true。
+fn ensure_sniffer(doc: &mut Value) -> Result<(), CoreError> {
+    let mut sniffer: Value = serde_yaml::from_str(DEFAULT_SNIFFER)?;
+    if let Some(existing) = doc
+        .as_mapping()
+        .and_then(|m| m.get("sniffer"))
+        .filter(|v| v.is_mapping())
+    {
+        deep_merge(&mut sniffer, existing);
+    }
+    if let Some(map) = sniffer.as_mapping_mut() {
+        map.insert(Value::String("enable".into()), Value::Bool(true));
+    }
+    if let Some(map) = doc.as_mapping_mut() {
+        map.insert(Value::String("sniffer".into()), sniffer);
+    }
+    Ok(())
 }
 
 fn normalize_dns_override(raw: &str) -> Result<Value, CoreError> {
@@ -166,6 +206,7 @@ pub fn build_runtime_config(
     profile_yaml: &str,
     ov: &RuntimeOverrides,
 ) -> Result<String, CoreError> {
+    ov.tun_options.validate().map_err(CoreError::InvalidTun)?;
     let mut doc: Value = if profile_yaml.trim().is_empty() {
         Value::Mapping(Mapping::new())
     } else {
@@ -180,6 +221,7 @@ pub fn build_runtime_config(
     let has_tcp_concurrent = map.contains_key(Value::String("tcp-concurrent".into()));
     // profile 是否已显式设置 find-process-mode(同理,闭包借用前先取)
     let has_find_process_mode = map.contains_key(Value::String("find-process-mode".into()));
+    let find_process_override = matches!(ov.find_process_mode.as_str(), "strict" | "always" | "off");
 
     let mut set = |key: &str, val: Value| {
         map.insert(Value::String(key.to_string()), val);
@@ -199,8 +241,13 @@ pub fn build_runtime_config(
     // process error),纯属开销。mihomo/Clash Verge 默认为 strict(仅当规则含
     // PROCESS-NAME/PROCESS-PATH 时才查)。profile 未指定时用官方默认 strict,
     // 指定则尊重 profile,不再霸道覆盖。
-    if !has_find_process_mode {
+    if find_process_override {
+        set("find-process-mode", Value::String(ov.find_process_mode.clone()));
+    } else if !has_find_process_mode {
         set("find-process-mode", Value::String("strict".into()));
+    }
+    if ov.unified_delay {
+        set("unified-delay", Value::Bool(true));
     }
     // 并发建连:对同一域名的多个 IP 同时握手,取最快的。显著降低访问网站的
     // 首包延迟(Clash Verge 默认开启),profile 已显式设置时不覆盖。
@@ -210,26 +257,12 @@ pub fn build_runtime_config(
     set("external-ui", Value::String(EXTERNAL_UI_DIR.into()));
     set("external-ui-url", Value::String(EXTERNAL_UI_URL.into()));
 
+    if ov.sniffer {
+        ensure_sniffer(&mut doc)?;
+    }
+
     if ov.tun_enable {
-        // profile/订阅是否已指定 tun.stack。指定了就尊重(高级用户可选 system
-        // 栈换吞吐/低延迟),未指定才补 gvisor 作默认兜底(最稳、跨平台可用)。
-        // enable/auto-route/auto-detect-interface 是 TUN 生效必要项,始终强制。
-        let profile_has_stack = doc
-            .as_mapping()
-            .and_then(|m| m.get("tun"))
-            .and_then(Value::as_mapping)
-            .map(|tun| tun.contains_key(Value::String("stack".into())))
-            .unwrap_or(false);
-        let patch: Value = if profile_has_stack {
-            serde_yaml::from_str(
-                "tun:\n  enable: true\n  auto-route: true\n  auto-detect-interface: true\n",
-            )?
-        } else {
-            serde_yaml::from_str(
-                "tun:\n  enable: true\n  stack: gvisor\n  auto-route: true\n  auto-detect-interface: true\n",
-            )?
-        };
-        deep_merge(&mut doc, &patch);
+        ov.tun_options.apply(&mut doc);
     } else if let Some(tun) = doc
         .as_mapping_mut()
         .and_then(|m| m.get_mut("tun"))
@@ -371,6 +404,7 @@ mod tests {
             ipv6: false,
             log_level: "info".into(),
             tun_enable: tun,
+            tun_options: crate::TunOptions::default(),
             dns_override: String::new(),
             hosts: String::new(),
             enable_dns: false,
@@ -383,6 +417,9 @@ mod tests {
             respect_rules: false,
             use_hosts: false,
             use_system_hosts: false,
+            unified_delay: false,
+            find_process_mode: String::new(),
+            sniffer: false,
         }
     }
 
@@ -671,6 +708,63 @@ rules:
             parse(&out).get("find-process-mode"),
             Some(&Value::String("always".into())),
             "profile 指定 always 应被尊重"
+        );
+    }
+
+    #[test]
+    fn find_process_mode_用户覆写优先_非法值沿用_profile() {
+        let mut ov = overrides(false);
+        ov.find_process_mode = "always".into();
+        let out = build_runtime_config("find-process-mode: off\nproxies: []\n", &ov)
+            .expect("生成应成功");
+        assert_eq!(
+            parse(&out).get("find-process-mode"),
+            Some(&Value::String("always".into()))
+        );
+        ov.find_process_mode = "bogus".into();
+        let out = build_runtime_config("find-process-mode: off\nproxies: []\n", &ov)
+            .expect("生成应成功");
+        assert_eq!(
+            parse(&out).get("find-process-mode"),
+            Some(&Value::String("off".into()))
+        );
+    }
+
+    #[test]
+    fn unified_delay_仅开启时写入() {
+        let out = build_runtime_config("unified-delay: true\nproxies: []\n", &overrides(false))
+            .expect("生成应成功");
+        assert_eq!(parse(&out).get("unified-delay"), Some(&Value::Bool(true)));
+        let out = build_runtime_config("proxies: []\n", &overrides(false)).expect("生成应成功");
+        assert_eq!(parse(&out).get("unified-delay"), None);
+        let mut ov = overrides(false);
+        ov.unified_delay = true;
+        let out = build_runtime_config("proxies: []\n", &ov).expect("生成应成功");
+        assert_eq!(parse(&out).get("unified-delay"), Some(&Value::Bool(true)));
+    }
+
+    #[test]
+    fn sniffer_开启时补默认值且保留_profile_端口() {
+        let mut ov = overrides(false);
+        ov.sniffer = true;
+        let profile = "sniffer:\n  enable: false\n  sniff:\n    TLS:\n      ports: [443]\nproxies: []\n";
+        let doc = parse(&build_runtime_config(profile, &ov).expect("生成应成功"));
+        let sniffer = doc.get("sniffer").expect("sniffer 段应存在");
+        assert_eq!(sniffer.get("enable"), Some(&Value::Bool(true)));
+        assert_eq!(sniffer.get("parse-pure-ip"), Some(&Value::Bool(true)));
+        let tls_ports = sniffer
+            .get("sniff")
+            .and_then(|s| s.get("TLS"))
+            .and_then(|t| t.get("ports"))
+            .and_then(Value::as_sequence)
+            .expect("TLS ports 应存在");
+        assert_eq!(tls_ports.len(), 1, "profile 的 TLS 端口不被默认值覆盖");
+        assert!(sniffer.get("sniff").and_then(|s| s.get("HTTP")).is_some());
+        // 关闭时完全沿用 profile
+        let doc = parse(&build_runtime_config(profile, &overrides(false)).expect("生成应成功"));
+        assert_eq!(
+            doc.get("sniffer").and_then(|s| s.get("enable")),
+            Some(&Value::Bool(false))
         );
     }
 

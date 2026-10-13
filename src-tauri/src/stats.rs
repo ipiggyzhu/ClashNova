@@ -174,16 +174,22 @@ pub fn spawn_collector(app: AppHandle) {
         loop {
             tokio::time::sleep(POLL_INTERVAL).await;
             let settings = app.state::<AppState>().settings_snapshot();
-            let response = client
-                .get(format!(
-                    "http://{}/connections",
-                    settings.external_controller
-                ))
-                .bearer_auth(&settings.secret)
-                .timeout(Duration::from_secs(3))
-                .send()
-                .await;
-            if let Ok(response) = response {
+            // 内核停止后不继续向可能已被其他进程占用的控制器发送凭据。
+            let response = if crate::core::is_running(&app).await {
+                client
+                    .get(format!(
+                        "http://{}/connections",
+                        settings.external_controller
+                    ))
+                    .bearer_auth(&settings.secret)
+                    .timeout(Duration::from_secs(3))
+                    .send()
+                    .await
+                    .ok()
+            } else {
+                None
+            };
+            if let Some(response) = response {
                 if response.status().is_success() {
                     if let Ok(payload) = response.json::<ConnsPayload>().await {
                         let state = app.state::<AppState>();

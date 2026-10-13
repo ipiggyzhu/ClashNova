@@ -3,10 +3,15 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod autostart;
+mod backup;
 mod commands;
 mod core;
+mod core_update;
+mod diagnostics;
 mod hotkeys;
+mod media;
 mod profiles;
+mod protocol;
 mod service;
 mod service_host;
 mod service_installer;
@@ -16,6 +21,9 @@ mod state;
 mod stats;
 mod sysproxy_win;
 mod tray;
+mod tray_panel;
+mod update_io;
+mod updater;
 
 use tauri::{Manager, WindowEvent};
 use tauri_plugin_autostart::MacosLauncher;
@@ -32,8 +40,7 @@ fn arg_value(args: &[String], name: &str) -> Option<String> {
 
 fn write_service_result(args: &[String], ok: bool, message: &str) {
     if let Some(path) = arg_value(args, "--result") {
-        let prefix = if ok { "ok" } else { "error" };
-        let _ = std::fs::write(path, format!("{prefix}\n{message}\n"));
+        let _ = service_paths::write_helper_result(std::path::Path::new(&path), ok, message);
     }
 }
 
@@ -108,7 +115,8 @@ fn main() {
 
     tauri::Builder::default()
         // single-instance 必须最先注册:二次启动时聚焦已有窗口
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            protocol::enqueue_args(app, &args);
             tray::show_main_window(app);
         }))
         .plugin(
@@ -132,7 +140,15 @@ fn main() {
             None,
         ))
         .manage(app_state)
+        .manage(protocol::PendingImports::default())
+        .manage(updater::Updater::default())
+        .manage(media::MediaProbes::default())
+        .manage(diagnostics::Diagnostics::default())
         .invoke_handler(tauri::generate_handler![
+            tray_panel::tray_panel_visible,
+            tray_panel::hide_tray_panel,
+            tray_panel::tray_open_main,
+            tray_panel::tray_quit_app,
             commands::get_settings,
             commands::save_settings,
             commands::patch_settings,
@@ -150,6 +166,12 @@ fn main() {
             commands::read_profile,
             commands::list_profile_rule_targets,
             commands::save_profile_content,
+            commands::read_profile_topology,
+            commands::save_profile_topology,
+            commands::list_global_enhancers,
+            protocol::pending_profile_imports,
+            protocol::dismiss_profile_import,
+            protocol::confirm_profile_import,
             commands::read_enhancer,
             commands::save_enhancer,
             commands::delete_enhancer,
@@ -163,6 +185,9 @@ fn main() {
             commands::service_status,
             commands::check_tun_adapter,
             commands::probe_url,
+            media::media_probe,
+            media::media_cancel,
+            diagnostics::diagnostics_run,
             commands::install_service,
             commands::start_service,
             commands::uninstall_service,
@@ -176,10 +201,34 @@ fn main() {
             commands::query_traffic_summary,
             commands::get_platform,
             commands::get_runtime_config,
+            backup::backup_list,
+            backup::backup_create,
+            backup::backup_delete,
+            backup::backup_export,
+            backup::backup_import,
+            backup::backup_preview,
+            backup::backup_restore,
+            backup::backup_webdav_get,
+            backup::backup_webdav_save,
+            backup::backup_webdav_list,
+            backup::backup_webdav_upload,
+            backup::backup_webdav_download,
+            backup::backup_webdav_delete,
+            updater::get_update_state,
+            updater::check_app_update,
+            updater::check_core_update,
+            updater::download_app_update,
+            updater::download_core_update,
+            updater::cancel_update,
+            updater::install_app_update,
+            updater::switch_core_version,
         ])
-        .setup(|app| {
+        .setup(move |app| {
             let handle = app.handle().clone();
+            // 已获得单实例后才清理，二次协议唤起不能删除主实例正在下载的安装包。
+            updater::cleanup_stale_downloads(&handle.state::<AppState>().dirs.config);
             tray::create(&handle)?;
+            protocol::enqueue_args(&handle, &args);
 
             let settings = handle.state::<AppState>().settings_snapshot();
             autostart::sync_if_enabled(&handle, &settings);
@@ -192,9 +241,9 @@ fn main() {
                 }
             });
 
-            // 静默启动(或带 --silent 参数)时仅驻留托盘
+            // 静默启动(或带 --silent 参数)时仅驻留托盘; 主窗口 create=false, 不显示就不创建 WebView。
             let silent = settings.silent_start || std::env::args().any(|a| a == "--silent");
-            if !silent {
+            if !silent || !protocol::pending_profile_imports(handle.clone())?.is_empty() {
                 tray::show_main_window(&handle);
             }
 
@@ -242,9 +291,20 @@ fn main() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            // 关闭主窗口 → 隐藏到托盘而非退出
+            if window.label() == "tray" {
+                match event {
+                    WindowEvent::Focused(false) => { let _ = tray_panel::hide(window.app_handle()); }
+                    WindowEvent::CloseRequested { api, .. } => {
+                        api.prevent_close();
+                        let _ = tray_panel::hide(window.app_handle());
+                    }
+                    _ => {}
+                }
+                return;
+            }
+            // 普通驻留保留窗口；轻量驻留销毁 WebView，由托盘/热键/协议重新创建。
             if let WindowEvent::CloseRequested { api, .. } = event {
-                if window.label() == "main" {
+                if window.label() == "main" && !window.state::<AppState>().settings_snapshot().lightweight_on_close {
                     let _ = window.hide();
                     api.prevent_close();
                 }
@@ -253,6 +313,9 @@ fn main() {
         .build(tauri::generate_context!())
         .expect("ClashNova 初始化失败")
         .run(|app, event| {
+            if let tauri::RunEvent::ExitRequested { code: None, api, .. } = &event {
+                api.prevent_exit();
+            }
             if matches!(event, tauri::RunEvent::Exit) {
                 stats::flush_on_exit(app);
             }

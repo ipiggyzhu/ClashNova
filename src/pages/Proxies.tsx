@@ -6,7 +6,8 @@ import Card from '../components/ui/Card'
 import Icon from '../components/ui/Icon'
 import Input from '../components/ui/Input'
 import Seg from '../components/ui/Seg'
-import { getProxies, selectProxy, testDelay } from '../services/api'
+import { closeGroupConnections, getProxies, selectProxy, testDelay, testGroupDelay } from '../services/api'
+import { useAppStore } from '../stores/app'
 import type { ProxiesPayload, ProxyGroup, ProxyNode } from '../types/clash'
 import { delayTone } from '../utils/format'
 
@@ -42,12 +43,48 @@ function saveCollapsed(state: Record<string, boolean>): void {
   }
 }
 
+type SortMode = 'default' | 'delay' | 'name'
+const SORT_KEY = 'proxies:sort'
+const HIDE_TIMEOUT_KEY = 'proxies:hide-timeout'
+
+function loadPref(key: string): string | null {
+  try {
+    return localStorage.getItem(key)
+  } catch {
+    return null
+  }
+}
+
+function savePref(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value)
+  } catch {
+    // ignore
+  }
+}
+
+function loadSort(): SortMode {
+  const saved = loadPref(SORT_KEY)
+  return saved === 'delay' || saved === 'name' ? saved : 'default'
+}
+
+/** 排序键: 已测成功按毫秒, 未测排其后, 超时垫底 */
+function delayRank(d: number | undefined): number {
+  if (d === undefined) return 1e9
+  return d > 0 ? d : 2e9
+}
+
 export default function Proxies() {
   const [payload, setPayload] = useState<ProxiesPayload | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [keyword, setKeyword] = useState('')
   const [typeFilter, setTypeFilter] = useState('all')
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>(loadCollapsed)
+  const [sortMode, setSortMode] = useState<SortMode>(loadSort)
+  const [hideTimeout, setHideTimeout] = useState(() => loadPref(HIDE_TIMEOUT_KEY) === '1')
+  const delayTestUrl = useAppStore((s) => s.settings.delayTestUrl)
+  const delayTestTimeout = useAppStore((s) => s.settings.delayTestTimeout)
+  const autoCloseConnections = useAppStore((s) => s.settings.autoCloseConnections)
   /** 节点名 → 实测延迟(0 表示测试中, -1 表示超时) */
   const [delays, setDelays] = useState<Record<string, number>>({})
   const [testingGroups, setTestingGroups] = useState<Set<string>>(new Set())
@@ -138,14 +175,31 @@ export default function Proxies() {
     return Object.values(payload.proxies).filter((p) => !GROUP_TYPES.has(p.type) && p.type !== 'Direct' && p.type !== 'Reject').length
   }, [payload])
 
+  /** 测速中(0)沿用上一次结果, 避免排序和隐藏在测速过程中来回跳动 */
+  const effectiveDelay = (node: ProxyNode): number | undefined => {
+    const d = delays[node.name]
+    return d === undefined || d === 0 ? latestDelay(node) : d
+  }
+
   const visibleGroups = groups
     .filter((g) => typeFilter === 'all' || g.type === typeFilter)
-    .map((g) => ({
-      ...g,
-      nodes: keyword
+    .map((g) => {
+      let nodes = keyword
         ? g.nodes.filter((n) => n.name.toLowerCase().includes(keyword.toLowerCase()))
-        : g.nodes,
-    }))
+        : g.nodes
+      if (hideTimeout) {
+        nodes = nodes.filter((n) => {
+          const d = effectiveDelay(n)
+          return n.name === g.now || d === undefined || d > 0
+        })
+      }
+      if (sortMode === 'delay') {
+        nodes = [...nodes].sort((a, b) => delayRank(effectiveDelay(a)) - delayRank(effectiveDelay(b)))
+      } else if (sortMode === 'name') {
+        nodes = [...nodes].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
+      }
+      return { ...g, nodes }
+    })
 
   const handleSelect = async (group: string, name: string): Promise<void> => {
     if (selectingRef.current.has(group)) return
@@ -153,6 +207,7 @@ export default function Proxies() {
     loadGeneration.current += 1
     setSelecting(new Set(selectingRef.current))
     setActionError(null)
+    const previous = payload?.proxies[group]?.now
     /* 乐观更新 */
     setPayload((prev) => {
       if (!prev) return prev
@@ -162,6 +217,7 @@ export default function Proxies() {
     })
     try {
       await selectProxy(group, name)
+      if (autoCloseConnections && previous !== name) void closeGroupConnections(group)
     } catch (error) {
       if (alive.current) setActionError(`切换节点失败：${String(error)}`)
     } finally {
@@ -180,7 +236,7 @@ export default function Proxies() {
     const existing = testingRef.current.get(key)
     if (existing) return existing
     setDelays((d) => ({ ...d, [name]: 0 }))
-    const test = testDelay(name).then((ms) => {
+    const test = testDelay(name, delayTestTimeout, delayTestUrl).then((ms) => {
       if (alive.current && current === generation.current) setDelays((d) => ({ ...d, [name]: ms }))
     }, () => {
       if (alive.current && current === generation.current) setDelays((d) => ({ ...d, [name]: -1 }))
@@ -189,12 +245,35 @@ export default function Proxies() {
     return test
   }
 
+  /** 真实策略组交给内核 /group/{name}/delay 整组测速(URLTest/Fallback 会据此重选); 虚拟组逐节点测 */
+  const runGroupDelay = async (g: GroupView): Promise<void> => {
+    const current = generation.current
+    const members = [...new Set(g.all)]
+    setDelays((d) => ({ ...d, ...Object.fromEntries(members.map((name) => [name, 0])) }))
+    try {
+      const result = await testGroupDelay(g.name, delayTestTimeout, delayTestUrl)
+      if (!alive.current || current !== generation.current) return
+      setDelays((d) => ({ ...d, ...Object.fromEntries(members.map((name) => [name, result[name] ?? -1])) }))
+    } catch (error) {
+      if (!alive.current || current !== generation.current) return
+      setDelays((d) => {
+        const next = { ...d }
+        for (const name of members) if (next[name] === 0) delete next[name]
+        return next
+      })
+      setActionError(`组测速失败：${String(error)}`)
+    }
+    await refreshFlight.current
+    await refresh()
+  }
+
   const testGroup = async (g: GroupView): Promise<void> => {
     if (groupTestsRef.current.has(g.name)) return
     groupTestsRef.current.add(g.name)
     setTestingGroups((prev) => new Set(prev).add(g.name))
     try {
-      await Promise.all([...new Set(g.nodes.map((n) => n.name))].map(testNode))
+      if (g.name === '全部节点') await Promise.all([...new Set(g.nodes.map((n) => n.name))].map(testNode))
+      else await runGroupDelay(g)
     } finally {
       groupTestsRef.current.delete(g.name)
       setTestingGroups((prev) => {
@@ -218,11 +297,17 @@ export default function Proxies() {
     }
   }
 
+  const locate = (group: string): void => {
+    const target = document.querySelector<HTMLElement>(`.node-grid[data-group="${CSS.escape(group)}"] .node.sel`)
+    target?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    target?.focus({ preventScroll: true })
+  }
+
   const renderDelay = (node: ProxyNode) => {
     const d = delays[node.name] ?? latestDelay(node)
-    if (d === 0) return <span className="testing">测速中…</span>
+    if (delays[node.name] === 0) return <span className="testing">测速中…</span>
     if (d === undefined) return <Badge tone="gray">— ms</Badge>
-    if (d === -1) return <Badge tone="red">失败 / 超时</Badge>
+    if (d <= 0) return <Badge tone="red">失败 / 超时</Badge>
     return <Badge tone={delayTone(d)}>{d} ms</Badge>
   }
 
@@ -243,10 +328,29 @@ export default function Proxies() {
             { value: 'Selector', label: 'Selector' },
             { value: 'URLTest', label: 'URLTest' },
             { value: 'Fallback', label: 'Fallback' },
+            { value: 'LoadBalance', label: 'LoadBalance' },
           ]}
           value={typeFilter}
           onChange={setTypeFilter}
         />
+        <Seg<SortMode>
+          label="节点排序"
+          items={[
+            { value: 'default', label: '默认' },
+            { value: 'delay', label: '延迟' },
+            { value: 'name', label: '名称' },
+          ]}
+          value={sortMode}
+          onChange={(mode) => { setSortMode(mode); savePref(SORT_KEY, mode) }}
+        />
+        <Button
+          aria-pressed={hideTimeout}
+          title="隐藏超时节点(当前选中的节点始终显示)"
+          onClick={() => { savePref(HIDE_TIMEOUT_KEY, hideTimeout ? '0' : '1'); setHideTimeout(!hideTimeout) }}
+        >
+          <Icon name={hideTimeout ? 'eye-off' : 'eye'} size={13} />
+          {hideTimeout ? '已隐藏超时' : '隐藏超时'}
+        </Button>
         <div className="spacer" />
         <span className="chip">{loadError ? '内核未运行' : `共${totalNodes}个节点`}</span>
         <Button variant="primary" onClick={() => void testAll()} disabled={testingAll || !!loadError || totalNodes === 0}>
@@ -275,6 +379,9 @@ export default function Proxies() {
                 {!isVirtualGroup && <span className="chip">{g.type}</span>}
                 {!isVirtualGroup && <span className="grp-now">当前: <b>{g.now}</b></span>}
                 <Badge tone="green">{g.all.length} 个节点</Badge>
+                {!isVirtualGroup && isOpen && (
+                  <Button size="sm" title="滚动到当前选中的节点" onClick={() => locate(g.name)}>定位</Button>
+                )}
                 <Button size="sm" onClick={() => void testGroup(g)} disabled={isTestingGroup || testingAll}>
                   {isTestingGroup ? '测速中…' : '测速'}
                 </Button>
@@ -296,7 +403,7 @@ export default function Proxies() {
             flush={!isOpen}
           >
             {isOpen && (
-              <div className="node-grid">
+              <div className="node-grid" data-group={g.name}>
                 {g.nodes.map((n) => {
                   const sel = n.name === g.now
                   return (

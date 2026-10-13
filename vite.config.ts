@@ -18,7 +18,12 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
     // WSL 下 /mnt/* 无 inotify 事件,轮询保证 HMR/模块缓存失效正常
-    watch: { usePolling: Boolean(process.env.WSL_DISTRO_NAME) || process.env.VITE_USE_POLLING === '1', interval: 800 },
+    // .tmp 存放数万个验证产物, 不排除时 watcher 初始扫描会拖慢冷启动首屏 20s 以上
+    watch: {
+      usePolling: Boolean(process.env.WSL_DISTRO_NAME) || process.env.VITE_USE_POLLING === '1',
+      interval: 800,
+      ignored: ['**/.tmp/**'],
+    },
   },
   build: {
     target: 'es2021',

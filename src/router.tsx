@@ -15,6 +15,7 @@ const Providers = lazy(() => import('./pages/Providers'))
 const Test = lazy(() => import('./pages/Test'))
 const Profiles = lazy(() => import('./pages/Profiles'))
 const Settings = lazy(() => import('./pages/Settings'))
+const Tray = lazy(() => import('./pages/Tray'))
 
 function page(Page: LazyExoticComponent<ComponentType>) {
   return (
@@ -28,6 +29,7 @@ function page(Page: LazyExoticComponent<ComponentType>) {
  * 契约 E 的 11 条路由 + M2 测试页, 全部实装。
  */
 export const router = createBrowserRouter([
+  { path: '/tray', element: page(Tray), errorElement: <RouteError /> },
   {
     path: '/',
     element: <App />,
