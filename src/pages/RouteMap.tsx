@@ -10,6 +10,7 @@ import {
   buildRegionsFromConnections, sameRegionSnapshot, type RegionTraffic,
 } from './routeMapData'
 
+import { useT } from '../i18n'
 const FLAT_W = 1100
 const FLAT_H = 540
 const FLAT_PLANE_SCALE = 0.45
@@ -56,6 +57,7 @@ function buildFlatBase() {
 }
 
 export default function RouteMap() {
+  const t = useT()
   const [regions, setRegions] = useState<RegionTraffic[]>(() =>
     buildRegionsFromConnections(useLiveStore.getState().connections),
   )
@@ -148,10 +150,10 @@ export default function RouteMap() {
         className="map-card"
         icon={<Icon name="routemap" />}
         iconColor="var(--cyan)"
-        title="路由地图"
+        title={t('路由地图')}
         actions={
           <span className="chip">
-            <span className="num">{regions.length}</span> 个目的地区域 · 实时
+            {t('{count} 个目的地区域 · 实时', { count: regions.length })}
           </span>
         }
         flush
@@ -160,7 +162,7 @@ export default function RouteMap() {
           <svg
             ref={flatRef}
             className="flat-svg"
-            aria-label="路由平面地图"
+            aria-label={t('路由平面地图')}
             viewBox={`0 0 ${FLAT_W} ${FLAT_H}`}
             preserveAspectRatio="xMidYMid meet"
           >
@@ -237,7 +239,7 @@ export default function RouteMap() {
             )}
             <text className="node-label origin-label" x={flat.originLabel.x} y={flat.originLabel.y}>{ORIGIN.name}</text>
           </svg>
-          {regions.length === 0 && <div className="empty">暂无经代理出站的活跃连接</div>}
+          {regions.length === 0 && <div className="empty">{t('暂无经代理出站的活跃连接')}</div>}
         </div>
         <div className="map-legend">
           {legendRegions.slice(0, 8).map((r) => (
@@ -246,7 +248,7 @@ export default function RouteMap() {
               {r.name} <b>{fmtBytes(r.bytes)}</b>
             </span>
           ))}
-          <span className="lg-hint">弧线宽度 ∝ 累计流量</span>
+          <span className="lg-hint">{t('弧线宽度 ∝ 累计流量')}</span>
         </div>
       </Card>
     </div>

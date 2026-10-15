@@ -32,16 +32,16 @@ export function fmtDuration(sec: number): string {
 }
 
 /** 时间戳 → "2 小时前" */
-export function fmtRelTime(ts: number): string {
+export function fmtRelTime(ts: number, language: 'zh' | 'en' = 'zh'): string {
   const diff = Date.now() - ts
   const min = Math.floor(diff / 60_000)
-  if (min < 1) return '刚刚'
-  if (min < 60) return `${min} 分钟前`
+  if (min < 1) return language === 'en' ? 'Just now' : '刚刚'
+  if (min < 60) return language === 'en' ? `${min} min ago` : `${min} 分钟前`
   const h = Math.floor(min / 60)
-  if (h < 24) return `${h} 小时前`
+  if (h < 24) return language === 'en' ? `${h} h ago` : `${h} 小时前`
   const d = Math.floor(h / 24)
-  if (d < 30) return `${d} 天前`
-  return new Date(ts).toLocaleDateString('zh-CN')
+  if (d < 30) return language === 'en' ? `${d} d ago` : `${d} 天前`
+  return new Date(ts).toLocaleDateString(language === 'en' ? 'en-US' : 'zh-CN')
 }
 
 /** 时间戳 → 剩余天数(向上取整, 过期为 0) */

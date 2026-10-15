@@ -11,6 +11,9 @@ import { useNotificationStore } from './stores/notifications'
 /** 应用壳层: 侧边栏 + 顶栏 + 内容区(路由出口);负责自定义 CSS 注入 */
 export default function App() {
   const customCss = useAppStore((s) => s.settings.customCss)
+  const language = useAppStore((s) => s.settings.language)
+
+  useEffect(() => { document.documentElement.lang = language === 'en' ? 'en' : 'zh-CN' }, [language])
 
   useEffect(watchSystemTheme, [])
 

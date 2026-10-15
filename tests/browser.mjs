@@ -10,6 +10,7 @@ import { runBackupBrowser } from './backup.browser.mjs'
 import { runUpdaterBrowser } from './ui-updater.browser.mjs'
 import { runMediaBrowser } from './media.browser.mjs'
 import { runDiagnosticsBrowser } from './diagnostics.browser.mjs'
+import { runI18nBrowser } from './i18n.browser.mjs'
 import { runWindowsSettingsBrowser } from './windows-settings.browser.mjs'
 
 const root = path.resolve(import.meta.dirname, '..')
@@ -458,7 +459,7 @@ try {
     } finally { await fixture.close() }
   })
 
-  for (const suite of [runTrayBrowser, runSettingsBrowser, runProfilesBrowser, runBackupBrowser, runUpdaterBrowser, runMediaBrowser, runWindowsSettingsBrowser, runDiagnosticsBrowser]) {
+  for (const suite of [runTrayBrowser, runSettingsBrowser, runProfilesBrowser, runBackupBrowser, runUpdaterBrowser, runMediaBrowser, runWindowsSettingsBrowser, runDiagnosticsBrowser, runI18nBrowser]) {
     const ui = await suite(browser, base)
     passed += ui.passed
     failed += ui.failed

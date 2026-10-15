@@ -35,6 +35,7 @@ async function loadSnapshot(): Promise<TraySnapshot> {
 /** 独立窗口，不挂载主界面壳层；隐藏时卸载内容，释放全部轮询和 WS。 */
 export default function Tray() {
   const t = useT()
+  const language = useAppStore((s) => s.settings.language)
   const [nativeVisible, setNativeVisible] = useState(isMock)
   const [documentVisible, setDocumentVisible] = useState(!document.hidden)
   const [error, setError] = useState('')
@@ -44,6 +45,8 @@ export default function Tray() {
       setNativeVisible(false)
     } catch { setError('关闭快捷面板失败') }
   }, [])
+
+  useEffect(() => { document.documentElement.lang = language === 'en' ? 'en' : 'zh-CN' }, [language])
 
   useEffect(() => {
     document.documentElement.dataset.tray = 'true'

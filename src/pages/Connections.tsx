@@ -8,6 +8,7 @@ import Icon from '../components/ui/Icon'
 import Input from '../components/ui/Input'
 import Seg from '../components/ui/Seg'
 import { useVirtualRows } from '../hooks/useVirtualRows'
+import { useT } from '../i18n'
 import { closeAllConnections, closeConnection } from '../services/api'
 import { startLiveStreams, useLiveStore, type ClosedConn } from '../stores/live'
 import { useNotificationStore } from '../stores/notifications'
@@ -60,6 +61,7 @@ function ConnDetail({ conn, closedAt, onClose, onCloseConn }: {
   onClose: () => void
   onCloseConn?: () => void
 }) {
+  const t = useT()
   const notify = useNotificationStore((s) => s.add)
   const m = conn.metadata
   const rows: [string, string][] = [
@@ -91,32 +93,33 @@ function ConnDetail({ conn, closedAt, onClose, onCloseConn }: {
   const copy = async (): Promise<void> => {
     try {
       await navigator.clipboard.writeText(JSON.stringify(conn, null, 2))
-      notify('success', '已复制连接详情', conn.metadata.host || conn.metadata.destinationIP || conn.id)
+      notify('success', t('已复制连接详情'), conn.metadata.host || conn.metadata.destinationIP || conn.id)
     } catch (err) {
-      notify('error', '复制失败', String(err))
+      notify('error', t('复制失败'), String(err))
     }
   }
   return (
-    <Dialog title="连接详情" className="conn-detail-mask" panelClassName="conn-detail" onClose={onClose}>
+    <Dialog title={t('连接详情')} className="conn-detail-mask" panelClassName="conn-detail" onClose={onClose}>
       <header>
-        <h3>连接详情</h3>
-        {closedAt ? <Badge tone="gray">已关闭</Badge> : <Badge tone="green">活跃</Badge>}
-        <button type="button" className="icon-btn" aria-label="关闭详情" onClick={onClose}><Icon name="x" /></button>
+        <h3>{t('连接详情')}</h3>
+        {closedAt ? <Badge tone="gray">{t('已关闭')}</Badge> : <Badge tone="green">{t('活跃')}</Badge>}
+        <button type="button" className="icon-btn" aria-label={t('关闭详情')} onClick={onClose}><Icon name="x" /></button>
       </header>
       <dl>
         {rows.filter(([, value]) => value).map(([label, value]) => (
-          <div key={label}><dt>{label}</dt><dd>{value}</dd></div>
+          <div key={label}><dt>{t(label)}</dt><dd>{value}</dd></div>
         ))}
       </dl>
       <footer>
-        <Button onClick={() => void copy()}>复制 JSON</Button>
-        {onCloseConn && <Button variant="danger" onClick={onCloseConn}><Icon name="x" size={13} />断开连接</Button>}
+        <Button onClick={() => void copy()}>{t('复制 JSON')}</Button>
+        {onCloseConn && <Button variant="danger" onClick={onCloseConn}><Icon name="x" size={13} />{t('断开连接')}</Button>}
       </footer>
     </Dialog>
   )
 }
 
 export default function Connections() {
+  const t = useT()
   const payload = useLiveStore((s) => s.connections)
   const closedLive = useLiveStore((s) => s.closedConnections)
   const clearClosed = useLiveStore((s) => s.clearClosedConnections)
@@ -251,10 +254,10 @@ export default function Connections() {
     <div className="pg-connections">
       <div className="toolbar">
         <Seg<ConnTab>
-          label="连接分类"
+          label={t('连接分类')}
           items={[
-            { value: 'active', label: `活跃 ${visiblePayload.connections.length}` },
-            { value: 'closed', label: `已关闭 ${closedList.length}` },
+            { value: 'active', label: t('活跃 {count}', { count: visiblePayload.connections.length }) },
+            { value: 'closed', label: t('已关闭 {count}', { count: closedList.length }) },
           ]}
           value={tab}
           onChange={setTab}
@@ -262,24 +265,24 @@ export default function Connections() {
         <div className="search-wrap">
           <Icon name="search" />
           <Input
-            placeholder="搜索主机 / 进程 / 规则"
+            placeholder={t('搜索主机 / 进程 / 规则')}
             value={keyword}
             onChange={(e) => setKeyword(e.target.value)}
           />
         </div>
         <span className="chip">
           {list.length === totalCount
-            ? `${totalCount} 个连接`
-            : `${list.length} / ${totalCount} 个连接`}
+            ? t('{count} 个连接', { count: totalCount })
+            : t('{visible} / {total} 个连接', { visible: list.length, total: totalCount })}
         </span>
         <Badge tone="purple">↑ {fmtSpeed(topUpSpeed)}</Badge>
         <Badge tone="cyan">↓ {fmtSpeed(topDownSpeed)}</Badge>
         <div className="spacer" />
         <Seg
           items={[
-            { value: 'all', label: '全部' },
+            { value: 'all', label: t('全部') },
             { value: 'direct', label: 'DIRECT' },
-            { value: 'proxy', label: '代理' },
+            { value: 'proxy', label: t('代理') },
             { value: 'reject', label: 'REJECT' },
           ]}
           value={proxyFilter}
@@ -287,35 +290,35 @@ export default function Connections() {
         />
         <Seg
           items={[
-            { value: 'all', label: '全部' },
+            { value: 'all', label: t('全部') },
             { value: 'tcp', label: 'TCP' },
             { value: 'udp', label: 'UDP' },
           ]}
           value={network}
           onChange={setNetwork}
         />
-        <select className="select" aria-label="排序" value={sort} onChange={(e) => setSort(e.target.value as ConnSort)}>
-          <option value="default">默认顺序</option>
-          <option value="duration">按时长</option>
-          <option value="upload">按上传</option>
-          <option value="download">按下载</option>
-          <option value="speed">按速率</option>
+        <select className="select" aria-label={t('排序')} value={sort} onChange={(e) => setSort(e.target.value as ConnSort)}>
+          <option value="default">{t('默认顺序')}</option>
+          <option value="duration">{t('按时长')}</option>
+          <option value="upload">{t('按上传')}</option>
+          <option value="download">{t('按下载')}</option>
+          <option value="speed">{t('按速率')}</option>
         </select>
-        <Button aria-pressed={paused} title={paused ? '恢复实时刷新' : '冻结当前列表(后台继续记录)'} onClick={togglePause}>
-          <Icon name={paused ? 'play' : 'pause'} size={13} />{paused ? '继续' : '暂停'}
+        <Button aria-pressed={paused} title={paused ? t('恢复实时刷新') : t('冻结当前列表(后台继续记录)')} onClick={togglePause}>
+          <Icon name={paused ? 'play' : 'pause'} size={13} />{paused ? t('继续') : t('暂停')}
         </Button>
         {tab === 'closed' ? (
           <Button variant="danger" onClick={clearHistory} disabled={closedList.length === 0}>
-            <Icon name="trash" size={13} />清空记录
+            <Icon name="trash" size={13} />{t('清空记录')}
           </Button>
         ) : (
           <Button variant="danger" onClick={() => void close()} disabled={closing.has('__all__')}>
-            <Icon name="x" size={13} />关闭全部
+            <Icon name="x" size={13} />{t('关闭全部')}
           </Button>
         )}
       </div>
 
-      {error && <div role="alert">关闭连接失败：{error}</div>}
+      {error && <div role="alert">{t('关闭连接失败：')}{error}</div>}
       {detail && (
         <ConnDetail
           conn={detail.conn}
@@ -328,20 +331,20 @@ export default function Connections() {
         <div className="conn-scroll" ref={windowed.containerRef}>
         {list.length === 0 ? (
           <div className="empty">
-            {tab === 'closed' && closedList.length === 0 ? '暂无已关闭的连接(仅记录实时数据订阅期间消失的连接)' : '没有匹配的连接'}
+            {tab === 'closed' && closedList.length === 0 ? t('暂无已关闭的连接(仅记录实时数据订阅期间消失的连接)') : t('没有匹配的连接')}
           </div>
         ) : (
           <table className="tbl">
             <thead>
               <tr>
-                <th>主机</th>
-                <th>进程</th>
-                <th>规则</th>
-                <th>代理链</th>
-                <th>上传</th>
-                <th>下载</th>
-                <th>{tab === 'closed' ? '关闭于' : '速率'}</th>
-                <th>时长</th>
+                <th>{t('主机')}</th>
+                <th>{t('进程')}</th>
+                <th>{t('规则')}</th>
+                <th>{t('代理链')}</th>
+                <th>{t('上传')}</th>
+                <th>{t('下载')}</th>
+                <th>{tab === 'closed' ? t('关闭于') : t('速率')}</th>
+                <th>{t('时长')}</th>
                 <th />
               </tr>
             </thead>
@@ -369,7 +372,7 @@ export default function Connections() {
                     key={c.id}
                     className="conn-row"
                     tabIndex={0}
-                    title="查看详情"
+                    title={t('查看详情')}
                     onClick={() => setDetailId(c.id)}
                     onKeyDown={(e) => { if (e.key === 'Enter' && e.target === e.currentTarget) setDetailId(c.id) }}
                   >
@@ -415,7 +418,7 @@ export default function Connections() {
                       {!c.closedAt && (
                         <button
                           className="icon-btn"
-                          title="关闭连接"
+                          title={t('关闭连接')}
                           onClick={(e) => { e.stopPropagation(); void close(c.id) }}
                           disabled={closing.has(c.id) || closing.has('__all__')}
                         >

@@ -3,6 +3,7 @@ import './Providers.css'
 import Button from '../components/ui/Button'
 import Card from '../components/ui/Card'
 import Icon from '../components/ui/Icon'
+import { useT } from '../i18n'
 import {
   getProxyProviders,
   getRuleProviders,
@@ -10,6 +11,7 @@ import {
   updateProxyProvider,
   updateRuleProvider,
 } from '../services/api'
+import { useAppStore } from '../stores/app'
 import type { ProxyProviderItem, RuleProviderItem } from '../types/clash'
 import { fmtBytes, fmtRelTime } from '../utils/format'
 import { createTaskQueue } from '../utils/taskQueue'
@@ -24,12 +26,14 @@ function fmtDate(ms?: number): string {
 }
 
 export default function Providers() {
+  const t = useT()
+  const language = useAppStore((s) => s.settings.language)
   const [proxyPv, setProxyPv] = useState<ProxyProviderItem[]>([])
   const [rulePv, setRulePv] = useState<RuleProviderItem[]>([])
   const [busy, setBusy] = useState<Set<string>>(new Set())
   const busyRef = useRef(new Set<string>())
   const [errors, setErrors] = useState<Record<string, string>>({})
-  const [result, setResult] = useState('')
+  const [result, setResult] = useState<{ success: number; failed: number } | null>(null)
   const alive = useRef(true)
   const refreshFlight = useRef<Promise<void> | null>(null)
 
@@ -40,8 +44,8 @@ export default function Providers() {
       if (pp.status === 'fulfilled') setProxyPv(pp.value)
       if (rp.status === 'fulfilled') setRulePv(rp.value)
       setErrors((previous) => ({ ...previous,
-        'load:proxy': pp.status === 'rejected' ? `代理提供者加载失败：${String(pp.reason)}` : '',
-        'load:rule': rp.status === 'rejected' ? `规则提供者加载失败：${String(rp.reason)}` : '',
+        'load:proxy': pp.status === 'rejected' ? String(pp.reason) : '',
+        'load:rule': rp.status === 'rejected' ? String(rp.reason) : '',
       }))
     }).finally(() => { refreshFlight.current = null })
     refreshFlight.current = task
@@ -88,14 +92,14 @@ export default function Providers() {
     if (busyRef.current.size) return
     busyRef.current.add('__all__')
     setBusy(new Set(busyRef.current))
-    setResult('')
+    setResult(null)
     try {
       const results = await Promise.allSettled([
         ...proxyPv.map((p) => withBusy(`u:${p.name}`, () => updateProxyProvider(p.name), false)),
         ...rulePv.map((p) => withBusy(`r:${p.name}`, () => updateRuleProvider(p.name), false)),
       ])
       const failures = results.filter((item) => item.status === 'rejected').length
-      if (alive.current) setResult(`更新完成：${results.length - failures} 项成功，${failures} 项失败`)
+      if (alive.current) setResult({ success: results.length - failures, failed: failures })
       await refreshFlight.current
       await refresh()
     } finally {
@@ -106,20 +110,20 @@ export default function Providers() {
 
   return (
     <div className="pg-providers">
-      {Object.entries(errors).filter(([, message]) => message).map(([key, message]) => <div key={key} role="alert">{message}</div>)}
-      {result && <div role="status">{result}</div>}
+      {Object.entries(errors).filter(([, message]) => message).map(([key, message]) => <div key={key} role="alert">{key === 'load:proxy' ? t('代理提供者加载失败：') : key === 'load:rule' ? t('规则提供者加载失败：') : ''}{message}</div>)}
+      {result && <div role="status">{t('更新完成：{success} 项成功，{failed} 项失败', result)}</div>}
       <div className="sec-head">
-        代理提供者
+        {t('代理提供者')}
         <span className="spacer" />
         <Button size="sm" onClick={() => void updateAll()} disabled={busy.size > 0 || proxyPv.length + rulePv.length === 0}>
           <Icon name="refresh" size={13} />
-          {busy.has('__all__') ? '更新中…' : '全部更新'}
+          {busy.has('__all__') ? t('更新中…') : t('全部更新')}
         </Button>
       </div>
 
       {proxyPv.length === 0 ? (
         <Card>
-          <div className="empty">当前订阅未定义 proxy-providers</div>
+          <div className="empty">{t('当前订阅未定义 proxy-providers')}</div>
         </Card>
       ) : (
         <div className="grid2">
@@ -137,30 +141,30 @@ export default function Providers() {
                 actions={
                   <>
                     <span className="chip">{p.vehicleType}</span>
-                    <span className="pv-meta">更新于 {fmtRelTime(p.updatedAt ?? 0)}</span>
+                    <span className="pv-meta">{t('更新于')} {fmtRelTime(p.updatedAt ?? 0, language)}</span>
                   </>
                 }
               >
                 <div className="pv-stats">
                   <div className="pv-stat">
                     <span className="stat-num num">{p.nodeCount}</span>
-                    <span className="stat-label"><Icon name="proxies" size={12} />节点</span>
+                    <span className="stat-label"><Icon name="proxies" size={12} />{t('节点')}</span>
                   </div>
                   <div className="pv-stat">
                     <span className="stat-num num">
                       {p.subscription ? fmtBytes(p.subscription.used) : '—'}
                     </span>
-                    <span className="stat-label"><Icon name="traffic" size={12} />已用</span>
+                    <span className="stat-label"><Icon name="traffic" size={12} />{t('已用')}</span>
                   </div>
                   <div className="pv-stat">
                     <span className="stat-num num sm">{fmtDate(p.subscription?.expireAt)}</span>
-                    <span className="stat-label"><Icon name="clock" size={12} />到期</span>
+                    <span className="stat-label"><Icon name="clock" size={12} />{t('到期')}</span>
                   </div>
                 </div>
                 {pct !== null && p.subscription && (
                   <div className="pv-traffic">
                     <div className="pv-traffic-top">
-                      <span>已用流量 · {Math.round(pct)}%</span>
+                      <span>{t('已用流量 · {percent}%', { percent: Math.round(pct) })}</span>
                       <span className="num">
                         <b>{fmtBytes(p.subscription.used)}</b> / {fmtBytes(p.subscription.total)}
                       </span>
@@ -174,14 +178,14 @@ export default function Providers() {
                     disabled={busy.has('__all__') || busy.has(`u:${p.name}`)}
                     onClick={() => void withBusy(`u:${p.name}`, () => updateProxyProvider(p.name)).catch(() => undefined)}
                   >
-                    {busy.has(`u:${p.name}`) ? '更新中…' : '更新'}
+                    {busy.has(`u:${p.name}`) ? t('更新中…') : t('更新')}
                   </Button>
                   <Button
                     size="sm"
                     disabled={busy.has('__all__') || busy.has(`h:${p.name}`)}
                     onClick={() => void withBusy(`h:${p.name}`, () => healthcheckProvider(p.name)).catch(() => undefined)}
                   >
-                    {busy.has(`h:${p.name}`) ? '检查中…' : '健康检查'}
+                    {busy.has(`h:${p.name}`) ? t('检查中…') : t('健康检查')}
                   </Button>
                 </div>
               </Card>
@@ -190,21 +194,21 @@ export default function Providers() {
         </div>
       )}
 
-      <div className="sec-head">规则提供者</div>
+      <div className="sec-head">{t('规则提供者')}</div>
 
       <Card flush>
         {rulePv.length === 0 ? (
-          <div className="empty">当前订阅未定义 rule-providers</div>
+          <div className="empty">{t('当前订阅未定义 rule-providers')}</div>
         ) : (
           <table className="tbl">
             <thead>
               <tr>
-                <th>名称</th>
-                <th>行为</th>
-                <th>类型</th>
-                <th className="ta-r">规则数</th>
-                <th>更新于</th>
-                <th className="ta-r">操作</th>
+                <th>{t('名称')}</th>
+                <th>{t('行为')}</th>
+                <th>{t('类型')}</th>
+                <th className="ta-r">{t('规则数')}</th>
+                <th>{t('更新于')}</th>
+                <th className="ta-r">{t('操作')}</th>
               </tr>
             </thead>
             <tbody>
@@ -214,11 +218,11 @@ export default function Providers() {
                   <td><span className={`chip bh-${p.behavior}`}>{p.behavior}</span></td>
                   <td><span className="chip">{p.vehicleType}</span></td>
                   <td className="num ta-r">{p.ruleCount.toLocaleString()}</td>
-                  <td className="t3">{fmtRelTime(p.updatedAt ?? 0)}</td>
+                  <td className="t3">{fmtRelTime(p.updatedAt ?? 0, language)}</td>
                   <td className="ta-r">
                     <button
                       className="icon-btn"
-                      title="刷新"
+                      title={t('刷新')}
                       disabled={busy.has('__all__') || busy.has(`r:${p.name}`)}
                       onClick={() => void withBusy(`r:${p.name}`, () => updateRuleProvider(p.name)).catch(() => undefined)}
                     >

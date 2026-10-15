@@ -2,6 +2,7 @@ import { useEffect, useMemo } from 'react'
 import './Topology.css'
 import Card from '../components/ui/Card'
 import Icon from '../components/ui/Icon'
+import { useT } from '../i18n'
 import { startLiveStreams, useLiveStore } from '../stores/live'
 import type { ConnItem } from '../types/clash'
 import { fmtBytes } from '../utils/format'
@@ -27,7 +28,9 @@ const COLUMNS = [
 ] as const
 
 interface SankeyNode {
+  key: string
   name: string
+  localized: boolean
   weight: number
   y: number
   h: number
@@ -47,16 +50,16 @@ interface Layout {
   links: SankeyLink[][] // links[c] = 列 c → c+1
 }
 
-/** 单条连接在五列上的取值 */
+/** 用独立键区分界面占位文案与用户数据，避免同名进程被合并或翻译。 */
 function keysOf(c: ConnItem): string[] {
   const node = c.chains[0] ?? 'DIRECT'
   const group = c.chains[c.chains.length - 1] ?? node
   return [
-    c.metadata.sourceIP || '本机',
-    c.metadata.process || '未知进程',
-    c.rulePayload ? `${c.rule}(${c.rulePayload})` : c.rule || 'MATCH',
-    node,
-    group,
+    c.metadata.sourceIP ? `value:${c.metadata.sourceIP}` : 'label:本机',
+    c.metadata.process ? `value:${c.metadata.process}` : 'label:未知进程',
+    `value:${c.rulePayload ? `${c.rule}(${c.rulePayload})` : c.rule || 'MATCH'}`,
+    `value:${node}`,
+    `value:${group}`,
   ]
 }
 
@@ -77,7 +80,7 @@ function buildLayout(conns: ConnItem[]): Layout | null {
     const sorted = [...m.entries()].sort((a, b) => b[1] - a[1])
     return new Set(sorted.slice(0, MAX_PER_COL).map(([k]) => k))
   })
-  const mapKey = (i: number, k: string): string => (keep[i]!.has(k) ? k : '其他')
+  const mapKey = (i: number, k: string): string => (keep[i]!.has(k) ? k : 'label:其他')
 
   // 2) 重新聚合(含"其他")+ 相邻列联带
   const colAgg: Map<string, number>[] = COLUMNS.map(() => new Map())
@@ -103,11 +106,11 @@ function buildLayout(conns: ConnItem[]): Layout | null {
     const avail = H - PAD_TOP - PAD_BOTTOM - GAP * (entries.length - 1)
     const flexible = Math.max(0, avail - MIN_H * entries.length)
     let y = PAD_TOP
-    return entries.map(([name, weight]) => {
+    return entries.map(([key, weight]) => {
       const share = totalW > 0 ? Math.sqrt(weight) / totalW : 0
       // 单节点/极端权重封顶 45%, 避免整列被一个节点糊满
       const h = MIN_H + Math.min(share, 0.45) * flexible
-      const node: SankeyNode = { name, weight, y, h, outOffset: 0, inOffset: 0 }
+      const node: SankeyNode = { key, name: key.slice(6), localized: key.startsWith('label:'), weight, y, h, outOffset: 0, inOffset: 0 }
       y += h + GAP
       return node
     })
@@ -117,8 +120,8 @@ function buildLayout(conns: ConnItem[]): Layout | null {
   const links: SankeyLink[][] = linkAgg.map((m, ci) => {
     const fromNodes = columns[ci]!
     const toNodes = columns[ci + 1]!
-    const idx = (nodes: SankeyNode[], name: string): number =>
-      nodes.findIndex((n) => n.name === name)
+    const idx = (nodes: SankeyNode[], key: string): number =>
+      nodes.findIndex((n) => n.key === key)
     const list = [...m.entries()]
       .map(([lk, weight]) => {
         const [a, b] = lk.split('\0')
@@ -152,6 +155,7 @@ function ribbonPath(
 }
 
 export default function Topology() {
+  const t = useT()
   const connections = useLiveStore((s) => s.connections)
 
   useEffect(() => startLiveStreams(['connections']), [])
@@ -207,23 +211,23 @@ export default function Topology() {
         className="topo-card"
         icon={<Icon name="topology" />}
         iconColor="var(--green)"
-        title="连接拓扑"
+        title={t('连接拓扑')}
         actions={
           <span className="chip">
-            <span className="num">{connections.connections.length}</span> 条链路 · 实时
+            {t('{count} 条链路 · 实时', { count: connections.connections.length })}
           </span>
         }
         flush
       >
         {!layout ? (
-          <div className="empty">暂无活动连接</div>
+          <div className="empty">{t('暂无活动连接')}</div>
         ) : (
           <div className="topo-wrap">
             <svg
               className="topo-svg"
               viewBox={`0 0 ${W} ${H}`}
               preserveAspectRatio="xMidYMid meet"
-              aria-label="连接拓扑桑基图"
+              aria-label={t('连接拓扑桑基图')}
             >
               <defs>
                 {COLUMNS.slice(0, -1).map((c, i) => (
@@ -241,34 +245,37 @@ export default function Topology() {
               {layout.columns.map((col, ci) => {
                 const conf = COLUMNS[ci]!
                 const lastCol = ci === COLUMNS.length - 1
-                return col.map((n) => (
-                  <g key={`${conf.key}:${n.name}`}>
-                    <rect
-                      x={conf.x}
-                      y={n.y}
-                      width={NODE_W}
-                      height={n.h}
-                      rx={3}
-                      fill={conf.color}
-                      fillOpacity={0.9}
-                    />
-                    <text
-                      x={lastCol ? conf.x - 6 : conf.x + NODE_W + 7}
-                      y={n.y + Math.min(n.h / 2 + 4, 16)}
-                      textAnchor={lastCol ? 'end' : 'start'}
-                    >
-                      {n.name.length > 22 ? `${n.name.slice(0, 21)}…` : n.name}
-                    </text>
-                    <text
-                      className="sub"
-                      x={lastCol ? conf.x - 6 : conf.x + NODE_W + 7}
-                      y={n.y + Math.min(n.h / 2 + 4, 16) + 13}
-                      textAnchor={lastCol ? 'end' : 'start'}
-                    >
-                      {fmtBytes(n.weight)}
-                    </text>
-                  </g>
-                ))
+                return col.map((n) => {
+                  const name = n.localized ? t(n.name) : n.name
+                  return (
+                    <g key={`${conf.key}:${n.key}`}>
+                      <rect
+                        x={conf.x}
+                        y={n.y}
+                        width={NODE_W}
+                        height={n.h}
+                        rx={3}
+                        fill={conf.color}
+                        fillOpacity={0.9}
+                      />
+                      <text
+                        x={lastCol ? conf.x - 6 : conf.x + NODE_W + 7}
+                        y={n.y + Math.min(n.h / 2 + 4, 16)}
+                        textAnchor={lastCol ? 'end' : 'start'}
+                      >
+                        {name.length > 22 ? `${name.slice(0, 21)}…` : name}
+                      </text>
+                      <text
+                        className="sub"
+                        x={lastCol ? conf.x - 6 : conf.x + NODE_W + 7}
+                        y={n.y + Math.min(n.h / 2 + 4, 16) + 13}
+                        textAnchor={lastCol ? 'end' : 'start'}
+                      >
+                        {fmtBytes(n.weight)}
+                      </text>
+                    </g>
+                  )
+                })
               })}
             </svg>
           </div>
@@ -277,10 +284,10 @@ export default function Topology() {
           {COLUMNS.map((c) => (
             <span className="lg" key={c.key}>
               <i style={{ background: c.color }} />
-              {c.label}
+              {t(c.label)}
             </span>
           ))}
-          <span className="lg-hint">联带宽度 ∝ 累计流量 · 每秒刷新</span>
+          <span className="lg-hint">{t('联带宽度 ∝ 累计流量 · 每秒刷新')}</span>
         </div>
       </Card>
     </div>

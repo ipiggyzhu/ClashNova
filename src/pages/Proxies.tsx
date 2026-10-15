@@ -6,6 +6,7 @@ import Card from '../components/ui/Card'
 import Icon from '../components/ui/Icon'
 import Input from '../components/ui/Input'
 import Seg from '../components/ui/Seg'
+import { useT } from '../i18n'
 import { closeGroupConnections, getProxies, isDelayTimeout, selectProxy, testDelay, testGroupDelay } from '../services/api'
 import { useAppStore } from '../stores/app'
 import type { ProxiesPayload, ProxyGroup, ProxyNode } from '../types/clash'
@@ -21,6 +22,11 @@ const DELAY_TIMEOUT_VALUE = -2
 
 interface GroupView extends ProxyGroup {
   nodes: ProxyNode[]
+  virtual?: true
+}
+
+function groupKey(group: GroupView): string {
+  return group.virtual ? 'virtual:all' : `group:${group.name}`
 }
 
 function latestDelay(node: ProxyNode): number | undefined {
@@ -80,6 +86,7 @@ function delayRank(d: number | undefined): number {
 }
 
 export default function Proxies() {
+  const t = useT()
   const [payload, setPayload] = useState<ProxiesPayload | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [keyword, setKeyword] = useState('')
@@ -95,7 +102,7 @@ export default function Proxies() {
   const [testingGroups, setTestingGroups] = useState<Set<string>>(new Set())
   const [testingAll, setTestingAll] = useState(false)
   const [selecting, setSelecting] = useState<Set<string>>(new Set())
-  const [actionError, setActionError] = useState<string | null>(null)
+  const [actionError, setActionError] = useState<{ title: string; detail: string } | null>(null)
   const selectingRef = useRef(new Set<string>())
   const testingRef = useRef(new Map<string, Promise<void>>())
   const groupTestsRef = useRef(new Set<string>())
@@ -115,7 +122,7 @@ export default function Proxies() {
       setLoadError(null)
     }, (error: unknown) => {
       if (!alive.current || current !== loadGeneration.current) return
-      setLoadError(`节点加载失败：${String(error)}`)
+      setLoadError(String(error))
     }).finally(() => { refreshFlight.current = null })
     refreshFlight.current = task
     return task
@@ -150,7 +157,7 @@ export default function Proxies() {
     // 所有真实节点（非策略组、非 DIRECT/REJECT 等内置项）
     const realNodes = Object.values(all).filter((p) => isNodeType(p.type)) as ProxyNode[]
     // 策略组
-    const strategyGroups = Object.values(all)
+    const strategyGroups: GroupView[] = Object.values(all)
       .filter((p): p is ProxyNode & ProxyGroup => GROUP_TYPES.has(p.type) && Array.isArray(p.all))
       .filter((g) => g.name !== 'GLOBAL')
       .map((g) => ({
@@ -164,6 +171,7 @@ export default function Proxies() {
     if (realNodes.length > 0) {
       strategyGroups.unshift({
         name: '全部节点',
+        virtual: true,
         type: 'Selector',
         now: '',
         all: realNodes.map((n) => n.name),
@@ -222,7 +230,7 @@ export default function Proxies() {
       await selectProxy(group, name)
       if (autoCloseConnections && previous !== name) void closeGroupConnections(group)
     } catch (error) {
-      if (alive.current) setActionError(`切换节点失败：${String(error)}`)
+      if (alive.current) setActionError({ title: '切换节点失败：', detail: String(error) })
     } finally {
       selectingRef.current.delete(group)
       if (alive.current) {
@@ -265,24 +273,25 @@ export default function Proxies() {
         for (const name of members) if (next[name] === 0) delete next[name]
         return next
       })
-      setActionError(`组测速失败：${String(error)}`)
+      setActionError({ title: '组测速失败：', detail: String(error) })
     }
     await refreshFlight.current
     await refresh()
   }
 
   const testGroup = async (g: GroupView): Promise<void> => {
-    if (groupTestsRef.current.has(g.name)) return
-    groupTestsRef.current.add(g.name)
-    setTestingGroups((prev) => new Set(prev).add(g.name))
+    const key = groupKey(g)
+    if (groupTestsRef.current.has(key)) return
+    groupTestsRef.current.add(key)
+    setTestingGroups((prev) => new Set(prev).add(key))
     try {
-      if (g.name === '全部节点') await Promise.all([...new Set(g.nodes.map((n) => n.name))].map(testNode))
+      if (g.virtual) await Promise.all([...new Set(g.nodes.map((n) => n.name))].map(testNode))
       else await runGroupDelay(g)
     } finally {
-      groupTestsRef.current.delete(g.name)
+      groupTestsRef.current.delete(key)
       setTestingGroups((prev) => {
         const next = new Set(prev)
-        next.delete(g.name)
+        next.delete(key)
         return next
       })
     }
@@ -309,7 +318,7 @@ export default function Proxies() {
 
   const renderDelay = (node: ProxyNode) => {
     const d = delays[node.name] ?? latestDelay(node)
-    if (delays[node.name] === 0) return <span className="testing">测速中…</span>
+    if (delays[node.name] === 0) return <span className="testing">{t('测速中…')}</span>
     if (d === undefined) return <Badge tone="gray">— ms</Badge>
     if (d === DELAY_TIMEOUT_VALUE) return <Badge tone="red">Timeout</Badge>
     if (d <= 0) return <Badge tone="red">Failed</Badge>
@@ -322,14 +331,14 @@ export default function Proxies() {
         <div className="search-wrap">
           <Icon name="search" />
           <Input
-            placeholder="搜索节点 / 代理组"
+            placeholder={t('搜索节点 / 代理组')}
             value={keyword}
             onChange={(e) => setKeyword(e.target.value)}
           />
         </div>
         <Seg
           items={[
-            { value: 'all', label: '全部' },
+            { value: 'all', label: t('全部') },
             { value: 'Selector', label: 'Selector' },
             { value: 'URLTest', label: 'URLTest' },
             { value: 'Fallback', label: 'Fallback' },
@@ -339,62 +348,63 @@ export default function Proxies() {
           onChange={setTypeFilter}
         />
         <Seg<SortMode>
-          label="节点排序"
+          label={t('节点排序')}
           items={[
-            { value: 'default', label: '默认' },
-            { value: 'delay', label: '延迟' },
-            { value: 'name', label: '名称' },
+            { value: 'default', label: t('默认') },
+            { value: 'delay', label: t('延迟') },
+            { value: 'name', label: t('名称') },
           ]}
           value={sortMode}
           onChange={(mode) => { setSortMode(mode); savePref(SORT_KEY, mode) }}
         />
         <Button
           aria-pressed={hideTimeout}
-          title="隐藏超时节点(当前选中的节点始终显示)"
+          title={t('隐藏超时节点(当前选中的节点始终显示)')}
           onClick={() => { savePref(HIDE_TIMEOUT_KEY, hideTimeout ? '0' : '1'); setHideTimeout(!hideTimeout) }}
         >
           <Icon name={hideTimeout ? 'eye-off' : 'eye'} size={13} />
-          {hideTimeout ? '已隐藏超时' : '隐藏超时'}
+          {hideTimeout ? t('已隐藏超时') : t('隐藏超时')}
         </Button>
         <div className="spacer" />
-        <span className="chip">{loadError ? '内核未运行' : `共${totalNodes}个节点`}</span>
+        <span className="chip">{loadError ? t('内核未运行') : t('共{count}个节点', { count: totalNodes })}</span>
         <Button variant="primary" onClick={() => void testAll()} disabled={testingAll || !!loadError || totalNodes === 0}>
           <Icon name="zap" size={13} />
-          {testingAll ? '测速中…' : '全部测速'}
+          {testingAll ? t('测速中…') : t('全部测速')}
         </Button>
       </div>
 
-      {actionError && <div role="alert">{actionError}</div>}
+      {actionError && <div role="alert">{t(actionError.title)}{actionError.detail}</div>}
       {loadError ? (
-        <Card icon={<Icon name="proxies" />} iconColor="var(--accent)" title="节点列表" flush>
-          <div className="empty">{loadError}</div>
+        <Card icon={<Icon name="proxies" />} iconColor="var(--accent)" title={t('节点列表')} flush>
+          <div className="empty">{t('节点加载失败：')}{loadError}</div>
         </Card>
       ) : visibleGroups.map((g, i) => {
-        const isOpen = !collapsed[g.name]
-        const isTestingGroup = testingGroups.has(g.name)
-        const isVirtualGroup = g.name === '全部节点'
+        const key = groupKey(g)
+        const isOpen = !(collapsed[key] ?? collapsed[g.name])
+        const isTestingGroup = testingGroups.has(key)
+        const isVirtualGroup = Boolean(g.virtual)
         return (
           <Card
-            key={g.name}
+            key={key}
             icon={<Icon name="proxies" />}
             iconColor={GROUP_COLORS[i % GROUP_COLORS.length]}
-            title={g.name}
+            title={isVirtualGroup ? t('全部节点') : g.name}
             actions={
               <>
                 {!isVirtualGroup && <span className="chip">{g.type}</span>}
-                {!isVirtualGroup && <span className="grp-now">当前: <b>{g.now}</b></span>}
-                <Badge tone="green">{g.all.length} 个节点</Badge>
+                {!isVirtualGroup && <span className="grp-now">{t('当前:')} <b>{g.now}</b></span>}
+                <Badge tone="green">{t('{count} 个节点', { count: g.all.length })}</Badge>
                 {!isVirtualGroup && isOpen && (
-                  <Button size="sm" title="滚动到当前选中的节点" onClick={() => locate(g.name)}>定位</Button>
+                  <Button size="sm" title={t('滚动到当前选中的节点')} onClick={() => locate(g.name)}>{t('定位')}</Button>
                 )}
                 <Button size="sm" onClick={() => void testGroup(g)} disabled={isTestingGroup || testingAll}>
-                  {isTestingGroup ? '测速中…' : '测速'}
+                  {isTestingGroup ? t('测速中…') : t('测速')}
                 </Button>
                 <button
                   className="icon-btn"
-                  title={isOpen ? '折叠' : '展开'}
+                  title={isOpen ? t('折叠') : t('展开')}
                   onClick={() => setCollapsed((c) => {
-                    const next = { ...c, [g.name]: isOpen }
+                    const next = { ...c, [key]: isOpen }
                     saveCollapsed(next)
                     return next
                   })}
@@ -419,7 +429,7 @@ export default function Proxies() {
                       aria-pressed={isVirtualGroup ? undefined : sel}
                       onClick={isVirtualGroup ? undefined : () => void handleSelect(g.name, n.name)}
                       onDoubleClick={() => void testNode(n.name)}
-                      title={isVirtualGroup ? '双击测速' : '单击切换 · 双击测速'}
+                      title={isVirtualGroup ? t('双击测速') : t('单击切换 · 双击测速')}
                       style={isVirtualGroup ? { cursor: 'default' } : undefined}
                     >
                       <div className="nm">{n.name}</div>

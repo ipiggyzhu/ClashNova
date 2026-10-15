@@ -6,6 +6,7 @@ import Seg from '../components/ui/Seg'
 import Spark from '../components/ui/Spark'
 import { useSmoothTraffic } from '../hooks/useSmoothTraffic'
 import { usePollingQuery } from '../hooks/usePollingQuery'
+import { useT } from '../i18n'
 import { call } from '../services/ipc'
 import { startLiveStreams, useLiveStore } from '../stores/live'
 import type { RankRow, SeriesPoint, StatDim, StatRange } from '../types/clash'
@@ -40,6 +41,7 @@ function BigNum({ bytes }: { bytes: number }) {
 }
 
 export default function Traffic() {
+  const t = useT()
   const [range, setRange] = useState<StatRange>('7d')
   const [dim, setDim] = useState<StatDim>('proxy')
   const query = useCallback(async () => {
@@ -62,25 +64,25 @@ export default function Traffic() {
 
   return (
     <div className="pg-traffic">
-      {error && <div role="alert">统计加载失败：{error}</div>}
+      {error && <div role="alert">{t('统计加载失败：')}{error}</div>}
       <RealtimeRates />
 
       {/* ---- 今日汇总 ---- */}
       <div className="grid3">
         <Card className="t-mini">
-          <span className="lbl"><Icon name="upload" size={12} />今日上传</span>
+          <span className="lbl"><Icon name="upload" size={12} />{t('今日上传')}</span>
           <div className="val"><BigNum bytes={todayUp} /></div>
-          <div className="delta">{daySeries.length} 个小时桶</div>
+          <div className="delta">{t('{count} 个小时桶', { count: daySeries.length })}</div>
         </Card>
         <Card className="t-mini">
-          <span className="lbl"><Icon name="download" size={12} />今日下载</span>
+          <span className="lbl"><Icon name="download" size={12} />{t('今日下载')}</span>
           <div className="val"><BigNum bytes={todayDown} /></div>
-          <div className="delta">{daySeries.length} 个小时桶</div>
+          <div className="delta">{t('{count} 个小时桶', { count: daySeries.length })}</div>
         </Card>
         <Card className="t-mini">
-          <span className="lbl"><Icon name="traffic" size={12} />今日总计</span>
+          <span className="lbl"><Icon name="traffic" size={12} />{t('今日总计')}</span>
           <div className="val"><BigNum bytes={todayUp + todayDown} /></div>
-          <div className="delta">上行占比 {todayUp + todayDown > 0 ? Math.round((todayUp / (todayUp + todayDown)) * 100) : 0}%</div>
+          <div className="delta">{t('上行占比 {percent}%', { percent: todayUp + todayDown > 0 ? Math.round((todayUp / (todayUp + todayDown)) * 100) : 0 })}</div>
         </Card>
       </div>
 
@@ -88,11 +90,11 @@ export default function Traffic() {
       <Card
         icon={<Icon name="topology" />}
         iconColor="var(--purple)"
-        title="多维统计"
+        title={t('多维统计')}
         actions={
           <>
-            <Seg items={DIM_ITEMS} value={dim} onChange={setDim} />
-            <Seg items={RANGE_ITEMS} value={range} onChange={setRange} />
+            <Seg items={DIM_ITEMS.map((item) => ({ ...item, label: t(item.label) }))} value={dim} onChange={setDim} />
+            <Seg items={RANGE_ITEMS.map((item) => ({ ...item, label: t(item.label) }))} value={range} onChange={setRange} />
           </>
         }
         flush
@@ -107,16 +109,16 @@ export default function Traffic() {
         </div>
         <div className="q-list">
           {rank.length === 0 ? (
-            <div className="empty">暂无统计数据 — 内核运行并产生流量后开始累积</div>
+            <div className="empty">{t('暂无统计数据 — 内核运行并产生流量后开始累积')}</div>
           ) : (
             <table className="tbl">
               <thead>
                 <tr>
-                  <th>名称</th>
-                  <th className="r">上传</th>
-                  <th className="r">下载</th>
-                  <th className="r">总计</th>
-                  <th>占总流量（Top 10）</th>
+                  <th>{t('名称')}</th>
+                  <th className="r">{t('上传')}</th>
+                  <th className="r">{t('下载')}</th>
+                  <th className="r">{t('总计')}</th>
+                  <th>{t('占总流量（Top 10）')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -161,6 +163,7 @@ export default function Traffic() {
 
 /** 速率订阅与图表限定在实时卡片内。 */
 function RealtimeRates() {
+  const t = useT()
   const traffic = useLiveStore((s) => s.traffic)
   useEffect(() => startLiveStreams(['traffic']), [])
   const last = traffic[traffic.length - 1] ?? { up: 0, down: 0 }
@@ -171,25 +174,25 @@ function RealtimeRates() {
     <Card
       icon={<Icon name="traffic" />}
       iconColor="var(--green)"
-      title="实时速率"
-      actions={<span className="chip">60 秒窗口</span>}
+      title={t('实时速率')}
+      actions={<span className="chip">{t('60 秒窗口')}</span>}
     >
       <div className="rt-wrap">
         <div className="rt-cell">
           <span className="rt-label" style={{ color: 'var(--purple)' }}>
-            <Icon name="upload" size={12} />上传
+            <Icon name="upload" size={12} />{t('上传')}
           </span>
           <div className="rt-big">{fmtSpeed(smoothTraffic.current.up)}</div>
           <Spark pts={smoothTraffic.upPts} color="#BF5AF2" h={72} fill dot />
-          <div className="rt-peak">峰值 {fmtSpeed(peakUp)}</div>
+          <div className="rt-peak">{t('峰值')} {fmtSpeed(peakUp)}</div>
         </div>
         <div className="rt-cell">
           <span className="rt-label" style={{ color: 'var(--cyan)' }}>
-            <Icon name="download" size={12} />下载
+            <Icon name="download" size={12} />{t('下载')}
           </span>
           <div className="rt-big">{fmtSpeed(smoothTraffic.current.down)}</div>
           <Spark pts={smoothTraffic.downPts} color="#64D2FF" h={72} fill dot />
-          <div className="rt-peak">峰值 {fmtSpeed(peakDown)}</div>
+          <div className="rt-peak">{t('峰值')} {fmtSpeed(peakDown)}</div>
         </div>
       </div>
     </Card>

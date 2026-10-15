@@ -5,6 +5,7 @@ import Icon from '../components/ui/Icon'
 import Seg from '../components/ui/Seg'
 import Spark from '../components/ui/Spark'
 import { useSmoothTraffic } from '../hooks/useSmoothTraffic'
+import { useT } from '../i18n'
 import { call } from '../services/ipc'
 import { fetchIpInfo, maskIp, type IpInfo } from '../services/ipInfo'
 import { probeUrl } from '../services/probe'
@@ -39,13 +40,13 @@ function msText(ms: number | null): string {
   return ms === null ? '…' : ms < 0 ? '失败' : String(ms)
 }
 
-function tunText(settingsTun: boolean, adapter: TunAdapterStatus | null): string {
-  if (!settingsTun) return '关闭'
-  if (!adapter) return '检测中…'
-  if (adapter.status === 'unsupported') return '已开启'
-  if (adapter.status === 'runtime-enabled') return '已接管'
-  if (adapter.adapterPresent) return adapter.adapterName ? `已开启 · ${adapter.adapterName}` : '已开启'
-  return '网卡未就绪'
+function tunText(settingsTun: boolean, adapter: TunAdapterStatus | null, t: (text: string) => string): string {
+  if (!settingsTun) return t('关闭')
+  if (!adapter) return t('检测中…')
+  if (adapter.status === 'unsupported') return t('已开启')
+  if (adapter.status === 'runtime-enabled') return t('已接管')
+  if (adapter.adapterPresent) return adapter.adapterName ? `${t('已开启')} · ${adapter.adapterName}` : t('已开启')
+  return t('网卡未就绪')
 }
 
 const SHOW_IP_KEY = 'dashboard:show-ip'
@@ -91,6 +92,7 @@ function useExitIp(routeKey: string) {
 }
 
 export default function Dashboard() {
+  const t = useT()
   const settings = useAppStore((s) => s.settings)
   const runtimeMode = useAppStore((s) => s.runtimeMode)
   const exitIp = useExitIp(`${settings.sysProxy}|${settings.tun}|${runtimeMode ?? settings.mode}`)
@@ -155,7 +157,7 @@ export default function Dashboard() {
 
   return (
     <div className="pg-dashboard">
-      {(trendError || summaryError || rankError) && <div role="alert">统计加载失败：{trendError || summaryError || rankError}</div>}
+      {(trendError || summaryError || rankError) && <div role="alert">{t('统计加载失败：')}{trendError || summaryError || rankError}</div>}
       <div className="grid2">
         <RuntimeStatus />
 
@@ -163,9 +165,9 @@ export default function Dashboard() {
         <Card
           icon={<Icon name="globe2" />}
           iconColor="var(--cyan)"
-          title="网络状态"
+          title={t('网络状态')}
           actions={
-            <button className="icon-btn" title="刷新网络状态" onClick={() => { probeNet(); exitIp.reload() }}
+            <button className="icon-btn" title={t('刷新网络状态')} onClick={() => { probeNet(); exitIp.reload() }}
               disabled={netBusy && exitIp.busy}>
               <Icon name="refresh" />
             </button>
@@ -173,25 +175,25 @@ export default function Dashboard() {
         >
           <div className="stat-grid">
             <div className="stat-cell">
-              <div className="stat-label"><Icon name="globe2" size={12} />互联网</div>
+              <div className="stat-label"><Icon name="globe2" size={12} />{t('互联网')}</div>
               <div className="stat-num" style={{ color: msTone(netMs.internet ?? 0) }}>
-                {msText(netMs.internet)}{' '}
+                {t(msText(netMs.internet))}{' '}
                 {typeof netMs.internet === 'number' && netMs.internet >= 0 && (
                   <span style={{ fontSize: 12 }}>ms</span>
                 )}
               </div>
             </div>
             <div className="stat-cell">
-              <div className="stat-label"><Icon name="search" size={12} />DNS 端点</div>
+              <div className="stat-label"><Icon name="search" size={12} />{t('DNS 端点')}</div>
               <div className="stat-num" style={{ color: msTone(netMs.dns ?? 0) }}>
-                {msText(netMs.dns)}{' '}
+                {t(msText(netMs.dns))}{' '}
                 {typeof netMs.dns === 'number' && netMs.dns >= 0 && (
                   <span style={{ fontSize: 12 }}>ms</span>
                 )}
               </div>
             </div>
             <div className="stat-cell">
-              <div className="stat-label"><Icon name="connections" size={12} />混合端口</div>
+              <div className="stat-label"><Icon name="connections" size={12} />{t('混合端口')}</div>
               <div className="stat-num" style={{ color: 'var(--cyan)' }}>
                 {settings.mixedPort}
               </div>
@@ -199,41 +201,41 @@ export default function Dashboard() {
           </div>
           <div className="stat-grid stat-sub">
             <div className="stat-cell">
-              <div className="stat-label">出站模式</div>
-              <b>{{ rule: '规则', global: '全局', direct: '直连' }[runtimeMode ?? settings.mode]}</b>
+              <div className="stat-label">{t('出站模式')}</div>
+              <b>{{ rule: t('规则'), global: t('全局'), direct: t('直连') }[runtimeMode ?? settings.mode]}</b>
             </div>
             <div className="stat-cell">
-              <div className="stat-label">系统代理</div>
-              <b>{settings.sysProxy ? '已开启' : '关闭'}</b>
+              <div className="stat-label">{t('系统代理')}</div>
+              <b>{settings.sysProxy ? t('已开启') : t('关闭')}</b>
             </div>
             <div className="stat-cell">
               <div className="stat-label">TUN</div>
-              <b title={tunAdapter?.detail ?? undefined}>{tunText(settings.tun, tunAdapter)}</b>
+              <b title={tunAdapter?.detail ?? undefined}>{tunText(settings.tun, tunAdapter, t)}</b>
             </div>
           </div>
-          <div className="stat-grid stat-sub ip-row" title="本机当前网络(系统代理 / TUN 生效时即代理出口)看到的公网 IP">
+          <div className="stat-grid stat-sub ip-row" title={t('本机当前网络(系统代理 / TUN 生效时即代理出口)看到的公网 IP')}>
             <div className="stat-cell">
               <div className="stat-label">
-                出口 IP
-                <button type="button" className="ip-eye" aria-label={showIp ? '隐藏出口 IP' : '显示出口 IP'}
+                {t('出口 IP')}
+                <button type="button" className="ip-eye" aria-label={showIp ? t('隐藏出口 IP') : t('显示出口 IP')}
                   aria-pressed={showIp} onClick={toggleShowIp}>
                   <Icon name={showIp ? 'eye-off' : 'eye'} size={11} />
                 </button>
               </div>
               <b className="num" title={exitIp.error || undefined}>
                 {exitIp.info ? (showIp ? exitIp.info.ip : maskIp(exitIp.info.ip))
-                  : exitIp.busy ? '查询中…' : exitIp.error ? '查询失败' : '—'}
+                  : exitIp.busy ? t('查询中…') : exitIp.error ? t('查询失败') : '—'}
               </b>
             </div>
             <div className="stat-cell">
-              <div className="stat-label">位置</div>
+              <div className="stat-label">{t('位置')}</div>
               <b>{exitIp.info
                 ? [exitIp.info.countryCode, exitIp.info.region, exitIp.info.city]
                   .filter((part, i, all) => part && all.indexOf(part) === i).join(' · ') || '—'
                 : '—'}</b>
             </div>
             <div className="stat-cell">
-              <div className="stat-label">运营商</div>
+              <div className="stat-label">{t('运营商')}</div>
               <b title={exitIp.info ? `${exitIp.info.isp} (${exitIp.info.source})` : undefined}>
                 {exitIp.info ? [exitIp.info.asn, exitIp.info.isp].filter(Boolean).join(' ') || '—' : '—'}
               </b>
@@ -249,9 +251,9 @@ export default function Dashboard() {
         <Card
           icon={<Icon name="traffic" />}
           iconColor="var(--orange)"
-          title="7 天流量趋势"
+          title={t('7 天流量趋势')}
           actions={
-            <button className="icon-btn" title="刷新趋势" onClick={() => void refreshTrend()}>
+            <button className="icon-btn" title={t('刷新趋势')} onClick={() => void refreshTrend()}>
               <Icon name="refresh" />
             </button>
           }
@@ -259,10 +261,10 @@ export default function Dashboard() {
           <div className="trend-v2">
             <div className="trend-summary">
               <div>
-                <div className="stat-label">日均</div>
+                <div className="stat-label">{t('日均')}</div>
                 <strong>{fmtBytes(trendAvg)}</strong>
               </div>
-              <span>最近 7 天总量 {fmtBytes(trend.reduce((acc, p) => acc + p.up + p.down, 0))}</span>
+              <span>{t('最近 7 天总量')} {fmtBytes(trend.reduce((acc, p) => acc + p.up + p.down, 0))}</span>
             </div>
             <div className="trend-bars">
               {[...trend].reverse().map((p, i) => {
@@ -279,7 +281,7 @@ export default function Dashboard() {
                       />
                     </div>
                     <div className="tick-slot">{i === 0 && <div className="tick" />}</div>
-                    <span className="day">{DAY_NAMES[day.getDay()]}</span>
+                    <span className="day">{t(DAY_NAMES[day.getDay()])}</span>
                   </div>
                 )
               })}
@@ -292,13 +294,13 @@ export default function Dashboard() {
       <Card
         icon={<Icon name="clock" />}
         iconColor="var(--pink)"
-        title="流量汇总"
+        title={t('流量汇总')}
         actions={
           <Seg<StatRange>
             items={[
-              { value: 'day', label: '今日' },
-              { value: '7d', label: '7 天' },
-              { value: '30d', label: '30 天' },
+              { value: 'day', label: t('今日') },
+              { value: '7d', label: t('7 天') },
+              { value: '30d', label: t('30 天') },
             ]}
             value={sumRange}
             onChange={setSumRange}
@@ -329,29 +331,29 @@ export default function Dashboard() {
               />
             </svg>
             <div className="donut-center">
-              <span>总计</span>
+              <span>{t('总计')}</span>
               <div className="stat-num">{fmtBytes(sumUp + sumDown)}</div>
             </div>
           </div>
           <div className="sum-legend">
             <div className="row">
-              <span className="ic"><Icon name="upload" size={13} /></span>上传
+              <span className="ic"><Icon name="upload" size={13} /></span>{t('上传')}
               <b>{fmtBytes(sumUp)}</b>
             </div>
             <div className="row">
-              <span className="ic"><Icon name="download" size={13} /></span>下载
+              <span className="ic"><Icon name="download" size={13} /></span>{t('下载')}
               <b>{fmtBytes(sumDown)}</b>
             </div>
             <div className="row">
-              <span className="dot" style={{ background: 'var(--green)' }} />直连
+              <span className="dot" style={{ background: 'var(--green)' }} />{t('直连')}
               <b>{fmtBytes(directBytes)}</b>
             </div>
             <div className="row">
-              <span className="dot" style={{ background: 'var(--accent)' }} />代理
+              <span className="dot" style={{ background: 'var(--accent)' }} />{t('代理')}
               <b>{fmtBytes(proxyBytes)}</b>
             </div>
             <div className="row">
-              <span className="dot" style={{ background: 'var(--text-3)' }} />未归因
+              <span className="dot" style={{ background: 'var(--text-3)' }} />{t('未归因')}
               <b>{fmtBytes(unattributed)}</b>
             </div>
             <div className="split-bar">
@@ -362,12 +364,12 @@ export default function Dashboard() {
           </div>
           <div className="rank">
             <div className="rank-head">
-              <div className="stat-label"><Icon name="rules" size={12} />排行</div>
+              <div className="stat-label"><Icon name="rules" size={12} />{t('排行')}</div>
               <Seg<StatDim>
                 items={[
-                  { value: 'proxy', label: '代理' },
-                  { value: 'process', label: '进程' },
-                  { value: 'host', label: '主机名' },
+                  { value: 'proxy', label: t('代理') },
+                  { value: 'process', label: t('进程') },
+                  { value: 'host', label: t('主机名') },
                 ]}
                 value={rankBy}
                 onChange={setRankBy}
@@ -404,17 +406,18 @@ export default function Dashboard() {
 
 /** 实时采样仅更新此卡片，不重算整页历史图表。 */
 function RealtimeTraffic() {
+  const t = useT()
   const traffic = useLiveStore((s) => s.traffic)
   const upTotal = useLiveStore((s) => s.connections.uploadTotal)
   const downTotal = useLiveStore((s) => s.connections.downloadTotal)
   const last = traffic[traffic.length - 1] ?? { up: 0, down: 0 }
   const smoothTraffic = useSmoothTraffic(last, traffic)
   return (
-    <Card className="rt-card" icon={<Icon name="traffic" />} iconColor="var(--green)" title="实时流量">
+    <Card className="rt-card" icon={<Icon name="traffic" />} iconColor="var(--green)" title={t('实时流量')}>
       <div className="rt-half">
         <div>
           <div className="stat-label" style={{ color: 'var(--purple)' }}>
-            <Icon name="upload" size={12} />上传速度
+            <Icon name="upload" size={12} />{t('上传速度')}
           </div>
           <div className="stat-num" style={{ color: 'var(--purple)' }}>
             {fmtSpeed(smoothTraffic.current.up)}
@@ -425,7 +428,7 @@ function RealtimeTraffic() {
         </div>
         <div>
           <div className="stat-label" style={{ color: 'var(--cyan)' }}>
-            <Icon name="download" size={12} />下载速度
+            <Icon name="download" size={12} />{t('下载速度')}
           </div>
           <div className="stat-num" style={{ color: 'var(--cyan)' }}>
             {fmtSpeed(smoothTraffic.current.down)}
@@ -436,14 +439,15 @@ function RealtimeTraffic() {
         </div>
       </div>
       <div className="rt-foot">
-        <span>↑ 总上传 <b>{fmtBytes(upTotal)}</b></span>
-        <span>↓ 总下载 <b>{fmtBytes(downTotal)}</b></span>
+        <span>{t('↑ 总上传')} <b>{fmtBytes(upTotal)}</b></span>
+        <span>{t('↓ 总下载')} <b>{fmtBytes(downTotal)}</b></span>
       </div>
     </Card>
   )
 }
 
 function RuntimeStatus() {
+  const t = useT()
   const core = useAppStore((s) => s.coreStatus)
   const connectionCount = useLiveStore((s) => s.connections.connections.length)
   const memInuse = useLiveStore((s) => s.memory.inuse)
@@ -458,22 +462,22 @@ function RuntimeStatus() {
     <Card
       icon={<Icon name="cpu" />}
       iconColor="var(--accent)"
-      title="运行状态"
+      title={t('运行状态')}
       actions={<span className="dot-live" style={core.running ? undefined : { background: 'var(--text-3)', animation: 'none' }} />}
     >
       <div className="stat-grid">
         <div className="stat-cell">
-          <div className="stat-label"><Icon name="clock" size={12} />在线时长</div>
+          <div className="stat-label"><Icon name="clock" size={12} />{t('在线时长')}</div>
           <div className="stat-num">{core.running ? fmtUptime(core.uptimeSec) : '—'}</div>
         </div>
         <div className="stat-cell">
-          <div className="stat-label"><Icon name="connections" size={12} />连接数</div>
+          <div className="stat-label"><Icon name="connections" size={12} />{t('连接数')}</div>
           <div className="stat-num" style={{ color: 'var(--orange)' }}>
             {connectionCount}
           </div>
         </div>
         <div className="stat-cell">
-          <div className="stat-label"><Icon name="cpu" size={12} />内核内存</div>
+          <div className="stat-label"><Icon name="cpu" size={12} />{t('内核内存')}</div>
           <div className="stat-num" style={{ color: 'var(--accent)' }}>
             {fmtBytes(core.running ? memInuse || core.memoryBytes : 0, 0)}
           </div>
@@ -481,16 +485,16 @@ function RuntimeStatus() {
       </div>
       <div className="stat-grid stat-sub">
         <div className="stat-cell">
-          <div className="stat-label">系统</div>
-          <b>{platform}</b>
+          <div className="stat-label">{t('系统')}</div>
+          <b>{t(platform)}</b>
         </div>
         <div className="stat-cell">
-          <div className="stat-label">版本</div>
+          <div className="stat-label">{t('版本')}</div>
           <b>v{__APP_VERSION__}</b>
         </div>
         <div className="stat-cell">
-          <div className="stat-label">内核</div>
-          <b>mihomo {core.running ? (core.version === '—' ? '获取中…' : core.version) : '未运行'}</b>
+          <div className="stat-label">{t('内核')}</div>
+          <b>mihomo {core.running ? (core.version === '—' ? t('获取中…') : core.version) : t('未运行')}</b>
         </div>
       </div>
     </Card>

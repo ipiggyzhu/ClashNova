@@ -11,6 +11,7 @@ import { useAppStore } from '../stores/app'
 import { startLiveStreams, useLiveStore } from '../stores/live'
 import type { LogItem } from '../types/clash'
 
+import { useT } from '../i18n'
 const LEVEL_TONE: Record<LogItem['type'], BadgeTone> = {
   info: 'blue',
   warning: 'orange',
@@ -45,6 +46,7 @@ function renderMsg(payload: string) {
 }
 
 export default function Logs() {
+  const t = useT()
   const logs = useLiveStore((s) => s.logs)
   const paused = useLiveStore((s) => s.logsPaused)
   const setPaused = useLiveStore((s) => s.setLogsPaused)
@@ -94,11 +96,11 @@ export default function Logs() {
       <div className="toolbar">
         <Seg
           items={[
-            { value: 'all', label: '全部' },
-            { value: 'info', label: '信息' },
-            { value: 'warning', label: '警告' },
-            { value: 'error', label: '错误' },
-            { value: 'debug', label: '调试' },
+            { value: 'all', label: t('全部') },
+            { value: 'info', label: t('信息') },
+            { value: 'warning', label: t('警告') },
+            { value: 'error', label: t('错误') },
+            { value: 'debug', label: t('调试') },
           ]}
           value={level}
           onChange={setLevel}
@@ -106,33 +108,33 @@ export default function Logs() {
         <div className="search-wrap">
           <Icon name="search" />
           <Input
-            placeholder="过滤关键字…"
+            placeholder={t('过滤关键字…')}
             value={keyword}
             onChange={(e) => setKeyword(e.target.value)}
           />
         </div>
         <div className="spacer" />
-        <span className="chip">日志等级: {logLevel}</span>
+        <span className="chip">{t('日志等级:')} {logLevel}</span>
         <Button onClick={() => { followTail.current = true; setPaused(!paused) }}>
           <Icon name={paused ? 'play' : 'pause'} size={13} />
-          {paused ? '继续' : '暂停'}
+          {paused ? t('继续') : t('暂停')}
         </Button>
-        <Button onClick={exportLogs} disabled={list.length === 0} title="导出当前筛选结果">
-          <Icon name="download" size={13} />导出
+        <Button onClick={exportLogs} disabled={list.length === 0} title={t('导出当前筛选结果')}>
+          <Icon name="download" size={13} />{t('导出')}
         </Button>
         <Button onClick={clearLogs}>
-          <Icon name="trash" size={13} />清空
+          <Icon name="trash" size={13} />{t('清空')}
         </Button>
       </div>
 
       <Card flush>
-        <div className="console" ref={windowed.containerRef} role="region" aria-label="内核日志" tabIndex={0}
+        <div className="console" ref={windowed.containerRef} role="region" aria-label={t('内核日志')} tabIndex={0}
           onScroll={(event) => {
             const el = event.currentTarget
             followTail.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48
           }}>
           {list.length === 0 ? (
-            <div className="empty">暂无日志</div>
+            <div className="empty">{t('暂无日志')}</div>
           ) : (
             <>
             <div aria-hidden="true" style={{ height: windowed.before }} />
@@ -149,8 +151,8 @@ export default function Logs() {
         </div>
         <div className="foot">
           <span className="dot" style={status === 'connected' ? undefined : { background: 'var(--text-3)', boxShadow: 'none' }} />
-          已缓冲 {logs.length.toLocaleString()} 行 · {statusText}
-          {paused && <span style={{ color: 'var(--orange)' }}>（已暂停）</span>}
+          {t('已缓冲 {count} 行 · {status}', { count: logs.length.toLocaleString(), status: t(statusText) })}
+          {paused && <span style={{ color: 'var(--orange)' }}>{t('（已暂停）')}</span>}
         </div>
       </Card>
     </div>

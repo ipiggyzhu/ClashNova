@@ -4,6 +4,7 @@ import Button from '../components/ui/Button'
 import Card from '../components/ui/Card'
 import Icon from '../components/ui/Icon'
 import Input from '../components/ui/Input'
+import { useT } from '../i18n'
 import { getRules } from '../services/api'
 import { usePollingQuery } from '../hooks/usePollingQuery'
 import { normalizeRuleType } from '../utils/rules'
@@ -32,6 +33,7 @@ function typeChipStyle(type: string): React.CSSProperties | undefined {
 }
 
 export default function Rules() {
+  const t = useT()
   const { data: rules, error: loadError } = usePollingQuery(getRules, EMPTY_RULES)
   const [keyword, setKeyword] = useState('')
   const [type, setType] = useState('all')
@@ -58,36 +60,36 @@ export default function Rules() {
         <div className="search-wrap">
           <Icon name="search" />
           <Input
-            placeholder="搜索规则 / 域名 / IP…"
+            placeholder={t('搜索规则 / 域名 / IP…')}
             value={keyword}
             onChange={(e) => { setKeyword(e.target.value); setPage(0) }}
           />
         </div>
         <div className="spacer" />
-        <span className="chip">{loadError ? '规则加载失败' : `共 ${rules.length.toLocaleString()} 条`}</span>
+        <span className="chip">{loadError ? t('规则加载失败') : t('共 {count} 条', { count: rules.length.toLocaleString() })}</span>
       </div>
 
       <div className="fchips">
-        {filters.map((t) => (
+        {filters.map((filter) => (
           <button
-            key={t}
-            className={type === t ? 'fchip on' : 'fchip'}
-            aria-pressed={type === t}
-            onClick={() => { setType(t); setPage(0) }}
+            key={filter}
+            className={type === filter ? 'fchip on' : 'fchip'}
+            aria-pressed={type === filter}
+            onClick={() => { setType(filter); setPage(0) }}
           >
-            {t === 'all' ? `全部` : t}
+            {filter === 'all' ? t('全部') : filter}
           </button>
         ))}
       </div>
 
-      <Card icon={<Icon name="rules" />} iconColor="var(--accent)" title="规则列表"
-        actions={<span style={{ fontSize: 11, color: 'var(--text-3)' }}>自上而下优先匹配</span>}
+      <Card icon={<Icon name="rules" />} iconColor="var(--accent)" title={t('规则列表')}
+        actions={<span style={{ fontSize: 11, color: 'var(--text-3)' }}>{t('自上而下优先匹配')}</span>}
         flush
       >
         {loadError ? (
           <div className="empty" role="alert">{loadError}</div>
         ) : shown.length === 0 ? (
-          <div className="empty">没有匹配的规则</div>
+          <div className="empty">{t('没有匹配的规则')}</div>
         ) : (
           <>
             {shown.map((r) => (
@@ -103,10 +105,10 @@ export default function Rules() {
                 </span>
               </div>
             ))}
-            <div className="pagination" aria-label="规则分页">
-              <Button size="sm" disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)}>上一页</Button>
-              <span>第 {currentPage + 1} / {pageCount} 页 · {filtered.length.toLocaleString()} 条</span>
-              <Button size="sm" disabled={currentPage + 1 >= pageCount} onClick={() => setPage(currentPage + 1)}>下一页</Button>
+            <div className="pagination" aria-label={t('规则分页')}>
+              <Button size="sm" disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)}>{t('上一页')}</Button>
+              <span>{t('第 {page} / {pages} 页 · {count} 条', { page: currentPage + 1, pages: pageCount, count: filtered.length.toLocaleString() })}</span>
+              <Button size="sm" disabled={currentPage + 1 >= pageCount} onClick={() => setPage(currentPage + 1)}>{t('下一页')}</Button>
             </div>
           </>
         )}
