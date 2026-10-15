@@ -103,19 +103,6 @@ try {
     }
   })
 
-  await check('globe_theme_preserves_canvas_and_labels', async () => {
-    await page.goto(`${base}/routemap`, { waitUntil: 'networkidle' })
-    await page.waitForFunction(() => document.querySelectorAll('.globe-label').length > 0)
-    const canvas = await page.locator('.globe-host canvas').first().elementHandle()
-    for (const theme of ['light', 'dark']) {
-      await page.getByRole('button', { name: '切换主题', exact: true }).click()
-      await page.waitForFunction((expected) => document.documentElement.dataset.theme === expected, theme)
-      assert.ok(await page.evaluate((node) => node.isConnected && document.querySelector('.globe-host canvas') === node, canvas))
-      assert.equal(await page.locator('.globe-label--origin span').textContent(), 'Local')
-      assert.ok(await page.locator('.globe-label').count() > 1)
-    }
-  })
-
   await check('system_theme_tracks_media_change', async () => {
     await page.goto(`${base}/settings`, { waitUntil: 'networkidle' })
     await page.emulateMedia({ colorScheme: 'dark' })
@@ -301,6 +288,33 @@ try {
     assert.equal(await tun.getAttribute('aria-checked'), 'false')
   })
 
+  await check('settings_tun_success_survives_a_followup_service_query_failure', async () => {
+    const fixture = await context()
+    try {
+      const settingsPage = await fixture.newPage()
+      await settingsPage.goto(`${base}/settings`, { waitUntil: 'networkidle' })
+      await settingsPage.getByText('服务未安装', { exact: true }).waitFor()
+      await settingsPage.evaluate(async () => {
+        const { mockHandlers } = await import('/src/services/mock.ts')
+        const install = mockHandlers.install_service
+        mockHandlers.install_service = async (args) => {
+          const result = await install(args)
+          mockHandlers.service_status = () => { throw new Error('fixture-status-query-failed') }
+          return result
+        }
+      })
+      const tun = settingsPage.getByRole('switch', { name: 'TUN 模式', exact: true })
+      await tun.click()
+      const install = settingsPage.getByRole('dialog', { name: '安装系统服务' })
+      await install.getByRole('button', { name: '安装并开启 TUN', exact: true }).click()
+      await settingsPage.getByText('服务查询失败', { exact: true }).waitFor()
+      assert.equal(await tun.getAttribute('aria-checked'), 'true')
+      await install.waitFor({ state: 'detached', timeout: 3000 })
+      await settingsPage.getByRole('button', { name: '通知', exact: true }).click()
+      assert.equal(await settingsPage.getByText('服务已安装，但开启 TUN 失败', { exact: true }).count(), 0)
+    } finally { await fixture.close() }
+  })
+
   await check('dashboard_exit_ip_is_masked_until_revealed', async () => {
     await page.goto(`${base}/dashboard`, { waitUntil: 'networkidle' })
     await page.getByText('203.0.*.*', { exact: true }).waitFor()
@@ -339,7 +353,8 @@ try {
       await proxiesPage.goto(base + '/proxies', { waitUntil: 'networkidle' })
       await proxiesPage.getByText('previous-timeout', { exact: true }).waitFor()
       const node = (name) => proxiesPage.locator('.node').filter({ hasText: name })
-      assert.match(await node('previous-timeout').innerText(), /失败 \/ 超时/)
+      // mihomo 历史记录中 delay 0 不区分超时与其他失败, 统一显示 Failed
+      assert.match(await node('previous-timeout').innerText(), /Failed/)
       assert.match(await node('never-tested').innerText(), /— ms/)
       assert.match(await node('previous-success').innerText(), /24 ms/)
       assert.equal(await proxiesPage.locator('.testing').count(), 0)
@@ -420,18 +435,15 @@ try {
     } finally { await fixture.close() }
   })
 
-  await check('production_flat_map_does_not_load_3d_until_requested', async () => {
+  await check('production_flat_map_pauses_animations_when_hidden', async () => {
     const server = await preview({ root, logLevel: 'warn', preview: { host: '127.0.0.1', port: 0, strictPort: false } })
     ownedServers.push(server)
     const production = `http://127.0.0.1:${server.httpServer.address().port}`
     const fixture = await context()
     try {
       const mapPage = await fixture.newPage()
-      const requests = []
-      mapPage.on('request', (request) => requests.push(request.url()))
-      await mapPage.goto(`${production}/routemap?view=flat`, { waitUntil: 'networkidle' })
+      await mapPage.goto(`${production}/routemap`, { waitUntil: 'networkidle' })
       await mapPage.locator('.flat-svg .route-trace').first().waitFor()
-      assert.ok(!requests.some((url) => /RouteMapGlobe|vendor-globe|vendor-three|earth-.*\.jpg/.test(url)))
       await mapPage.evaluate(() => {
         Object.defineProperty(document, 'hidden', { value: true, configurable: true })
         document.dispatchEvent(new Event('visibilitychange'))
@@ -443,10 +455,6 @@ try {
         document.dispatchEvent(new Event('visibilitychange'))
       })
       assert.equal(await mapPage.locator('.flat-svg').evaluate((node) => node.animationsPaused()), false)
-      await mapPage.getByRole('button', { name: '球面视图', exact: true }).click()
-      await mapPage.locator('.globe-host canvas').first().waitFor()
-      await mapPage.locator('.globe-label--origin span').waitFor()
-      assert.ok(requests.some((url) => /RouteMapGlobe/.test(url)))
     } finally { await fixture.close() }
   })
 

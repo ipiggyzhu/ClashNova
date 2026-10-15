@@ -189,7 +189,17 @@ export async function selectProxy(group: string, name: string): Promise<void> {
   await request('PUT', `/proxies/${encodeURIComponent(group)}`, { name })
 }
 
-/** GET /proxies/{name}/delay — 单节点测延迟(ms); 超时抛错 */
+/**
+ * 测速超时的错误标记。mihomo 对测速超时回 504, 本地等待超过 timeout+2s 会 abort,
+ * 两者都归为超时; 其余错误(内核未运行、节点不支持该测速等)算失败。界面据此区分文案。
+ */
+export const DELAY_TIMEOUT = 'DELAY_TIMEOUT'
+
+export function isDelayTimeout(error: unknown): boolean {
+  return error instanceof Error && error.message === DELAY_TIMEOUT
+}
+
+/** GET /proxies/{name}/delay — 单节点测延迟(ms); 超时抛 DELAY_TIMEOUT, 其余失败抛普通错误 */
 export async function testDelay(name: string, timeout = 5000, url = DEFAULT_DELAY_TEST_URL): Promise<number> {
   await ensureConfigured()
   const revision = configRevision
@@ -198,13 +208,24 @@ export async function testDelay(name: string, timeout = 5000, url = DEFAULT_DELA
     if (isMock) {
       await new Promise((resolve) => setTimeout(resolve, 150 + Math.random() * 450))
       const delay = mockTestDelay(name)
-      if (delay > timeout) throw new Error('超时')
+      if (delay > timeout) throw new Error(DELAY_TIMEOUT)
       return delay
     }
     const qs = `timeout=${timeout}&url=${encodeURIComponent(url)}`
-    const payload = await request<{ delay: number }>(
-      'GET', `/proxies/${encodeURIComponent(name)}/delay?${qs}`, undefined, timeout + 2000,
-    )
+    let payload: { delay: number }
+    try {
+      payload = await request<{ delay: number }>(
+        'GET', `/proxies/${encodeURIComponent(name)}/delay?${qs}`, undefined, timeout + 2000,
+      )
+    } catch (error) {
+      if (error instanceof DOMException) {
+        if (error.name === 'AbortError' && revision === configRevision) throw new Error(DELAY_TIMEOUT)
+        throw error
+      }
+      const message = error instanceof Error ? error.message : String(error)
+      if (message.endsWith('HTTP 504') || /abort/i.test(message)) throw new Error(DELAY_TIMEOUT)
+      throw error
+    }
     if (!Number.isFinite(payload.delay) || payload.delay <= 0) throw new Error('测速失败')
     return payload.delay
   })

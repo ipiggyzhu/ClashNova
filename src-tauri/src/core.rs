@@ -793,11 +793,13 @@ pub async fn reload_runtime_with_auth(
     }
     let url = format!("http://{controller}/configs?force=true");
     let client = reqwest::Client::new();
+    // mihomo 在 PUT 内同步加载全部 rule-providers, 配置较大时实测 10s 以上;
+    // 超时过短会把成功的加载误判为失败, 进而触发无谓的回滚。
     let resp = client
         .put(&url)
         .bearer_auth(&secret)
         .json(&serde_json::json!({ "path": path }))
-        .timeout(Duration::from_secs(5))
+        .timeout(Duration::from_secs(60))
         .send()
         .await;
     let resp = resp.map_err(|err| format!("热加载请求失败，未重启运行中的内核: {err}"))?;

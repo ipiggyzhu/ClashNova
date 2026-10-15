@@ -328,19 +328,24 @@ export default function Settings() {
   const confirmServiceChange = (): void => {
     const kind = confirmService
     if (!kind) return
+    // 安装成功但随后开启 TUN 失败时, 标题要指向 TUN 而不是安装
+    let installed = false
     void withBusy('service', async () => {
       if (kind === 'install') {
         await call('install_service')
+        installed = true
         await setTun(true)
       } else {
         await call('uninstall_service')
         await loadAll()
       }
-      await refreshServiceStatus()
+      // 操作已成功；查询错误由就地状态展示，不要误报安装或开启失败。
+      await refreshServiceStatus().catch(() => undefined)
       await refreshTunAdapter()
       setConfirmService(null)
     }).catch((err) => {
-      notify('error', kind === 'install' ? t('安装服务失败') : t('卸载服务失败'), errorMessage(err))
+      const title = kind === 'install' ? (installed ? t('服务已安装，但开启 TUN 失败') : t('安装服务失败')) : t('卸载服务失败')
+      notify('error', title, errorMessage(err))
       void refreshServiceStatus().catch(() => setService('unknown'))
     })
   }

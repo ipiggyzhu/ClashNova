@@ -13,7 +13,7 @@ ClashNova 使用 Tauri 2 + React，Windows 发行包为 NSIS 安装程序，Linu
 | 状态与通信 | Zustand；Tauri IPC；mihomo REST / WebSocket |
 | 样式 | 纯 CSS 与设计令牌，未引入 TailwindCSS |
 | 编辑器 | CodeMirror 6（`@uiw/react-codemirror`，YAML / JavaScript），不是 Monaco |
-| 图表 | SVG / CSS、Spark、定制桑基布局；地图使用 D3 / world-atlas，球面按需加载 globe.gl / Three.js |
+| 图表 | SVG / CSS、Spark、定制桑基布局；地图使用 D3 / world-atlas 平面投影 |
 | 未使用的历史方案 | ECharts、TanStack Query、Monaco、TailwindCSS |
 
 JavaScript 与 Rust 依赖的实际版本分别以 `package-lock.json`、`Cargo.lock` 为准；

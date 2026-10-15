@@ -1,9 +1,8 @@
-import { lazy, startTransition, Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import { startTransition, useEffect, useMemo, useRef, useState } from 'react'
 import './RouteMap.css'
 import { geoEquirectangular, geoPath } from 'd3-geo'
 import Card from '../components/ui/Card'
 import Icon from '../components/ui/Icon'
-import Seg from '../components/ui/Seg'
 import { startLiveStreams, useLiveStore } from '../stores/live'
 import { fmtBytes } from '../utils/format'
 import {
@@ -11,22 +10,11 @@ import {
   buildRegionsFromConnections, sameRegionSnapshot, type RegionTraffic,
 } from './routeMapData'
 
-const RouteMapGlobe = lazy(() => import('./RouteMapGlobe'))
 const FLAT_W = 1100
 const FLAT_H = 540
 const FLAT_PLANE_SCALE = 0.45
 const FLAT_NEAR_DISTANCE = 92
 const ROUTE_DATA_REFRESH_MS = 1800
-
-interface FlatTarget extends RegionTraffic {
-  x: number
-  y: number
-  labelX: number
-  labelY: number
-  routeD: string
-  nearIndex: number
-  nearCount: number
-}
 
 function flatRouteD(
   origin: [number, number],
@@ -71,9 +59,6 @@ export default function RouteMap() {
   const [regions, setRegions] = useState<RegionTraffic[]>(() =>
     buildRegionsFromConnections(useLiveStore.getState().connections),
   )
-  const [view, setView] = useState<'globe' | 'flat'>(
-    new URLSearchParams(location.search).get('view') === 'flat' ? 'flat' : 'globe',
-  )
   const flatRef = useRef<SVGSVGElement | null>(null)
 
   useEffect(() => {
@@ -102,7 +87,7 @@ export default function RouteMap() {
   }, [])
 
   useEffect(() => {
-    if (view !== 'flat' || !flatRef.current) return
+    if (!flatRef.current) return
     const svg = flatRef.current
     const syncVisibility = (): void => {
       svg.dataset.paused = String(document.hidden)
@@ -112,7 +97,7 @@ export default function RouteMap() {
     syncVisibility()
     document.addEventListener('visibilitychange', syncVisibility)
     return () => document.removeEventListener('visibilitychange', syncVisibility)
-  }, [view])
+  }, [])
 
   const maxBytes = Math.max(1, ...regions.map((r) => r.bytes))
   const legendRegions = useMemo(
@@ -120,15 +105,6 @@ export default function RouteMap() {
     [regions],
   )
   const flat = useMemo(() => {
-    if (view !== 'flat') {
-      return {
-        land: [] as string[],
-        origin: [0, 0] as [number, number],
-        originLabel: { x: 0, y: 0 },
-        targets: [] as FlatTarget[],
-        focusTargets: [] as FlatTarget[],
-      }
-    }
     const { projection, land, origin } = flatBase ??= buildFlatBase()
     const projected = regions.map((r) => {
       const [x, y] = projection([r.lng, r.lat]) ?? [0, 0]
@@ -164,7 +140,7 @@ export default function RouteMap() {
       targets,
       focusTargets,
     }
-  }, [regions, view])
+  }, [regions])
 
   return (
     <div className="pg-routemap">
@@ -174,109 +150,93 @@ export default function RouteMap() {
         iconColor="var(--cyan)"
         title="路由地图"
         actions={
-          <>
-            <span className="chip">
-              <span className="num">{regions.length}</span> 个目的地区域 · 实时
-            </span>
-            <Seg
-              items={[
-                { value: 'globe', label: '球面视图' },
-                { value: 'flat', label: '平面视图' },
-              ]}
-              value={view}
-              onChange={(v) => setView(v as 'globe' | 'flat')}
-            />
-          </>
+          <span className="chip">
+            <span className="num">{regions.length}</span> 个目的地区域 · 实时
+          </span>
         }
         flush
       >
         <div className="map-body">
-          {view === 'globe' ? (
-            <Suspense fallback={<div className="empty" role="status">正在加载球面视图…</div>}>
-              <RouteMapGlobe regions={regions} />
-            </Suspense>
-          ) : (
-            <svg
-              ref={flatRef}
-              className="flat-svg"
-              aria-label="路由平面地图"
-              viewBox={`0 0 ${FLAT_W} ${FLAT_H}`}
-              preserveAspectRatio="xMidYMid meet"
-            >
-              {flat.land.map((d, i) => (
-                <path className="land" d={d} key={i} />
-              ))}
-              {flat.targets.map((t, index) => {
-                const flightMs = FLIGHT_DURATION_MS + FLIGHT_END_HOLD_MS
-                const flightDelay = `${(index * FLIGHT_STAGGER_MS) / 1000}s`
-                return (
-                  <g key={t.code} style={{ color: t.color }}>
-                    <path
-                      className="route-glow"
-                      d={t.routeD}
-                      fill="none"
-                      stroke={t.color}
-                      strokeWidth={5 + (t.bytes / maxBytes) * 4}
-                      strokeLinecap="round"
-                    />
-                    <path
-                      id={`rm-route-${t.code}`}
-                      className="route-line"
-                      d={t.routeD}
-                      fill="none"
-                      stroke={t.color}
-                      strokeWidth={1 + (t.bytes / maxBytes) * 2.4}
-                      strokeLinecap="round"
-                    />
-                    <path
-                      className="route-trace"
-                      d={t.routeD}
-                      fill="none"
-                      stroke={t.color}
-                      strokeWidth={0.8}
-                      strokeLinecap="round"
-                    />
-                    <g className="route-plane">
-                      <animateMotion
-                        dur={`${flightMs}ms`}
-                        repeatCount="indefinite"
-                        rotate="auto"
-                        begin={flightDelay}
-                        calcMode="linear"
-                      >
-                        <mpath href={`#rm-route-${t.code}`} />
-                      </animateMotion>
-                      <g transform={`scale(${FLAT_PLANE_SCALE})`}>
-                        <path
-                          d="M15.6 0C11.4-1.9 6-2.8.6-2.9L-6-12.6c-1.2-1.8-3.6-.8-2.7 1.2l4.2 8.5-7.5-.3-4.2-3.1c-1.2-.9-2.4.6-1.2 1.8L-10.8 0l-6.6 4.5c-1.2 1.2 0 2.7 1.2 1.8l4.2-3.1 7.5-.3-4.2 8.5c-.9 2 1.5 3 2.7 1.2L.6 2.9C6 2.8 11.4 1.9 15.6 0Z"
-                          fill="currentColor"
-                          opacity={0.96}
-                        />
-                      </g>
-                    </g>
-                    <circle className="endpoint-halo" cx={t.x} cy={t.y} r={9} fill={t.color} />
-                    <circle className="endpoint-dot" cx={t.x} cy={t.y} r={3 + (t.bytes / maxBytes) * 3} fill={t.color} />
-                    {t.nearIndex >= 0 && (
+          <svg
+            ref={flatRef}
+            className="flat-svg"
+            aria-label="路由平面地图"
+            viewBox={`0 0 ${FLAT_W} ${FLAT_H}`}
+            preserveAspectRatio="xMidYMid meet"
+          >
+            {flat.land.map((d, i) => (
+              <path className="land" d={d} key={i} />
+            ))}
+            {flat.targets.map((t, index) => {
+              const flightMs = FLIGHT_DURATION_MS + FLIGHT_END_HOLD_MS
+              const flightDelay = `${(index * FLIGHT_STAGGER_MS) / 1000}s`
+              return (
+                <g key={t.code} style={{ color: t.color }}>
+                  <path
+                    className="route-glow"
+                    d={t.routeD}
+                    fill="none"
+                    stroke={t.color}
+                    strokeWidth={5 + (t.bytes / maxBytes) * 4}
+                    strokeLinecap="round"
+                  />
+                  <path
+                    id={`rm-route-${t.code}`}
+                    className="route-line"
+                    d={t.routeD}
+                    fill="none"
+                    stroke={t.color}
+                    strokeWidth={1 + (t.bytes / maxBytes) * 2.4}
+                    strokeLinecap="round"
+                  />
+                  <path
+                    className="route-trace"
+                    d={t.routeD}
+                    fill="none"
+                    stroke={t.color}
+                    strokeWidth={0.8}
+                    strokeLinecap="round"
+                  />
+                  <g className="route-plane">
+                    <animateMotion
+                      dur={`${flightMs}ms`}
+                      repeatCount="indefinite"
+                      rotate="auto"
+                      begin={flightDelay}
+                      calcMode="linear"
+                    >
+                      <mpath href={`#rm-route-${t.code}`} />
+                    </animateMotion>
+                    <g transform={`scale(${FLAT_PLANE_SCALE})`}>
                       <path
-                        className="label-leader"
-                        d={`M${t.x + 6},${t.y} L${t.labelX - 5},${t.labelY - 4}`}
+                        d="M15.6 0C11.4-1.9 6-2.8.6-2.9L-6-12.6c-1.2-1.8-3.6-.8-2.7 1.2l4.2 8.5-7.5-.3-4.2-3.1c-1.2-.9-2.4.6-1.2 1.8L-10.8 0l-6.6 4.5c-1.2 1.2 0 2.7 1.2 1.8l4.2-3.1 7.5-.3-4.2 8.5c-.9 2 1.5 3 2.7 1.2L.6 2.9C6 2.8 11.4 1.9 15.6 0Z"
+                        fill="currentColor"
+                        opacity={0.96}
                       />
-                    )}
-                    <text className="node-label" x={t.labelX} y={t.labelY}>{t.name}</text>
+                    </g>
                   </g>
-                )
-              })}
-              <circle className="origin-halo" cx={flat.origin[0]} cy={flat.origin[1]} r={10} />
-              <circle cx={flat.origin[0]} cy={flat.origin[1]} r={5} fill="#FF9F0A" />
-              {flat.focusTargets.length > 0 && (
-                <path
-                  className="label-leader"
-                  d={`M${flat.origin[0] + 6},${flat.origin[1]} L${flat.originLabel.x - 5},${flat.originLabel.y - 4}`}
-                />
-              )}
-              <text className="node-label origin-label" x={flat.originLabel.x} y={flat.originLabel.y}>{ORIGIN.name}</text>
-            </svg>
-          )}
+                  <circle className="endpoint-halo" cx={t.x} cy={t.y} r={9} fill={t.color} />
+                  <circle className="endpoint-dot" cx={t.x} cy={t.y} r={3 + (t.bytes / maxBytes) * 3} fill={t.color} />
+                  {t.nearIndex >= 0 && (
+                    <path
+                      className="label-leader"
+                      d={`M${t.x + 6},${t.y} L${t.labelX - 5},${t.labelY - 4}`}
+                    />
+                  )}
+                  <text className="node-label" x={t.labelX} y={t.labelY}>{t.name}</text>
+                </g>
+              )
+            })}
+            <circle className="origin-halo" cx={flat.origin[0]} cy={flat.origin[1]} r={10} />
+            <circle cx={flat.origin[0]} cy={flat.origin[1]} r={5} fill="#FF9F0A" />
+            {flat.focusTargets.length > 0 && (
+              <path
+                className="label-leader"
+                d={`M${flat.origin[0] + 6},${flat.origin[1]} L${flat.originLabel.x - 5},${flat.originLabel.y - 4}`}
+              />
+            )}
+            <text className="node-label origin-label" x={flat.originLabel.x} y={flat.originLabel.y}>{ORIGIN.name}</text>
+          </svg>
           {regions.length === 0 && <div className="empty">暂无经代理出站的活跃连接</div>}
         </div>
         <div className="map-legend">
@@ -286,7 +246,7 @@ export default function RouteMap() {
               {r.name} <b>{fmtBytes(r.bytes)}</b>
             </span>
           ))}
-          <span className="lg-hint">弧线宽度 ∝ 累计流量 · 拖拽旋转 / 滚轮缩放</span>
+          <span className="lg-hint">弧线宽度 ∝ 累计流量</span>
         </div>
       </Card>
     </div>

@@ -49,6 +49,7 @@ export const EN: Record<string, string> = {
   '将停止内核、移除 ClashNova 系统服务并关闭 TUN 模式，需要管理员确认。':
     'This stops the core, removes the ClashNova system service and turns TUN off. Admin approval is required.',
   '安装并开启 TUN': 'Install and Enable TUN', 确认卸载: 'Uninstall', 安装服务失败: 'Could not install service', 卸载服务失败: 'Could not uninstall service',
+  '服务已安装，但开启 TUN 失败': 'Service installed, but TUN could not be enabled',
   服务模式: 'Service Mode', '以 Windows 服务运行内核, TUN 免管理员':
     'Run core as Windows service, TUN without admin',
   开机自启: 'Auto Start', '登录 Windows 时自动启动': 'Launch on Windows login',

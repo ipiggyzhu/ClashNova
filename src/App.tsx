@@ -4,6 +4,7 @@ import Sidebar from './components/layout/Sidebar'
 import Topbar from './components/layout/Topbar'
 import ProtocolImport from './components/ProtocolImport'
 import { useAppStore, watchSystemTheme } from './stores/app'
+import { startLiveStreams } from './stores/live'
 import { isMock } from './services/ipc'
 import { useNotificationStore } from './stores/notifications'
 
@@ -12,6 +13,9 @@ export default function App() {
   const customCss = useAppStore((s) => s.settings.customCss)
 
   useEffect(watchSystemTheme, [])
+
+  // mihomo /logs 只推送订阅之后的新日志, 没有历史; 主窗口常驻订阅, 打开日志页即可看到已缓冲内容
+  useEffect(() => startLiveStreams(['logs']), [])
 
   useEffect(() => {
     const refresh = (): void => {

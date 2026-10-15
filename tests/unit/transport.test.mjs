@@ -136,6 +136,57 @@ test('simultaneous group and node delay tests share an eight-request budget', as
   assert.ok(results.every((value) => value === 12))
 })
 
+test('single-node local delay timeout is classified as Timeout and releases the queue', async () => {
+  const server = createServer((request, response) => {
+    if (request.url.startsWith('/proxies/slow/')) return
+    response.writeHead(200, { 'Content-Type': 'application/json' })
+    response.end('{"delay":11}')
+  })
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+  try {
+    const api = apiFixture(async () => ({ externalController: '127.0.0.1:' + server.address().port, secret: '' }), fetch)
+    await assert.rejects(api.testDelay('slow', 1), (error) => api.isDelayTimeout(error))
+    assert.equal(await api.testDelay('healthy'), 11)
+  } finally {
+    server.closeAllConnections()
+    await new Promise((resolve) => server.close(resolve))
+  }
+})
+
+test('single-node delay classifies HTTP 504 as Timeout and HTTP 503 as failure', async () => {
+  let status = 504
+  const server = createServer((_request, response) => {
+    response.writeHead(status)
+    response.end()
+  })
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+  try {
+    const api = apiFixture(async () => ({ externalController: '127.0.0.1:' + server.address().port, secret: '' }), fetch)
+    await assert.rejects(api.testDelay('node'), (error) => api.isDelayTimeout(error))
+    status = 503
+    await assert.rejects(api.testDelay('node'), (error) => !api.isDelayTimeout(error) && /HTTP 503$/.test(error.message))
+  } finally {
+    server.closeAllConnections()
+    await new Promise((resolve) => server.close(resolve))
+  }
+})
+
+test('controller changes cancel single-node delay tests without reporting Timeout', async () => {
+  const arrived = deferred()
+  const server = createServer(() => arrived.resolve())
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+  try {
+    const api = apiFixture(async () => ({ externalController: '127.0.0.1:' + server.address().port, secret: '' }), fetch)
+    const rejected = assert.rejects(api.testDelay('node'), (error) => error.name === 'AbortError' && !api.isDelayTimeout(error))
+    await arrived.promise
+    api.configureApi('127.0.0.1:1', '')
+    await rejected
+  } finally {
+    server.closeAllConnections()
+    await new Promise((resolve) => server.close(resolve))
+  }
+})
+
 test('group delay forwards custom URL and timeout, drops timed-out members and maps 504 to empty', async () => {
   const urls = []
   let status = 200

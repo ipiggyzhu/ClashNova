@@ -6,13 +6,18 @@ import Card from '../components/ui/Card'
 import Icon from '../components/ui/Icon'
 import Input from '../components/ui/Input'
 import Seg from '../components/ui/Seg'
-import { closeGroupConnections, getProxies, selectProxy, testDelay, testGroupDelay } from '../services/api'
+import { closeGroupConnections, getProxies, isDelayTimeout, selectProxy, testDelay, testGroupDelay } from '../services/api'
 import { useAppStore } from '../stores/app'
 import type { ProxiesPayload, ProxyGroup, ProxyNode } from '../types/clash'
 import { delayTone } from '../utils/format'
 
 const GROUP_TYPES = new Set(['Selector', 'URLTest', 'Fallback', 'LoadBalance'])
+/** 内置策略组(DIRECT/REJECT)与 mihomo 的伪节点, 不是用户订阅的节点, 不参与列表和计数 */
+const BUILTIN_TYPES = new Set(['Direct', 'Reject', 'RejectDrop', 'Compatible', 'Pass', 'PassRule'])
+const isNodeType = (type: string): boolean => !GROUP_TYPES.has(type) && !BUILTIN_TYPES.has(type)
 const GROUP_COLORS = ['var(--accent)', 'var(--purple)', 'var(--orange)', 'var(--cyan)', 'var(--pink)']
+/** delays 中表示超时的取值; -1 表示其余失败 */
+const DELAY_TIMEOUT_VALUE = -2
 
 interface GroupView extends ProxyGroup {
   nodes: ProxyNode[]
@@ -85,7 +90,7 @@ export default function Proxies() {
   const delayTestUrl = useAppStore((s) => s.settings.delayTestUrl)
   const delayTestTimeout = useAppStore((s) => s.settings.delayTestTimeout)
   const autoCloseConnections = useAppStore((s) => s.settings.autoCloseConnections)
-  /** 节点名 → 实测延迟(0 表示测试中, -1 表示超时) */
+  /** 节点名 → 实测延迟(0 表示测试中, -1 表示失败, -2 表示超时) */
   const [delays, setDelays] = useState<Record<string, number>>({})
   const [testingGroups, setTestingGroups] = useState<Set<string>>(new Set())
   const [testingAll, setTestingAll] = useState(false)
@@ -142,10 +147,8 @@ export default function Proxies() {
   const groups: GroupView[] = useMemo(() => {
     if (!payload) return []
     const all = payload.proxies
-    // 所有真实节点（非策略组、非 DIRECT/REJECT）
-    const realNodes = Object.values(all).filter(
-      (p) => !GROUP_TYPES.has(p.type) && p.type !== 'Direct' && p.type !== 'Reject',
-    ) as ProxyNode[]
+    // 所有真实节点（非策略组、非 DIRECT/REJECT 等内置项）
+    const realNodes = Object.values(all).filter((p) => isNodeType(p.type)) as ProxyNode[]
     // 策略组
     const strategyGroups = Object.values(all)
       .filter((p): p is ProxyNode & ProxyGroup => GROUP_TYPES.has(p.type) && Array.isArray(p.all))
@@ -172,7 +175,7 @@ export default function Proxies() {
 
   const totalNodes = useMemo(() => {
     if (!payload) return 0
-    return Object.values(payload.proxies).filter((p) => !GROUP_TYPES.has(p.type) && p.type !== 'Direct' && p.type !== 'Reject').length
+    return Object.values(payload.proxies).filter((p) => isNodeType(p.type)).length
   }, [payload])
 
   /** 测速中(0)沿用上一次结果, 避免排序和隐藏在测速过程中来回跳动 */
@@ -238,8 +241,9 @@ export default function Proxies() {
     setDelays((d) => ({ ...d, [name]: 0 }))
     const test = testDelay(name, delayTestTimeout, delayTestUrl).then((ms) => {
       if (alive.current && current === generation.current) setDelays((d) => ({ ...d, [name]: ms }))
-    }, () => {
-      if (alive.current && current === generation.current) setDelays((d) => ({ ...d, [name]: -1 }))
+    }, (error: unknown) => {
+      const value = isDelayTimeout(error) ? DELAY_TIMEOUT_VALUE : -1
+      if (alive.current && current === generation.current) setDelays((d) => ({ ...d, [name]: value }))
     }).finally(() => { testingRef.current.delete(key) })
     testingRef.current.set(key, test)
     return test
@@ -307,7 +311,8 @@ export default function Proxies() {
     const d = delays[node.name] ?? latestDelay(node)
     if (delays[node.name] === 0) return <span className="testing">测速中…</span>
     if (d === undefined) return <Badge tone="gray">— ms</Badge>
-    if (d <= 0) return <Badge tone="red">失败 / 超时</Badge>
+    if (d === DELAY_TIMEOUT_VALUE) return <Badge tone="red">Timeout</Badge>
+    if (d <= 0) return <Badge tone="red">Failed</Badge>
     return <Badge tone={delayTone(d)}>{d} ms</Badge>
   }
 

@@ -46,12 +46,6 @@ export default defineConfig({
           ) {
             return 'vendor-editor'
           }
-          if (normalized.includes('/node_modules/three/')) return 'vendor-three'
-          if (
-            normalized.includes('/node_modules/globe.gl/') ||
-            normalized.includes('/node_modules/three-globe/') ||
-            normalized.includes('/node_modules/three-render-objects/')
-          ) return 'vendor-globe'
           if (
             normalized.includes('/node_modules/d3-') ||
             normalized.includes('/node_modules/topojson') ||
