@@ -10,8 +10,12 @@ export async function runProxiesBrowser(browser, base) {
     window.__proxyProfileId = 'profile-a'
     window.__proxyRefreshFails = false
     window.__proxyProbeCalls = []
-    window.__groupProbeCalls = 0
+    window.__groupProbeCalls = []
     window.__probeDelay = async (args) => { window.__proxyProbeCalls.push(args); return 36 }
+    window.__probeGroup = async (args) => {
+      window.__groupProbeCalls.push(args)
+      return Object.fromEntries(window.__proxyFixture.proxies[args.group].all.map((name) => [name, 36]))
+    }
     window.__proxyFixture = { proxies: {
       'HK-PCCW': { name: 'HK-PCCW', type: 'Trojan', history: [{ time: '2026-10-18T00:00:00Z', delay: 88 }] },
       'HK-ViuTV': { name: 'HK-ViuTV', type: 'Vless', provider: 'fixture-provider', history: [{ time: '2026-10-18T00:00:00Z', delay: 96 }] },
@@ -31,9 +35,10 @@ export async function runProxiesBrowser(browser, base) {
     await route.fulfill({ response, body: source
       .replace('return mockProxies()', 'if (window.__proxyRefreshFails) throw new Error("fixture proxy refresh failed"); return structuredClone(window.__proxyFixture)')
       .replace('const delay = mockTestDelay(name)', 'const delay = await window.__probeDelay({ name, timeout, url, provider: typeof provider === "undefined" ? undefined : provider })')
-      .replace('return mockTestGroupDelay(group, timeout)', 'window.__groupProbeCalls++; return {}') })
+      .replace('return mockTestGroupDelay(group, timeout)', 'return await window.__probeGroup({ group, timeout, url })') })
   })
   const card = (name) => page.locator('.pg-proxies .card').filter({ has: page.getByRole('heading', { name, exact: true }) })
+  const groupCalls = () => page.evaluate(() => window.__groupProbeCalls.map(({ group, url }) => [group, url]))
   async function visit(setup) {
     await page.goto(`${base}/dashboard`, { waitUntil: 'networkidle' })
     await page.evaluate(async () => {
@@ -115,18 +120,30 @@ export async function runProxiesBrowser(browser, base) {
       await page.waitForFunction(() => document.querySelectorAll('.node-grid').length === 0)
     })
 
-    await check('proxies_group_probe_uses_each_member_origin_and_group_url_while_collapsed', async () => {
+    await check('proxies_group_probe_tests_selector_members_in_one_kernel_request_with_group_url', async () => {
       await visit()
       await card('Streaming').getByRole('button', { name: '测速', exact: true }).click()
       await card('Streaming').getByRole('button', { name: '测速', exact: true }).waitFor()
-      assert.equal(await page.evaluate(() => window.__groupProbeCalls), 0)
-      const calls = await page.evaluate(() => window.__proxyProbeCalls)
-      assert.deepEqual(calls.map((call) => call.name).sort(), ['HK-PCCW', 'HK-ViuTV'])
-      assert.ok(calls.every((call) => call.url === 'https://group.example.invalid/204'))
-      assert.equal(calls.find((call) => call.name === 'HK-ViuTV').provider, 'fixture-provider')
+      assert.deepEqual(await groupCalls(), [['Streaming', 'https://group.example.invalid/204']])
+      assert.deepEqual(await page.evaluate(() => window.__proxyProbeCalls), [])
       assert.equal(await page.locator('.node-grid').count(), 0)
       await card('Streaming').getByRole('button', { name: '展开', exact: true }).click()
       assert.equal(await card('Streaming').getByText('36 ms', { exact: true }).count(), 2)
+    })
+
+    await check('proxies_never_probe_urltest_groups_as_a_whole_because_it_clears_fixed_selection', async () => {
+      await visit(() => {
+        const { proxies } = window.__proxyFixture
+        proxies['JP-1'] = { name: 'JP-1', type: 'Vmess', history: [{ time: '2026-10-18T00:00:00Z', delay: 120 }] }
+        proxies.Auto = { name: 'Auto', type: 'URLTest', now: 'HK-PCCW', all: ['HK-PCCW', 'HK-ViuTV', 'JP-1'], testUrl: 'https://auto.example.invalid/204', history: [] }
+      })
+      await card('Auto').getByRole('button', { name: '测速', exact: true }).click()
+      await card('Auto').getByRole('button', { name: '测速', exact: true }).waitFor()
+      assert.deepEqual(await groupCalls(), [['Streaming', 'https://auto.example.invalid/204']])
+      const calls = await page.evaluate(() => window.__proxyProbeCalls)
+      assert.deepEqual(calls.map(({ name, url }) => [name, url]), [['JP-1', 'https://auto.example.invalid/204']])
+      await card('Auto').getByRole('button', { name: '展开', exact: true }).click()
+      assert.equal(await card('Auto').getByText('36 ms', { exact: true }).count(), 3)
     })
 
     await check('proxies_all_probe_deduplicates_shared_members_and_uses_configured_url', async () => {
@@ -137,9 +154,8 @@ export async function runProxiesBrowser(browser, base) {
       })
       await page.getByRole('button', { name: '全部测速', exact: true }).click()
       await page.getByRole('button', { name: '全部测速', exact: true }).waitFor()
-      const calls = await page.evaluate(() => window.__proxyProbeCalls)
-      assert.deepEqual(calls.map((call) => call.name).sort(), ['HK-PCCW', 'HK-ViuTV'])
-      assert.ok(calls.every((call) => call.timeout === 7600 && call.url === 'https://default.example.invalid/204'))
+      assert.deepEqual(await page.evaluate(() => window.__groupProbeCalls), [{ group: 'Streaming', timeout: 7600, url: 'https://default.example.invalid/204' }])
+      assert.deepEqual(await page.evaluate(() => window.__proxyProbeCalls), [])
     })
 
     await check('proxies_show_url_specific_history_on_entry_and_after_navigation', async () => {
@@ -157,6 +173,7 @@ export async function runProxiesBrowser(browser, base) {
       await page.locator('a[href="/proxies"]').click()
       await card('Streaming').getByText('23 ms', { exact: true }).waitFor()
       assert.deepEqual(await page.evaluate(() => window.__proxyProbeCalls), [])
+      assert.deepEqual(await groupCalls(), [])
     })
 
     await check('proxies_automatically_fill_missing_delays_without_opening_groups', async () => {
@@ -164,17 +181,17 @@ export async function runProxiesBrowser(browser, base) {
         window.__proxyFixture.proxies['HK-PCCW'].history = []
         window.__proxyFixture.proxies['HK-ViuTV'].history = []
       })
-      await page.waitForFunction(() => window.__proxyProbeCalls.some((call) => call.name === 'HK-ViuTV'))
+      await page.waitForFunction(() => window.__groupProbeCalls.length === 1 && window.__proxyProbeCalls.length === 1)
       assert.equal(await page.locator('.node-grid').count(), 0)
       await card('Streaming').getByRole('button', { name: '展开', exact: true }).click()
       await page.waitForFunction(() => [...document.querySelectorAll('.node-grid[data-group="Streaming"] .badge')].filter((node) => node.textContent === '36 ms').length === 2)
-      await page.waitForFunction(() => window.__proxyProbeCalls.length === 3)
+      // 只剩一个目标的默认地址不值得整组测，退回逐节点
+      assert.deepEqual(await groupCalls(), [['Streaming', 'https://group.example.invalid/204']])
       const calls = await page.evaluate(() => window.__proxyProbeCalls)
-      assert.equal(calls.filter((call) => call.name === 'HK-ViuTV').length, 1)
-      assert.ok(calls.every((call) => call.url === 'https://group.example.invalid/204' || call.name === 'HK-PCCW'))
+      assert.deepEqual(calls.map(({ name, url }) => [name, url]), [['HK-PCCW', 'https://www.gstatic.com/generate_204']])
       await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')))
       await page.waitForTimeout(400)
-      assert.equal(await page.evaluate(() => window.__proxyProbeCalls.length), calls.length)
+      assert.deepEqual(await page.evaluate(() => [window.__groupProbeCalls.length, window.__proxyProbeCalls.length]), [1, 1])
     })
 
     await check('proxies_manual_delays_survive_navigation_and_are_isolated_by_profile', async () => {
@@ -208,20 +225,25 @@ export async function runProxiesBrowser(browser, base) {
           window.__proxyProbeCalls.push(args)
           return new Promise((resolve) => window.__finishOldProbes.push((delay = 999) => resolve(delay)))
         }
+        window.__probeGroup = (args) => {
+          window.__groupProbeCalls.push(args)
+          const members = window.__proxyFixture.proxies[args.group].all
+          return new Promise((resolve) => window.__finishOldProbes.push((delay = 999) => resolve(Object.fromEntries(members.map((name) => [name, delay])))))
+        }
       })
-      await page.waitForFunction(() => window.__finishOldProbes.length === 3)
+      await page.waitForFunction(() => window.__finishOldProbes.length === 2)
       await page.evaluate(() => {
         window.__proxyProfileId = 'profile-b'
         window.__proxyFixture.proxies.Streaming.now = 'HK-ViuTV'
         window.dispatchEvent(new Event('clashnova-profiles-changed'))
       })
       await card('Streaming').locator('.grp-now b').filter({ hasText: 'HK-ViuTV' }).waitFor()
-      await page.waitForFunction(() => window.__finishOldProbes.length === 6)
+      await page.waitForFunction(() => window.__finishOldProbes.length === 4)
       await card('Streaming').getByRole('button', { name: '展开', exact: true }).click()
-      await page.evaluate(() => window.__finishOldProbes.slice(0, 3).forEach((finish) => finish()))
+      await page.evaluate(() => window.__finishOldProbes.slice(0, 2).forEach((finish) => finish()))
       await page.waitForTimeout(200)
       assert.equal(await card('Streaming').getByText('999 ms', { exact: true }).count(), 0)
-      await page.evaluate(() => window.__finishOldProbes.slice(3).forEach((finish) => finish(42)))
+      await page.evaluate(() => window.__finishOldProbes.slice(2).forEach((finish) => finish(42)))
       await card('Streaming').getByText('42 ms', { exact: true }).first().waitFor()
     })
 
@@ -231,14 +253,14 @@ export async function runProxiesBrowser(browser, base) {
         window.__proxyFixture.proxies['HK-ViuTV'].history = []
       })
       await card('Streaming').getByRole('button', { name: '展开', exact: true }).click()
-      await page.waitForFunction(() => window.__proxyProbeCalls.length === 3 && [...document.querySelectorAll('.node-grid[data-group="Streaming"] .badge')].filter((node) => node.textContent === '36 ms').length === 2)
+      await page.waitForFunction(() => window.__groupProbeCalls.length === 1 && [...document.querySelectorAll('.node-grid[data-group="Streaming"] .badge')].filter((node) => node.textContent === '36 ms').length === 2)
       await page.evaluate(() => {
         const now = Date.now
         Date.now = () => now() + 31 * 60 * 1000
-        window.__proxyProbeCalls = []
+        window.__groupProbeCalls = []
         document.dispatchEvent(new Event('visibilitychange'))
       })
-      await page.waitForFunction(() => window.__proxyProbeCalls.some((call) => call.name === 'HK-ViuTV'))
+      await page.waitForFunction(() => window.__groupProbeCalls.some((call) => call.group === 'Streaming'))
       await card('Streaming').getByText('36 ms', { exact: true }).first().waitFor()
     })
 
@@ -250,9 +272,9 @@ export async function runProxiesBrowser(browser, base) {
       await page.waitForFunction(() => [...document.querySelectorAll('.node-grid[data-group="Streaming"] .badge')].filter((node) => node.textContent === '36 ms').length === 2)
       await card('全部节点').getByRole('button', { name: '展开', exact: true }).click()
       await card('全部节点').getByText('36 ms', { exact: true }).waitFor()
+      assert.deepEqual(await groupCalls(), [['Streaming', 'https://group.example.invalid/204']])
       const calls = await page.evaluate(() => window.__proxyProbeCalls)
-      assert.equal(calls.length, 3)
-      assert.equal(calls.filter((call) => call.url === 'https://group.example.invalid/204').length, 2)
+      assert.deepEqual(calls.map(({ name, url }) => [name, url]), [['HK-PCCW', 'https://www.gstatic.com/generate_204']])
     })
 
     assert.deepEqual(errors, [])

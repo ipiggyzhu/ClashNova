@@ -77,15 +77,16 @@ export const DEFAULT_SETTINGS: AppSettings = {
   fakeIpFilterMode: 'blacklist',
   ipv6Dns: false,
   preferH3: false,
-  respectRules: false,
-  useHosts: false,
-  useSystemHosts: false,
+  respectRules: null,
+  useHosts: null,
+  useSystemHosts: null,
   delayTestUrl: 'https://www.gstatic.com/generate_204',
   delayTestTimeout: 5000,
   autoCloseConnections: true,
   unifiedDelay: false,
   findProcessMode: '',
   sniffer: false,
+  settingsVersion: 1,
 }
 
 let settings: AppSettings = { ...DEFAULT_SETTINGS }

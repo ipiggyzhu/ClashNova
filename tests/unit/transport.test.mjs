@@ -78,6 +78,23 @@ test('REST rejects unconfirmed core status and stale pending status checks befor
   assert.equal(requests, 1)
 })
 
+test('concurrent REST requests share one in-flight core status check', async () => {
+  const status = deferred()
+  let checks = 0, requests = 0
+  const api = apiFixture(async () => ({ externalController: '127.0.0.1:9097', secret: '' }), async () => {
+    requests += 1
+    return { ok: true, status: 200, text: async () => '{"version":"fixture"}' }
+  }, () => { checks += 1; return status.promise })
+  const pending = [api.getVersion(), api.getVersion(), api.getVersion()]
+  await tick()
+  assert.equal(checks, 1)
+  status.resolve({ running: true })
+  await Promise.all(pending)
+  assert.equal(requests, 3)
+  await api.getVersion()
+  assert.equal(checks, 2)
+})
+
 test('4096 delay calls deduplicate 2048 nodes and retain the concurrency budget after failures', async () => {
   let active = 0, peak = 0, requests = 0
   const api = apiFixture(async () => ({ externalController: '127.0.0.1:9097', secret: '' }), async (url) => {

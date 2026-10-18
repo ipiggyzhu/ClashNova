@@ -96,12 +96,12 @@ export interface AppSettings { sysProxy: boolean; guard: boolean; guardIntervalS
   ipv6Dns: boolean;
   /** 优先使用 HTTP/3 */
   preferH3: boolean;
-  /** 遵循路由规则 */
-  respectRules: boolean;
-  /** 使用 Hosts */
-  useHosts: boolean;
-  /** 使用系统 Hosts */
-  useSystemHosts: boolean;
+  /** 遵循路由规则; null 沿用订阅 */
+  respectRules: boolean | null;
+  /** 使用 Hosts; null 沿用订阅 */
+  useHosts: boolean | null;
+  /** 使用系统 Hosts; null 沿用订阅 */
+  useSystemHosts: boolean | null;
   /* ---- 测速与内核高级项 ---- */
   /** 节点测速地址 */
   delayTestUrl: string;
@@ -115,5 +115,7 @@ export interface AppSettings { sysProxy: boolean; guard: boolean; guardIntervalS
   findProcessMode: FindProcessMode | '';
   /** true 开启域名嗅探; false 沿用订阅 */
   sniffer: boolean;
+  /** settings.json 结构版本, 由后端维护 */
+  settingsVersion: number;
 }
 export type FindProcessMode = 'strict' | 'always' | 'off'

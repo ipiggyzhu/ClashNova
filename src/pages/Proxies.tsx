@@ -7,7 +7,7 @@ import Icon from '../components/ui/Icon'
 import Input from '../components/ui/Input'
 import Seg from '../components/ui/Seg'
 import { useT } from '../i18n'
-import { closeGroupConnections, DEFAULT_DELAY_TEST_URL, getProxies, isDelayTimeout, selectProxy, testDelay } from '../services/api'
+import { closeGroupConnections, DEFAULT_DELAY_TEST_URL, getProxies, isDelayTimeout, selectProxy, testDelay, testGroupDelay } from '../services/api'
 import { call } from '../services/ipc'
 import { useAppStore } from '../stores/app'
 import type { ProxiesPayload, ProxyGroup, ProxyNode } from '../types/clash'
@@ -27,6 +27,8 @@ const delayCache = new Map<string, DelayResult>()
 interface GroupView extends ProxyGroup {
   nodes: ProxyNode[]
 }
+
+interface DelayTarget { node: ProxyNode; url: string }
 
 function groupKey(group: GroupView): string {
   return `group:${group.name}`
@@ -252,6 +254,13 @@ export default function Proxies() {
     }
   }
 
+  const recordDelays = useCallback((current: number, entries: [string, number][]): void => {
+    if (!alive.current || current !== generation.current) return
+    const updatedAt = Date.now()
+    for (const [key, delay] of entries) delayCache.set(key, { delay, updatedAt })
+    setDelays((d) => ({ ...d, ...Object.fromEntries(entries) }))
+  }, [])
+
   const testNode = useCallback((
     node: ProxyNode,
     url = delayTestUrl || DEFAULT_DELAY_TEST_URL,
@@ -264,34 +273,81 @@ export default function Proxies() {
     const existing = testingRef.current.get(key)
     if (existing) return existing
     setDelays((d) => ({ ...d, [resultKey]: 0 }))
-    const record = (delay: number): void => {
-      if (!alive.current || current !== generation.current) return
-      delayCache.set(resultKey, { delay, updatedAt: Date.now() })
-      setDelays((d) => ({ ...d, [resultKey]: delay }))
-    }
     const test = testDelay(name, timeout, url, provider, JSON.stringify([profileId.current, current])).then((ms) => {
-      record(ms)
+      recordDelays(current, [[resultKey, ms]])
     }, (error: unknown) => {
       const value = isDelayTimeout(error) ? DELAY_TIMEOUT_VALUE : -1
-      record(value)
+      recordDelays(current, [[resultKey, value]])
     }).finally(() => { testingRef.current.delete(key) })
     testingRef.current.set(key, test)
     return test
-  }, [delayKey, delayTestUrl, delayTestTimeout])
+  }, [delayKey, delayTestUrl, delayTestTimeout, recordDelays])
+
+  /**
+   * 批量测速优先交给 Selector 组走 /group/{name}/delay，由内核并发测整组：
+   * 逐节点请求受 WebView 同主机 6 连接限制，72 个节点实测约 55s，整组约 5s，且不会占满连接拖慢切换节点。
+   * URLTest/Fallback 整组测速会清除手动固定的节点，不参与；只覆盖一个目标的组不如逐节点精确，同样退回。
+   */
+  const testTargets = useCallback((targets: DelayTarget[], timeout = delayTestTimeout): Promise<void> => {
+    const current = generation.current
+    const testKey = (resultKey: string): string => JSON.stringify([current, resultKey, timeout])
+    const tests: Promise<void>[] = []
+    const left = new Map<string, DelayTarget>()
+    for (const target of targets) {
+      const resultKey = delayKey(target.node, target.url)
+      const existing = testingRef.current.get(testKey(resultKey))
+      if (existing) tests.push(existing)
+      else left.set(resultKey, target)
+    }
+    const selectors = groups.filter((group) => group.type === 'Selector')
+    for (;;) {
+      let best: { group: GroupView; url: string; covered: [string, ProxyNode][] } | undefined
+      for (const url of new Set([...left.values()].map((target) => target.url))) {
+        for (const group of selectors) {
+          const covered = group.nodes.flatMap((node): [string, ProxyNode][] => {
+            const resultKey = delayKey(node, url)
+            return left.has(resultKey) ? [[resultKey, node]] : []
+          })
+          const most = best?.covered.length ?? 1
+          // 覆盖相同时选成员少的组，少测无关节点
+          if (covered.length > most || (best && covered.length === most && group.nodes.length < best.group.nodes.length)) {
+            best = { group, url, covered }
+          }
+        }
+      }
+      if (!best) break
+      const { group, url, covered } = best
+      for (const [resultKey] of covered) left.delete(resultKey)
+      setDelays((d) => ({ ...d, ...Object.fromEntries(covered.map(([resultKey]) => [resultKey, 0])) }))
+      // 内核只返回成功的成员，失败与超时无法区分，与历史记录一样按 Failed 显示
+      const test = testGroupDelay(group.name, timeout, url).then(
+        (result) => covered.map(([resultKey, node]): [string, number] => [resultKey, result[node.name] ?? -1]),
+        () => covered.map(([resultKey]): [string, number] => [resultKey, -1]),
+      ).then((entries) => { recordDelays(current, entries) }).finally(() => {
+        for (const [resultKey] of covered) testingRef.current.delete(testKey(resultKey))
+      })
+      for (const [resultKey] of covered) testingRef.current.set(testKey(resultKey), test)
+      tests.push(test)
+    }
+    for (const { node, url } of left.values()) tests.push(testNode(node, url, timeout))
+    return Promise.all(tests).then(() => undefined)
+  }, [delayKey, delayTestTimeout, groups, recordDelays, testNode])
 
   useEffect(() => {
     if (!payload || loadError || payloadGeneration.current !== generation.current) return
+    const missing: DelayTarget[] = []
     for (const group of groups) {
       const url = group.testUrl || delayTestUrl || DEFAULT_DELAY_TEST_URL
       for (const node of group.nodes) {
         if (!isNodeType(node.type)) continue
         const key = delayKey(node, url)
         if (delays[key] !== 0 && latestDelay(node, url, delayCache.get(key)) === undefined) {
-          void testNode(node, url)
+          missing.push({ node, url })
         }
       }
     }
-  }, [payload, loadError, groups, delays, delayKey, delayTestUrl, testNode])
+    if (missing.length) void testTargets(missing)
+  }, [payload, loadError, groups, delays, delayKey, delayTestUrl, testTargets])
 
   const testGroup = async (g: GroupView): Promise<void> => {
     const key = groupKey(g)
@@ -300,7 +356,7 @@ export default function Proxies() {
     setTestingGroups((prev) => new Set(prev).add(key))
     try {
       const url = g.testUrl || delayTestUrl || DEFAULT_DELAY_TEST_URL
-      await Promise.all(g.nodes.map((node) => testNode(node, url)))
+      await testTargets(g.nodes.map((node) => ({ node, url })))
       await refreshFlight.current
       await refresh()
     } finally {
@@ -318,7 +374,7 @@ export default function Proxies() {
     testingAllRef.current = true
     setTestingAll(true)
     try {
-      // 所有入口共用 10 并发队列；跨组重复出现的节点只测一次。
+      // 跨组重复出现的节点只测一次；能整组测的交给内核，其余走 10 并发的逐节点队列。
       const settings = useAppStore.getState().settings
       const url = settings.delayTestUrl || DEFAULT_DELAY_TEST_URL
       const timeout = settings.delayTestTimeout
@@ -329,7 +385,7 @@ export default function Proxies() {
       for (const node of Object.values(payload?.proxies ?? {})) {
         if (isNodeType(node.type) && !groupedNames.has(node.name)) targets.push({ node, url })
       }
-      await Promise.all(targets.map(({ node, url }) => testNode(node, url, timeout)))
+      await testTargets(targets, timeout)
     } finally {
       testingAllRef.current = false
       setTestingAll(false)

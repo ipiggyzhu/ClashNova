@@ -35,6 +35,33 @@ interface DnsSettingsProps {
   onClose: () => void
 }
 
+type FollowValue = 'profile' | 'on' | 'off'
+
+interface FollowSegProps {
+  label: string
+  value: boolean | null
+  onChange: (value: boolean | null) => void
+  disabled?: boolean
+}
+
+/** 三态开关: 跟随订阅(null) / 开启 / 关闭 */
+function FollowSeg({ label, value, onChange, disabled }: FollowSegProps) {
+  const t = useT()
+  return (
+    <Seg<FollowValue>
+      label={label}
+      disabled={disabled}
+      items={[
+        { value: 'profile', label: t('跟随订阅') },
+        { value: 'on', label: t('开启') },
+        { value: 'off', label: t('关闭') },
+      ]}
+      value={value === true ? 'on' : value === false ? 'off' : 'profile'}
+      onChange={(v) => onChange(v === 'profile' ? null : v === 'on')}
+    />
+  )
+}
+
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }
@@ -168,9 +195,9 @@ export default function DnsSettings({ onClose }: DnsSettingsProps) {
       fakeIpFilterMode: 'blacklist',
       ipv6Dns: false,
       preferH3: false,
-      respectRules: false,
-      useHosts: false,
-      useSystemHosts: false,
+      respectRules: null,
+      useHosts: null,
+      useSystemHosts: null,
     })
   }
 
@@ -302,28 +329,28 @@ export default function DnsSettings({ onClose }: DnsSettingsProps) {
           </Row>
 
           <Row title={t('遵循路由规则')} desc={t('DNS 连接遵循路由规则')}>
-            <Toggle
+            <FollowSeg
               label={t('遵循路由规则')}
-              on={settings.respectRules}
-              onChange={(on) => patch({ respectRules: on })}
+              value={settings.respectRules}
+              onChange={(value) => patch({ respectRules: value })}
               disabled={saving || !settings.enableDns}
             />
           </Row>
 
           <Row title={t('使用 Hosts')} desc={t('启用通过 hosts 文件解析域名')}>
-            <Toggle
+            <FollowSeg
               label={t('使用 Hosts')}
-              on={settings.useHosts}
-              onChange={(on) => patch({ useHosts: on })}
+              value={settings.useHosts}
+              onChange={(value) => patch({ useHosts: value })}
               disabled={saving || !settings.enableDns}
             />
           </Row>
 
           <Row title={t('使用系统 Hosts')} desc={t('启用通过操作系统 hosts 文件解析')}>
-            <Toggle
+            <FollowSeg
               label={t('使用系统 Hosts')}
-              on={settings.useSystemHosts}
-              onChange={(on) => patch({ useSystemHosts: on })}
+              value={settings.useSystemHosts}
+              onChange={(value) => patch({ useSystemHosts: value })}
               disabled={saving || !settings.enableDns}
             />
           </Row>

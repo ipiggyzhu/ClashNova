@@ -63,12 +63,13 @@ pub struct AppSettings {
     pub ipv6_dns: bool,
     #[serde(default)]
     pub prefer_h3: bool,
+    /// None 沿用订阅;旧版默认存 false 会覆盖订阅, 由 `migrate` 升级。
     #[serde(default)]
-    pub respect_rules: bool,
+    pub respect_rules: Option<bool>,
     #[serde(default)]
-    pub use_hosts: bool,
+    pub use_hosts: Option<bool>,
     #[serde(default)]
-    pub use_system_hosts: bool,
+    pub use_system_hosts: Option<bool>,
     /* ---- 测速与内核高级项 ---- */
     #[serde(default = "default_delay_test_url")]
     pub delay_test_url: String,
@@ -85,7 +86,16 @@ pub struct AppSettings {
     /// true 时开启域名嗅探, 订阅未写的嗅探项补默认值;false 时沿用订阅。
     #[serde(default)]
     pub sniffer: bool,
+    /// settings.json 结构版本;旧文件缺省为 0。
+    #[serde(default)]
+    pub settings_version: u32,
 }
+
+/// 当前 settings.json 结构版本。
+pub const SETTINGS_VERSION: u32 = 1;
+
+/// v1 起"未设置即沿用订阅"的 DNS 开关在覆写 YAML 中的键名。
+const DNS_FOLLOW_PROFILE_KEYS: [&str; 3] = ["respect-rules", "use-hosts", "use-system-hosts"];
 
 fn default_language() -> String {
     "zh".into()
@@ -145,20 +155,52 @@ impl Default for AppSettings {
             fake_ip_filter_mode: default_fake_ip_filter_mode(),
             ipv6_dns: false,
             prefer_h3: false,
-            respect_rules: false,
-            use_hosts: false,
-            use_system_hosts: false,
+            respect_rules: None,
+            use_hosts: None,
+            use_system_hosts: None,
             delay_test_url: default_delay_test_url(),
             delay_test_timeout: default_delay_test_timeout(),
             auto_close_connections: true,
             unified_delay: false,
             find_process_mode: String::new(),
             sniffer: false,
+            settings_version: SETTINGS_VERSION,
         }
     }
 }
 
 impl AppSettings {
+    /// 升级旧版设置, 返回是否有改动。
+    ///
+    /// v0 → v1:旧版把 respect-rules / use-hosts / use-system-hosts 默认存为 false 并写进
+    /// DNS 覆写, 无法区分主动关闭与默认值;统一改回沿用订阅, 显式开启的保留。
+    pub fn migrate(&mut self) -> bool {
+        if self.settings_version >= SETTINGS_VERSION {
+            return false;
+        }
+        for value in [
+            &mut self.respect_rules,
+            &mut self.use_hosts,
+            &mut self.use_system_hosts,
+        ] {
+            if *value == Some(false) {
+                *value = None;
+            }
+        }
+        self.dns_override = self
+            .dns_override
+            .lines()
+            .filter(|line| {
+                !line.split_once(':').is_some_and(|(key, value)| {
+                    DNS_FOLLOW_PROFILE_KEYS.contains(&key.trim_end())
+                        && value.split('#').next().map(str::trim) == Some("false")
+                })
+            })
+            .map(|line| format!("{line}\n"))
+            .collect();
+        self.settings_version = SETTINGS_VERSION;
+        true
+    }
     /// 转成 nova-core 的运行时覆写项。
     pub fn to_overrides(&self) -> nova_core::RuntimeOverrides {
         nova_core::RuntimeOverrides {
@@ -434,8 +476,15 @@ fn load_or_init_settings(dirs: &Dirs) -> Result<AppSettings, String> {
     let path = dirs.settings_file();
     if path.exists() {
         let raw = fs::read_to_string(&path).map_err(|e| format!("读取设置失败: {e}"))?;
-        return serde_json::from_str::<AppSettings>(&raw)
-            .map_err(|e| format!("settings.json 解析失败，已保留原文件: {e}"));
+        let mut settings = serde_json::from_str::<AppSettings>(&raw)
+            .map_err(|e| format!("settings.json 解析失败，已保留原文件: {e}"))?;
+        if settings.migrate() {
+            // 写回失败不影响本次运行, 下次启动会再次迁移。
+            if let Ok(json) = serde_json::to_string_pretty(&settings) {
+                let _ = atomic_write(&path, json.as_bytes());
+            }
+        }
+        return Ok(settings);
     }
     let settings = AppSettings::default();
     let json =
@@ -550,5 +599,41 @@ mod tests {
         atomic_write(&path, b"{invalid").unwrap();
         assert!(load_or_init_settings(&fixture.dirs).is_err());
         assert_eq!(fs::read(path).unwrap(), b"{invalid");
+    }
+
+    #[test]
+    fn legacy_dns_defaults_migrate_to_follow_profile() {
+        let fixture = Fixture::new();
+        let mut legacy = serde_json::to_value(AppSettings::default()).unwrap();
+        let object = legacy.as_object_mut().unwrap();
+        object.remove("settingsVersion");
+        object.insert("respectRules".into(), false.into());
+        object.insert("useHosts".into(), true.into());
+        object.insert("useSystemHosts".into(), false.into());
+        object.insert(
+            "dnsOverride".into(),
+            "enable: true\nrespect-rules: false\nuse-hosts: true\nuse-system-hosts: false # old\nfallback-filter:\n  use-hosts: false\n".into(),
+        );
+        atomic_write(&fixture.dirs.settings_file(), legacy.to_string().as_bytes()).unwrap();
+
+        let settings = load_or_init_settings(&fixture.dirs).unwrap();
+        assert_eq!(settings.respect_rules, None);
+        assert_eq!(settings.use_hosts, Some(true));
+        assert_eq!(settings.use_system_hosts, None);
+        assert_eq!(
+            settings.dns_override,
+            "enable: true\nuse-hosts: true\nfallback-filter:\n  use-hosts: false\n"
+        );
+        assert_eq!(settings.settings_version, SETTINGS_VERSION);
+        let saved: AppSettings =
+            serde_json::from_slice(&fs::read(fixture.dirs.settings_file()).unwrap()).unwrap();
+        assert_eq!(saved, settings);
+
+        let mut current = AppSettings {
+            respect_rules: Some(false),
+            ..AppSettings::default()
+        };
+        assert!(!current.migrate(), "当前版本的显式关闭不应被迁移");
+        assert_eq!(current.respect_rules, Some(false));
     }
 }

@@ -27,7 +27,7 @@ mod updater;
 
 use tauri::{Manager, WindowEvent};
 use tauri_plugin_autostart::MacosLauncher;
-use tauri_plugin_log::{Target, TargetKind};
+use tauri_plugin_log::{RotationStrategy, Target, TargetKind, TimezoneStrategy};
 
 use crate::state::AppState;
 
@@ -129,6 +129,11 @@ fn main() {
                     }),
                 ])
                 .level(log::LevelFilter::Info)
+                // 插件默认 UTC 时间戳、40 KB 即清空重写(KeepOne), 排错时往往只剩几分钟日志;
+                // 改为本地时间, 单文件 2 MB, 另留 3 份 clashnova_*.log 归档。
+                .timezone_strategy(TimezoneStrategy::UseLocal)
+                .max_file_size(2_000_000)
+                .rotation_strategy(RotationStrategy::KeepSome(3))
                 .build(),
         )
         .plugin(tauri_plugin_shell::init())

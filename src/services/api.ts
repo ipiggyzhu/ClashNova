@@ -5,6 +5,7 @@
  */
 import type {
   ConnectionsPayload,
+  CoreStatus,
   DnsAnswer,
   DnsQueryResult,
   OutboundMode,
@@ -77,11 +78,21 @@ export async function ensureConfigured(): Promise<void> {
   await configuring
 }
 
+let coreStatusInFlight: Promise<CoreStatus> | null = null
+
+/** 并发请求共用在途的 core_status：测速等突发请求各自查询会挤满服务管道，触发 250ms 忙等重试。 */
+function coreStatus(): Promise<CoreStatus> {
+  if (!coreStatusInFlight) {
+    coreStatusInFlight = call('core_status').finally(() => { coreStatusInFlight = null })
+  }
+  return coreStatusInFlight
+}
+
 async function request<T>(method: string, path: string, body?: unknown, timeoutMs = 10_000): Promise<T> {
   await ensureConfigured()
   const revision = configRevision
   // 内核停止后，监听端口可能已被其他进程占用；状态确认前不发送认证头。
-  if (!(await call('core_status')).running) throw new Error('内核未运行')
+  if (!(await coreStatus()).running) throw new Error('内核未运行')
   if (revision !== configRevision) throw new DOMException('控制器配置已变更', 'AbortError')
   const controller = new AbortController()
   activeRequests.add(controller)

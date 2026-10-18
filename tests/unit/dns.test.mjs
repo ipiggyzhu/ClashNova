@@ -39,6 +39,20 @@ test('DNS advanced edit keeps unowned YAML lists', () => {
   assert.match(updated.dnsOverride, /nameserver:\n  - 1.1.1.1/)
 })
 
+test('DNS switches left unset follow the profile instead of writing false', () => {
+  const current = 'enable: true\nrespect-rules: false\nuse-hosts: true\n'
+  const updated = dns.syncDnsSettings({ ...base, dnsOverride: current }, { respectRules: null, useHosts: null })
+  assert.doesNotMatch(updated.dnsOverride, /respect-rules|use-hosts/)
+  assert.match(updated.dnsOverride, /use-system-hosts: true/)
+  const parsed = dns.normalizeDnsSettings({ ...base, dnsOverride: 'enable: true\nuse-hosts: false\n' })
+  assert.equal(parsed.respectRules, null)
+  assert.equal(parsed.useHosts, false)
+  assert.equal(parsed.useSystemHosts, null)
+  const form = dns.buildDnsFormOverride({ ...base, respectRules: null, useHosts: false, useSystemHosts: null }, dns.EMPTY_DNS_FORM, '')
+  assert.doesNotMatch(form, /respect-rules|use-system-hosts/)
+  assert.match(form, /use-hosts: false/)
+})
+
 test('mihomo rule API names normalize to filter labels', () => {
   const { normalizeRuleType } = loadSource('src/utils/rules.ts').module
   for (const [input, expected] of [['DomainSuffix', 'DOMAIN-SUFFIX'], ['IPCIDR', 'IP-CIDR'], ['IP-CIDR6', 'IP-CIDR6'], ['GeoIP', 'GEOIP'], ['RuleSet', 'RULE-SET'], ['ProcessName', 'PROCESS-NAME']]) {

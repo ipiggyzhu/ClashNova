@@ -33,9 +33,12 @@ pub struct RuntimeOverrides {
     pub fake_ip_filter_mode: String,
     pub ipv6_dns: bool,
     pub prefer_h3: bool,
-    pub respect_rules: bool,
-    pub use_hosts: bool,
-    pub use_system_hosts: bool,
+    /// None 沿用订阅的 respect-rules(订阅也未写时为 mihomo 默认 false)。
+    pub respect_rules: Option<bool>,
+    /// None 沿用订阅的 use-hosts(mihomo 默认 true)。
+    pub use_hosts: Option<bool>,
+    /// None 沿用订阅的 use-system-hosts(mihomo 默认 true)。
+    pub use_system_hosts: Option<bool>,
     /* ---- 内核高级项(false / 空串均表示沿用 profile) ---- */
     pub unified_delay: bool,
     /// strict / always / off;其他值(含空串)沿用 profile,缺省 strict。
@@ -300,15 +303,17 @@ pub fn build_runtime_config(
 
         dns_map.insert(Value::String("ipv6".into()), Value::Bool(ov.ipv6_dns));
         dns_map.insert(Value::String("prefer-h3".into()), Value::Bool(ov.prefer_h3));
-        dns_map.insert(
-            Value::String("respect-rules".into()),
-            Value::Bool(ov.respect_rules),
-        );
-        dns_map.insert(Value::String("use-hosts".into()), Value::Bool(ov.use_hosts));
-        dns_map.insert(
-            Value::String("use-system-hosts".into()),
-            Value::Bool(ov.use_system_hosts),
-        );
+        // 未设置时不写, 订阅的值得以保留:订阅常用 respect-rules: true 让国外 DoH
+        // 经代理, 强行写 false 会让这些 DoH 直连被墙, 解析卡满超时。
+        for (key, value) in [
+            ("respect-rules", ov.respect_rules),
+            ("use-hosts", ov.use_hosts),
+            ("use-system-hosts", ov.use_system_hosts),
+        ] {
+            if let Some(value) = value {
+                dns_map.insert(Value::String(key.into()), Value::Bool(value));
+            }
+        }
 
         let mut patch_map = Mapping::new();
         patch_map.insert(Value::String("dns".into()), Value::Mapping(dns_map));
@@ -414,9 +419,9 @@ mod tests {
             fake_ip_filter_mode: "blacklist".into(),
             ipv6_dns: false,
             prefer_h3: false,
-            respect_rules: false,
-            use_hosts: false,
-            use_system_hosts: false,
+            respect_rules: None,
+            use_hosts: None,
+            use_system_hosts: None,
             unified_delay: false,
             find_process_mode: String::new(),
             sniffer: false,
@@ -647,6 +652,26 @@ rules:
             .expect("nameserver 应存在");
         assert_eq!(ns.len(), 1);
         assert_eq!(ns[0], Value::String("https://user.pick/dns-query".into()));
+    }
+
+    #[test]
+    fn dns_未设置的开关沿用订阅_设置后覆盖() {
+        let profile = "dns:\n  enable: true\n  respect-rules: true\n  use-hosts: false\n  proxy-server-nameserver:\n    - 223.5.5.5\nproxies: []\n";
+        let mut ov = overrides(false);
+        ov.enable_dns = true;
+        let doc = parse(&build_runtime_config(profile, &ov).expect("生成应成功"));
+        let dns = doc.get("dns").expect("dns 段应存在");
+        assert_eq!(dns.get("respect-rules"), Some(&Value::Bool(true)));
+        assert_eq!(dns.get("use-hosts"), Some(&Value::Bool(false)));
+        assert!(dns.get("use-system-hosts").is_none(), "未设置时不应凭空写入");
+
+        ov.respect_rules = Some(false);
+        ov.use_system_hosts = Some(true);
+        let doc = parse(&build_runtime_config(profile, &ov).expect("生成应成功"));
+        let dns = doc.get("dns").expect("dns 段应存在");
+        assert_eq!(dns.get("respect-rules"), Some(&Value::Bool(false)));
+        assert_eq!(dns.get("use-hosts"), Some(&Value::Bool(false)));
+        assert_eq!(dns.get("use-system-hosts"), Some(&Value::Bool(true)));
     }
 
     #[test]

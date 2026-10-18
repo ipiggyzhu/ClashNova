@@ -545,7 +545,9 @@ fn prepare_restore(snapshot: Snapshot, current: &AppSettings) -> Result<RestoreP
             object.insert(key.clone(), value.clone());
         }
     }
-    let settings: AppSettings = serde_json::from_value(restored).map_err(|_| "备份设置字段无效")?;
+    let mut settings: AppSettings =
+        serde_json::from_value(restored).map_err(|_| "备份设置字段无效")?;
+    settings.migrate();
     let (profiles, global) = indexes(&snapshot)?;
     let runtime =
         crate::profiles::build_runtime_from_files(&settings, &profiles, &global, |name| {

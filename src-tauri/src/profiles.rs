@@ -433,7 +433,7 @@ async fn download_profile(
         .get(url)
         .send()
         .await
-        .map_err(|e| format!("下载订阅失败: {}", e.without_url()))?;
+        .map_err(|e| format!("下载订阅失败: {}", request_error(e)))?;
     if !resp.status().is_success() {
         return Err(format!("下载订阅失败: HTTP {}", resp.status()));
     }
@@ -473,7 +473,7 @@ async fn download_profile(
     while let Some(chunk) = resp
         .chunk()
         .await
-        .map_err(|e| format!("读取订阅失败: {}", e.without_url()))?
+        .map_err(|e| format!("读取订阅失败: {}", request_error(e)))?
     {
         if body.len().saturating_add(chunk.len()) > MAX_SUBSCRIPTION_BYTES {
             return Err("订阅超过 16 MiB 大小限制".into());
@@ -487,6 +487,52 @@ async fn download_profile(
         quota,
         interval_min,
     })
+}
+
+/// reqwest 顶层错误只有 "error sending request"，拼上来源链才分得清超时、拒连还是证书问题。
+/// 先去掉 URL；来源链出自 hyper/IO/TLS，不含订阅地址。
+fn request_error(error: reqwest::Error) -> String {
+    let error = error.without_url();
+    let mut message = error.to_string();
+    let mut source = std::error::Error::source(&error);
+    while let Some(cause) = source {
+        message.push_str(": ");
+        message.push_str(&cause.to_string());
+        source = cause.source();
+    }
+    message
+}
+
+/// 按配置的方式下载失败时，依次改走内核代理、系统代理（与 Clash Verge Rev 一致）。
+/// 内核未运行时混合端口可能被其他程序占用，不把订阅地址发过去。
+async fn download_with_fallback(
+    app: &AppHandle,
+    url: &str,
+    options: &ProfileDownloadOptions,
+) -> Result<DownloadedProfile, String> {
+    let port = app.state::<AppState>().settings_snapshot().mixed_port;
+    let first = match download_profile(url, options, port).await {
+        Ok(downloaded) => return Ok(downloaded),
+        Err(err) => err,
+    };
+    let core_running = crate::core::is_running(app).await;
+    for proxy in [DownloadProxy::Core, DownloadProxy::System] {
+        if proxy == options.proxy || (proxy == DownloadProxy::Core && !core_running) {
+            continue;
+        }
+        let fallback = ProfileDownloadOptions {
+            proxy,
+            ..options.clone()
+        };
+        match download_profile(url, &fallback, port).await {
+            Ok(downloaded) => {
+                log::warn!("订阅按 {:?} 方式下载失败，已改用 {proxy:?}: {first}", options.proxy);
+                return Ok(downloaded);
+            }
+            Err(err) => log::warn!("订阅改用 {proxy:?} 方式下载仍失败: {err}"),
+        }
+    }
+    Err(first)
 }
 
 /// 下载并导入订阅，兼容浏览器分享协议和显式下载选项。
@@ -650,12 +696,7 @@ pub async fn update(app: &AppHandle, id: String) -> Result<ProfileMeta, String> 
 
     let source = resolve_import_url(&url)?;
     let options = meta.download_options.clone();
-    let downloaded = download_profile(
-        &source.url,
-        &options,
-        app.state::<AppState>().settings_snapshot().mixed_port,
-    )
-    .await?;
+    let downloaded = download_with_fallback(app, &source.url, &options).await?;
     let content = downloaded.content;
 
     let transaction_state = app.state::<AppState>();
@@ -1020,10 +1061,12 @@ pub async fn regenerate_runtime_async(app: &AppHandle) -> Result<(), String> {
         .map_err(|e| format!("生成配置任务失败: {e}"))?
 }
 
-/// 按订阅间隔更新; 顺序执行, 失败至少间隔一分钟再试。
+/// 按订阅间隔更新; 顺序执行。失败后按 5、10、20… 分钟退避(不超过更新间隔),
+/// 连续失败只通知第一次, 离线时不会每隔几分钟弹一次。
 pub fn spawn_updater(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
-        let mut attempted = std::collections::HashMap::<String, u64>::new();
+        // 订阅 id → (上次失败时间, 连续失败次数)
+        let mut failures = std::collections::HashMap::<String, (u64, u32)>::new();
         loop {
             tokio::time::sleep(Duration::from_secs(60)).await;
             let index = match load_index(&app) {
@@ -1033,7 +1076,12 @@ pub fn spawn_updater(app: AppHandle) {
                     continue;
                 }
             };
-            attempted.retain(|id, _| index.iter().any(|profile| &profile.id == id));
+            // 已删除或之后更新成功(含手动更新)的订阅清掉失败记录
+            failures.retain(|id, (last, _)| {
+                index
+                    .iter()
+                    .any(|profile| &profile.id == id && profile.updated_at < *last)
+            });
             for profile in index {
                 let Some(minutes) = profile.auto_update_min.filter(|minutes| *minutes > 0) else {
                     continue;
@@ -1044,25 +1092,41 @@ pub fn spawn_updater(app: AppHandle) {
                 let now = now_millis();
                 let interval = u64::from(minutes) * 60_000;
                 if now.saturating_sub(profile.updated_at) < interval
-                    || attempted
-                        .get(&profile.id)
-                        .is_some_and(|last| now.saturating_sub(*last) < interval.min(300_000))
+                    || failures.get(&profile.id).is_some_and(|(last, count)| {
+                        now.saturating_sub(*last) < retry_delay(interval, *count)
+                    })
                 {
                     continue;
                 }
-                attempted.insert(profile.id.clone(), now);
-                if let Err(err) = update(&app, profile.id).await {
-                    log::warn!("订阅自动更新失败: {err}");
-                    let _ = app.emit(
-                        "operation-error",
-                        serde_json::json!({
-                            "title": "订阅自动更新失败", "message": err,
-                        }),
-                    );
+                match update(&app, profile.id.clone()).await {
+                    Ok(_) => {
+                        failures.remove(&profile.id);
+                    }
+                    Err(err) => {
+                        let count = failures
+                            .get(&profile.id)
+                            .map_or(1, |(_, count)| count.saturating_add(1));
+                        failures.insert(profile.id.clone(), (now_millis(), count));
+                        log::warn!("订阅「{}」自动更新失败(连续 {count} 次): {err}", profile.name);
+                        if count == 1 {
+                            let _ = app.emit(
+                                "operation-error",
+                                serde_json::json!({
+                                    "title": "订阅自动更新失败",
+                                    "message": format!("{}: {err}", profile.name),
+                                }),
+                            );
+                        }
+                    }
                 }
             }
         }
     });
+}
+
+/// 连续失败 `failures` 次后的重试间隔: 5 分钟起翻倍, 不超过订阅更新间隔。
+fn retry_delay(interval: u64, failures: u32) -> u64 {
+    (300_000u64 << failures.saturating_sub(1).min(16)).min(interval)
 }
 
 /* ---------------- 配置增强链(M2) ---------------- */
@@ -1501,6 +1565,18 @@ mod tests {
         .err()
         .unwrap();
         assert!(!error.contains("fixture-private-value"));
+        // 来源链拼在顶层错误之后，能看出具体是哪一层失败
+        assert!(error.matches(": ").count() >= 2, "{error}");
+    }
+
+    #[test]
+    fn auto_update_retries_back_off_up_to_the_update_interval() {
+        let day = 1440 * 60_000;
+        assert_eq!(retry_delay(day, 1), 300_000);
+        assert_eq!(retry_delay(day, 2), 600_000);
+        assert_eq!(retry_delay(day, 4), 2_400_000);
+        assert_eq!(retry_delay(day, u32::MAX), day);
+        assert_eq!(retry_delay(120_000, 1), 120_000);
     }
 
     #[test]

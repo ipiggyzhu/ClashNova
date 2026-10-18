@@ -45,9 +45,23 @@ const DNS_DEFAULTS = {
   fakeIpFilterMode: 'blacklist' as FakeIpFilterMode,
   ipv6Dns: false,
   preferH3: false,
-  respectRules: false,
-  useHosts: false,
-  useSystemHosts: false,
+  respectRules: null as boolean | null,
+  useHosts: null as boolean | null,
+  useSystemHosts: null as boolean | null,
+}
+
+/** 为 null 时不写入覆写, 由订阅决定 */
+const FOLLOW_PROFILE_KEYS = [
+  ['respectRules', 'respect-rules'],
+  ['useHosts', 'use-hosts'],
+  ['useSystemHosts', 'use-system-hosts'],
+] as const
+
+function followProfileEntries(settings: AppSettings): [string, string][] {
+  return FOLLOW_PROFILE_KEYS.flatMap(([key, yamlKey]): [string, string][] => {
+    const value = settings[key]
+    return typeof value === 'boolean' ? [[yamlKey, `${yamlKey}: ${value}`]] : []
+  })
 }
 
 export function syncDnsSettings(
@@ -84,12 +98,7 @@ function buildDnsOverride(settings: AppSettings, current: string): string {
     ['listen', `listen: ${quoteYaml(settings.dnsListen || DNS_DEFAULTS.dnsListen)}`],
     ['ipv6', `ipv6: ${settings.ipv6Dns ? 'true' : 'false'}`],
     ['prefer-h3', `prefer-h3: ${settings.preferH3 ? 'true' : 'false'}`],
-    ['respect-rules', `respect-rules: ${settings.respectRules ? 'true' : 'false'}`],
-    ['use-hosts', `use-hosts: ${settings.useHosts ? 'true' : 'false'}`],
-    [
-      'use-system-hosts',
-      `use-system-hosts: ${settings.useSystemHosts ? 'true' : 'false'}`,
-    ],
+    ...followProfileEntries(settings),
   ])
 
   if (settings.dnsEnhancedMode) {
@@ -480,9 +489,7 @@ export function buildDnsFormOverride(settings: AppSettings, form: DnsOverrideFor
     `listen: ${JSON.stringify(settings.dnsListen)}`,
     `ipv6: ${settings.ipv6Dns ? 'true' : 'false'}`,
     `prefer-h3: ${settings.preferH3 ? 'true' : 'false'}`,
-    `respect-rules: ${settings.respectRules ? 'true' : 'false'}`,
-    `use-hosts: ${settings.useHosts ? 'true' : 'false'}`,
-    `use-system-hosts: ${settings.useSystemHosts ? 'true' : 'false'}`,
+    ...followProfileEntries(settings).map(([, line]) => line),
   ]
   if (settings.dnsEnhancedMode) lines.push(`enhanced-mode: ${settings.dnsEnhancedMode}`)
   if (settings.dnsEnhancedMode === 'fake-ip') {
