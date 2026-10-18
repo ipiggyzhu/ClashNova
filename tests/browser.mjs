@@ -242,6 +242,127 @@ try {
     assert.equal(text, '12:00:00 [ERROR] export-fixture-keep\n')
   })
 
+  await check('logs_info_hides_buffered_debug_lines', async () => {
+    await page.goto(`${base}/logs`, { waitUntil: 'networkidle' })
+    await page.evaluate(async () => {
+      Object.defineProperty(document, 'hidden', { value: true, configurable: true })
+      document.dispatchEvent(new Event('visibilitychange'))
+      const { useLiveStore } = await import('/src/stores/live.ts')
+      useLiveStore.getState().clearLogs()
+      useLiveStore.setState({ logs: ['debug', 'info', 'warning', 'error'].map((type, id) => ({ id, type, time: '12:00:00', payload: `minimum-${type}` })) })
+    })
+    await page.getByText('minimum-info', { exact: true }).waitFor()
+    assert.equal(await page.getByText('minimum-debug', { exact: true }).count(), 0)
+    assert.equal(await page.locator('.console .line').count(), 3)
+  })
+
+  await check('logs_follow_settings_without_an_extra_level_control', async () => {
+    await page.goto(`${base}/settings`, { waitUntil: 'networkidle' })
+    await page.getByRole('combobox', { name: '日志等级', exact: true }).selectOption('warning')
+    await page.waitForFunction(async () => (await import('/src/services/mock.ts')).mockHandlers.get_settings().logLevel === 'warning')
+    await page.locator('a[href="/logs"]').click()
+    await page.getByText('日志等级: warning', { exact: true }).waitFor()
+    assert.equal(await page.getByRole('combobox', { name: '日志等级', exact: true }).count(), 0)
+  })
+
+  await check('logs_transport_tracks_level_changes_on_logs_and_settings_pages', async () => {
+    const fixture = await context()
+    try {
+      await fixture.route('**/src/services/ws.ts*', async route => {
+        const response = await route.fetch()
+        const source = await response.text()
+        const mockLogSubscription = /if \(isMock\) return subscribeMock\((?:2000|2e3), mockNextLog,/
+        assert.match(source, mockLogSubscription)
+        await route.fulfill({ response, body: source.replace(mockLogSubscription, `
+          if (isMock) (window.__logLevels ??= []).push(level);
+          if (isMock) return subscribeMock(2000, () => ({ type: 'debug', payload: 'transport-level-debug', time: '12:00:00' }),
+        `) })
+      })
+      const logPage = await fixture.newPage()
+      await logPage.goto(`${base}/logs`, { waitUntil: 'networkidle' })
+      await logPage.waitForFunction(() => window.__logLevels?.at(-1) === 'info')
+      assert.equal(await logPage.getByText('transport-level-debug', { exact: true }).count(), 0)
+      await logPage.locator('a[href="/settings"]').click()
+      await logPage.getByRole('combobox', { name: '日志等级', exact: true }).selectOption('debug')
+      await logPage.waitForFunction(() => window.__logLevels?.at(-1) === 'debug')
+      await logPage.locator('a[href="/logs"]').click()
+      await logPage.getByText('transport-level-debug', { exact: true }).first().waitFor({ timeout: 5000 })
+      await logPage.locator('a[href="/settings"]').click()
+      await logPage.getByRole('combobox', { name: '日志等级', exact: true }).selectOption('warning')
+      await logPage.waitForFunction(() => window.__logLevels?.at(-1) === 'warning', null, { timeout: 5000 })
+      await logPage.locator('a[href="/logs"]').click()
+      await logPage.getByText('日志等级: warning', { exact: true }).waitFor()
+      assert.equal(await logPage.getByText('transport-level-debug', { exact: true }).count(), 0)
+      await logPage.locator('a[href="/settings"]').click()
+      await logPage.evaluate(async () => {
+        const { mockHandlers } = await import('/src/services/mock.ts')
+        window.__restoreLogPatch = mockHandlers.patch_settings
+        mockHandlers.patch_settings = () => new Promise((_resolve, reject) => { window.__rejectLogPatch = reject })
+      })
+      await logPage.getByRole('combobox', { name: '日志等级', exact: true }).selectOption('error')
+      await logPage.waitForFunction(() => window.__logLevels?.at(-1) === 'error' && typeof window.__rejectLogPatch === 'function')
+      await logPage.evaluate(async () => {
+        window.__rejectLogPatch(new Error('fixture transport level save failed'))
+        const { mockHandlers } = await import('/src/services/mock.ts')
+        mockHandlers.patch_settings = window.__restoreLogPatch
+      })
+      await logPage.waitForFunction(async () => (await import('/src/stores/notifications.ts')).useNotificationStore.getState().notifications.some(item => item.message === 'fixture transport level save failed'))
+      await logPage.waitForFunction(() => window.__logLevels?.at(-1) === 'warning')
+      await logPage.getByRole('combobox', { name: '日志等级', exact: true }).selectOption('silent')
+      await logPage.waitForFunction(() => window.__logLevels?.at(-1) === 'silent')
+      await logPage.locator('a[href="/logs"]').click()
+      await logPage.locator('.pg-logs').waitFor()
+      assert.equal(await logPage.locator('.console .line').count(), 0)
+      await fixture.route('**/src/services/mock.ts*', async route => {
+        const response = await route.fetch()
+        const source = await response.text()
+        assert.match(source, /logLevel: ["']info["']/)
+        await route.fulfill({ response, body: source.replace(/logLevel: ["']info["']/, 'logLevel: "debug"') })
+      })
+      await logPage.reload({ waitUntil: 'networkidle' })
+      await logPage.waitForFunction(() => window.__logLevels?.at(-1) === 'debug')
+      await logPage.getByText('transport-level-debug', { exact: true }).first().waitFor()
+    } finally { await fixture.close() }
+  })
+
+  await check('rules_long_content_is_readable_by_horizontal_scrolling', async () => {
+    const fixture = await context()
+    try {
+      await fixture.addInitScript(() => {
+        window.__ruleFixture = [{ type: 'DOMAIN-SUFFIX', payload: 'very-long-domain.'.repeat(30) + 'example.invalid', proxy: '名称很长的策略组'.repeat(15) }]
+      })
+      await fixture.route('**/src/services/api.ts*', async route => {
+        const response = await route.fetch()
+        const source = await response.text()
+        await route.fulfill({ response, body: source.replace('return mockRules()', 'return window.__ruleFixture') })
+      })
+      const rulePage = await fixture.newPage()
+      await rulePage.setViewportSize({ width: 960, height: 900 })
+      await rulePage.goto(`${base}/rules`, { waitUntil: 'networkidle' })
+      await rulePage.locator('.rule-row').first().waitFor()
+      const scroll = await rulePage.locator('.rule-table-wrap').evaluate(wrap => {
+        wrap.scrollLeft = wrap.scrollWidth
+        const payload = wrap.querySelector('.rule-payload')
+        return { left: wrap.scrollLeft, overflow: getComputedStyle(wrap).overflowX, clipped: payload.scrollWidth > payload.clientWidth, titled: payload.hasAttribute('title') }
+      })
+      assert.ok(scroll.left > 0, 'long rules must have a horizontal scrollbar')
+      assert.equal(scroll.overflow, 'auto')
+      assert.equal(scroll.clipped, false)
+      assert.equal(scroll.titled, false)
+    } finally { await fixture.close() }
+  })
+
+  await check('rules_rows_stay_compact_without_page_container_padding', async () => {
+    await page.goto(`${base}/rules`, { waitUntil: 'networkidle' })
+    await page.locator('.rule-row').first().waitFor()
+    const geometry = await page.locator('.rule-row').first().evaluate(row => ({
+      height: row.getBoundingClientRect().height,
+      payloadPadding: getComputedStyle(row.querySelector('.rule-payload') ?? row.querySelector('.content')).paddingTop,
+    }))
+    assert.ok(geometry.height <= 48, `rule row is ${geometry.height}px tall`)
+    assert.ok(parseFloat(geometry.payloadPadding) <= 12, `rule text inherits ${geometry.payloadPadding} top padding`)
+  })
+
   await check('dns_query_renders_core_answers', async () => {
     await page.goto(`${base}/test`, { waitUntil: 'networkidle' })
     await page.getByLabel('查询域名').fill('https://example.com/path')

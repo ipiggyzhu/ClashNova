@@ -20,7 +20,7 @@ const EMPTY_RULES: RuleItem[] = []
 function targetColor(proxy: string): string {
   if (proxy === 'DIRECT') return 'var(--green)'
   if (proxy === 'REJECT' || proxy === 'REJECT-DROP') return 'var(--red)'
-  return 'var(--accent)'
+  return 'var(--text)'
 }
 
 function typeChipStyle(type: string): React.CSSProperties | undefined {
@@ -92,19 +92,24 @@ export default function Rules() {
           <div className="empty">{t('没有匹配的规则')}</div>
         ) : (
           <>
-            {shown.map((r) => (
-              <div className="rule-row" key={r.index}>
-                <span className="idx">{r.index}</span>
-                <span className="content">{r.payload || '—'}</span>
-                <span className="chip" style={typeChipStyle(r.type.toUpperCase())}>
-                  {r.type.toUpperCase()}
-                </span>
-                <span className="spacer" />
-                <span className="target" style={{ color: targetColor(r.proxy) }}>
-                  {r.proxy}
-                </span>
-              </div>
-            ))}
+            <div className="rule-table-wrap" role="region" aria-label={t('规则列表')} tabIndex={0}>
+              <table className="rule-table" aria-label={t('规则列表')}>
+                <colgroup><col className="rule-index-col" /><col /><col className="rule-type-col" /><col className="rule-target-col" /></colgroup>
+                <thead>
+                  <tr><th scope="col">{t('优先级')}</th><th scope="col">{t('规则内容')}</th><th scope="col">{t('类型')}</th><th scope="col">{t('目标策略')}</th></tr>
+                </thead>
+                <tbody>
+                  {shown.map((r) => (
+                    <tr className="rule-row" key={r.index}>
+                      <td className="idx">{r.index}</td>
+                      <td className="rule-payload">{r.payload || '—'}</td>
+                      <td><span className="chip" style={typeChipStyle(r.type)}>{r.type}</span></td>
+                      <td className="target" style={{ color: targetColor(r.proxy) }}>{r.proxy}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
             <div className="pagination" aria-label={t('规则分页')}>
               <Button size="sm" disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)}>{t('上一页')}</Button>
               <span>{t('第 {page} / {pages} 页 · {count} 条', { page: currentPage + 1, pages: pageCount, count: filtered.length.toLocaleString() })}</span>

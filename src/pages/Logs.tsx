@@ -8,8 +8,9 @@ import Input from '../components/ui/Input'
 import Seg from '../components/ui/Seg'
 import { useVirtualRows } from '../hooks/useVirtualRows'
 import { useAppStore } from '../stores/app'
-import { startLiveStreams, useLiveStore } from '../stores/live'
+import { useLiveStore } from '../stores/live'
 import type { LogItem } from '../types/clash'
+import { meetsLogLevel } from '../utils/logs'
 
 import { useT } from '../i18n'
 const LEVEL_TONE: Record<LogItem['type'], BadgeTone> = {
@@ -58,16 +59,15 @@ export default function Logs() {
   const [keyword, setKeyword] = useState('')
   const followTail = useRef(true)
 
-  useEffect(() => startLiveStreams(['logs']), [])
-
   const list = useMemo(() => {
     const kw = keyword.trim().toLowerCase()
     return logs.filter((l) => {
+      if (!meetsLogLevel(l.type, logLevel)) return false
       if (level !== 'all' && l.type !== level) return false
       if (kw && !l.payload.toLowerCase().includes(kw)) return false
       return true
     })
-  }, [logs, level, keyword])
+  }, [logs, logLevel, level, keyword])
 
   const windowed = useVirtualRows(list.length, 24, 12)
   useEffect(() => {

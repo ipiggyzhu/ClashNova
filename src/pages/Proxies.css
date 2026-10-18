@@ -20,3 +20,4 @@
 .pg-proxies .node .meta .badge{white-space:nowrap;flex-shrink:0}
 .pg-proxies .node .testing{font-size:10.5px;color:var(--text-3);font-family:var(--mono)}
 .pg-proxies .empty{padding:40px;text-align:center;color:var(--text-3);font-size:12.5px}
+.pg-proxies .refresh-error{font-size:12px;color:var(--orange)}

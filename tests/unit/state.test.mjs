@@ -110,6 +110,18 @@ test('log bursts batch notifications, cap storage, and keep stable unique IDs', 
   release()
 })
 
+test('log transport uses the selected minimum level and defaults to info', () => {
+  const levels = []
+  const { module } = loadSource('src/stores/live.ts', { '../services/ws': {
+    subscribeLogs: (_onLog, level) => { levels.push(level); return () => {} },
+  } })
+  for (const level of [undefined, 'warning', 'debug', 'silent']) {
+    const release = module.startLiveStreams(['logs'], level)
+    release()
+  }
+  assert.deepEqual(levels, ['info', 'warning', 'debug', 'silent'])
+})
+
 test('closed connection history ignores baselines and disconnect snapshots, dedupes revived IDs and caps size', () => {
   const { module } = loadSource('src/stores/live.ts', { '../services/ws': {
     subscribeTraffic: () => () => {}, subscribeConnections: () => () => {},

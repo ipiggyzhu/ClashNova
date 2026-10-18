@@ -308,6 +308,28 @@ test('REST timeout aborts the request and always clears its timer', async () => 
   assert.deepEqual(cleared, [1])
 })
 
+test('mock log transport respects the minimum level, including silent', () => {
+  for (const [level, expected] of [
+    [undefined, ['info', 'warning', 'error']],
+    ['debug', ['debug', 'info', 'warning', 'error']],
+    ['warning', ['warning', 'error']],
+    ['error', ['error']],
+    ['silent', []],
+  ]) {
+    let index = 0, next
+    const received = []
+    const { module } = loadSource('src/services/ws.ts', {
+      './ipc': { isMock: true }, './api': {},
+      './mock': { mockNextLog: () => ({ type: ['debug', 'info', 'warning', 'error'][index++], payload: 'fixture', time: '12:00:00' }) },
+    }, { setInterval: callback => { next = callback; return 1 }, clearInterval: () => {} })
+    const release = module.subscribeLogs(log => received.push(log.type), level)
+    try {
+      for (let i = 0; i < 3; i++) next()
+      assert.deepEqual(received, expected, String(level))
+    } finally { release() }
+  }
+})
+
 test('WebSocket waits for configuration and closes while hidden', async () => {
   const configured = deferred(), sockets = [], statuses = []
   class Socket {

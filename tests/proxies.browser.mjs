@@ -8,6 +8,7 @@ export async function runProxiesBrowser(browser, base) {
   })
   await context.addInitScript(() => {
     window.__proxyProfileId = 'profile-a'
+    window.__proxyRefreshFails = false
     window.__proxyProbeCalls = []
     window.__groupProbeCalls = 0
     window.__probeDelay = async (args) => { window.__proxyProbeCalls.push(args); return 36 }
@@ -17,6 +18,7 @@ export async function runProxiesBrowser(browser, base) {
       Streaming: { name: 'Streaming', type: 'Selector', now: 'HK-PCCW', all: ['HK-PCCW', 'HK-ViuTV'], testUrl: 'https://group.example.invalid/204', history: [] },
       '全部节点': { name: '全部节点', type: 'Selector', now: 'HK-PCCW', all: ['HK-PCCW'], history: [] },
       'virtual:all': { name: 'virtual:all', type: 'Selector', now: 'HK-PCCW', all: ['HK-PCCW'], history: [] },
+      GLOBAL: { name: 'GLOBAL', type: 'Selector', now: 'Streaming', all: ['DIRECT', 'virtual:all', 'HK-PCCW', '全部节点', 'Streaming'], history: [] },
     } }
   })
   const page = await context.newPage()
@@ -27,7 +29,7 @@ export async function runProxiesBrowser(browser, base) {
     const response = await route.fetch()
     const source = await response.text()
     await route.fulfill({ response, body: source
-      .replace('return mockProxies()', 'return structuredClone(window.__proxyFixture)')
+      .replace('return mockProxies()', 'if (window.__proxyRefreshFails) throw new Error("fixture proxy refresh failed"); return structuredClone(window.__proxyFixture)')
       .replace('const delay = mockTestDelay(name)', 'const delay = await window.__probeDelay({ name, timeout, url, provider: typeof provider === "undefined" ? undefined : provider })')
       .replace('return mockTestGroupDelay(group, timeout)', 'window.__groupProbeCalls++; return {}') })
   })
@@ -57,6 +59,13 @@ export async function runProxiesBrowser(browser, base) {
       assert.equal(await card('Streaming').getByRole('button', { name: '展开', exact: true }).getAttribute('aria-expanded'), 'false')
     })
 
+    await check('proxies_keep_configuration_group_order_instead_of_api_map_order', async () => {
+      await visit()
+      assert.deepEqual(await page.locator('.pg-proxies .card h3').allTextContents(), ['virtual:all', '全部节点', 'Streaming'])
+      await page.getByRole('group', { name: '节点排序' }).getByRole('button', { name: '名称', exact: true }).click()
+      assert.deepEqual(await page.locator('.pg-proxies .card h3').allTextContents(), ['virtual:all', '全部节点', 'Streaming'])
+    })
+
     await check('proxies_remember_open_groups_per_profile_without_virtual_key_collisions', async () => {
       await visit()
       await card('全部节点').getByRole('button', { name: '展开', exact: true }).click()
@@ -76,6 +85,23 @@ export async function runProxiesBrowser(browser, base) {
       })
       await card('全部节点').locator('.node').waitFor()
       assert.equal(await card('virtual:all').locator('.node').count(), 0)
+    })
+
+    await check('proxies_keep_open_group_mounted_when_background_refresh_fails', async () => {
+      await visit()
+      await card('Streaming').getByRole('button', { name: '展开', exact: true }).click()
+      await page.evaluate(() => { window.__openGroup = document.querySelector('.node-grid[data-group="Streaming"]') })
+      await page.evaluate(() => { window.__proxyRefreshFails = true })
+      await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')))
+      await page.getByText(/fixture proxy refresh failed/).waitFor()
+      assert.equal(await page.evaluate(() => window.__openGroup.isConnected), true)
+      assert.equal(await card('Streaming').getByRole('button', { name: '折叠', exact: true }).getAttribute('aria-expanded'), 'true')
+      await page.evaluate(() => {
+        window.__proxyRefreshFails = false
+        document.dispatchEvent(new Event('visibilitychange'))
+      })
+      await page.getByRole('alert').filter({ hasText: 'fixture proxy refresh failed' }).waitFor({ state: 'hidden' })
+      assert.equal(await page.evaluate(() => document.querySelector('.node-grid[data-group="Streaming"]') === window.__openGroup), true)
     })
 
     await check('proxies_clear_previous_profile_fold_state_when_no_profile_is_selected', async () => {

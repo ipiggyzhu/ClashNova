@@ -5,7 +5,8 @@
  * mock 模式用定时器造数: traffic 每 1s randomwalk、logs 每 2s 一条、
  * connections 每 1s 快照微扰; 真实模式 WebSocket + 断线 3s 重连。
  */
-import type { ConnectionsPayload, LogItem, MemoryPoint, TrafficPoint } from '../types/clash'
+import type { AppSettings, ConnectionsPayload, LogItem, MemoryPoint, TrafficPoint } from '../types/clash'
+import { meetsLogLevel } from '../utils/logs'
 import { apiConfig, ensureConfigured } from './api'
 import { call, isMock } from './ipc'
 import { mockConnections, mockNextLog, mockNextMemory, mockNextTraffic } from './mock'
@@ -161,9 +162,11 @@ export function subscribeMemory(onPoint: (point: MemoryPoint) => void, onStatus?
 /** WS /logs?level={level} — mock 模式每 2s 一条仿真日志 */
 export function subscribeLogs(
   onLog: (log: LogItem) => void,
-  level: string = 'debug',
+  level: AppSettings['logLevel'] = 'info',
   onStatus?: OnStatus,
 ): Unsubscribe {
-  if (isMock) return subscribeMock(2000, mockNextLog, onLog, onStatus)
+  if (isMock) return subscribeMock(2000, mockNextLog, (log) => {
+    if (meetsLogLevel(log.type, level)) onLog(log)
+  }, onStatus)
   return subscribeWs<LogItem>(`/logs?level=${encodeURIComponent(level)}`, onLog, undefined, onStatus)
 }

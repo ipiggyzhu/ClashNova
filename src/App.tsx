@@ -12,13 +12,14 @@ import { useNotificationStore } from './stores/notifications'
 export default function App() {
   const customCss = useAppStore((s) => s.settings.customCss)
   const language = useAppStore((s) => s.settings.language)
+  const logLevel = useAppStore((s) => s.settings.logLevel)
 
   useEffect(() => { document.documentElement.lang = language === 'en' ? 'en' : 'zh-CN' }, [language])
 
   useEffect(watchSystemTheme, [])
 
   // mihomo /logs 只推送订阅之后的新日志, 没有历史; 主窗口常驻订阅, 打开日志页即可看到已缓冲内容
-  useEffect(() => startLiveStreams(['logs']), [])
+  useEffect(() => startLiveStreams(['logs'], logLevel), [logLevel])
 
   useEffect(() => {
     const refresh = (): void => {

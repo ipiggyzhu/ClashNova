@@ -174,9 +174,12 @@ export default function Proxies() {
   const groups: GroupView[] = useMemo(() => {
     if (!payload) return []
     const all = payload.proxies
+    // GLOBAL 的成员顺序由内核保留为配置顺序，API 对象本身的键顺序不保证一致。
+    const order = new Map((all.GLOBAL?.all ?? []).map((name, index) => [name, index]))
     return Object.values(all)
       .filter((p): p is ProxyNode & ProxyGroup => GROUP_TYPES.has(p.type) && Array.isArray(p.all))
       .filter((g) => g.name !== 'GLOBAL')
+      .sort((a, b) => (order.get(a.name) ?? Number.MAX_SAFE_INTEGER) - (order.get(b.name) ?? Number.MAX_SAFE_INTEGER))
       .map((g) => ({
         name: g.name,
         type: g.type,
@@ -389,7 +392,7 @@ export default function Proxies() {
           {hideTimeout ? t('已隐藏超时') : t('隐藏超时')}
         </Button>
         <div className="spacer" />
-        <span className="chip">{loadError ? t('内核未运行') : t('共{count}个节点', { count: totalNodes })}</span>
+        <span className="chip">{loadError && !payload ? t('内核未运行') : t('共{count}个节点', { count: totalNodes })}</span>
         <Button variant="primary" onClick={() => void testAll()} disabled={testingAll || !!loadError || totalNodes === 0}>
           <Icon name="zap" size={13} />
           {testingAll ? t('测速中…') : t('全部测速')}
@@ -397,7 +400,8 @@ export default function Proxies() {
       </div>
 
       {actionError && <div role="alert">{t(actionError.title)}{actionError.detail}</div>}
-      {loadError ? (
+      {loadError && payload && <div className="refresh-error" role="alert">{t('节点刷新失败，显示上次结果：')}{loadError}</div>}
+      {loadError && !payload ? (
         <Card icon={<Icon name="proxies" />} iconColor="var(--accent)" title={t('节点列表')} flush>
           <div className="empty">{t('节点加载失败：')}{loadError}</div>
         </Card>

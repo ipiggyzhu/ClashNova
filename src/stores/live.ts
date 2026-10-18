@@ -11,7 +11,7 @@ import {
   type StreamStatus,
   type Unsubscribe,
 } from '../services/ws'
-import type { ConnItem, ConnectionsPayload, LogItem, MemoryPoint, TrafficPoint } from '../types/clash'
+import type { AppSettings, ConnItem, ConnectionsPayload, LogItem, MemoryPoint, TrafficPoint } from '../types/clash'
 
 /** traffic 环形缓冲容量(60 点 ≈ 60s) */
 export const TRAFFIC_CAPACITY = 60
@@ -381,7 +381,7 @@ const subscriptions = new Map<LiveStream, { count: number; release: Unsubscribe 
  * 启动三路 WS 订阅并写入 store。返回释放函数;
  * 多个页面同时调用只建立一份底层订阅, 最后一个释放时断开。
  */
-export function startLiveStreams(streams: readonly LiveStream[]): Unsubscribe {
+export function startLiveStreams(streams: readonly LiveStream[], logLevel: AppSettings['logLevel'] = 'info'): Unsubscribe {
   const requested = [...new Set(streams)]
   for (const stream of requested) {
     const active = subscriptions.get(stream)
@@ -394,7 +394,7 @@ export function startLiveStreams(streams: readonly LiveStream[]): Unsubscribe {
     const release = stream === 'traffic' ? subscribeTraffic(pushTraffic, onStatus)
       : stream === 'connections' ? subscribeConnections(setConnections, onStatus)
         : stream === 'memory' ? subscribeMemory(setMemory, onStatus)
-          : subscribeLogs(pushLog, 'debug', onStatus)
+          : subscribeLogs(pushLog, logLevel, onStatus)
     subscriptions.set(stream, { count: 1, release })
   }
   let released = false
