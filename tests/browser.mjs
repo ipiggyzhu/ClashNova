@@ -6,6 +6,7 @@ import { createServer, preview } from 'vite'
 import { runSettingsBrowser } from './ui-settings.browser.mjs'
 import { runTrayBrowser } from './tray.browser.mjs'
 import { runProfilesBrowser } from './profiles.browser.mjs'
+import { runProxiesBrowser } from './proxies.browser.mjs'
 import { runBackupBrowser } from './backup.browser.mjs'
 import { runUpdaterBrowser } from './ui-updater.browser.mjs'
 import { runMediaBrowser } from './media.browser.mjs'
@@ -208,6 +209,7 @@ try {
 
   await check('proxies_sort_by_delay_orders_nodes_and_persists', async () => {
     await page.goto(`${base}/proxies`, { waitUntil: 'networkidle' })
+    await page.locator('.card').filter({ has: page.getByRole('heading', { name: 'Streaming', exact: true }) }).getByRole('button', { name: '展开', exact: true }).click()
     await page.locator('.node-grid[data-group="Streaming"] .node').first().waitFor()
     await page.getByRole('group', { name: '节点排序' }).getByRole('button', { name: '延迟', exact: true }).click()
     const delays = await page.locator('.node-grid[data-group="Streaming"] .node').evaluateAll((nodes) => nodes.map((node) => {
@@ -336,28 +338,35 @@ try {
   assert.equal(pageErrors.length, 0, pageErrors.join('\n'))
   await ctx.close()
 
-  await check('proxies_distinguish_historical_timeouts_untested_and_successful_nodes', async () => {
+  await check('proxies_keep_historical_failures_and_successes_while_filling_untested_delays', async () => {
     const fixture = await context()
     try {
       await fixture.addInitScript(() => { window.__proxyFixture = { proxies: {
+        History: { name: 'History', type: 'Selector', now: 'previous-success', all: ['previous-timeout', 'never-tested', 'previous-success'], history: [] },
         'previous-timeout': { name: 'previous-timeout', type: 'Vmess', history: [{ time: '2026-10-10T00:00:00Z', delay: 0 }] },
         'never-tested': { name: 'never-tested', type: 'Vmess', history: [] },
         'previous-success': { name: 'previous-success', type: 'Vmess', history: [{ time: '2026-10-10T00:00:00Z', delay: 24 }] },
-      } } })
+      } }; window.__waitProxyProbe = () => new Promise((resolve) => { window.__finishProxyDelay = () => resolve(42) }) })
       const proxiesPage = await fixture.newPage()
       await proxiesPage.route('**/src/services/api.ts*', async (route) => {
         const response = await route.fetch()
         const source = await response.text()
         assert.match(source, /return mockProxies\(\)/)
-        await route.fulfill({ response, body: source.replace(/return mockProxies\(\)/, 'return window.__proxyFixture') })
+        await route.fulfill({ response, body: source
+          .replace(/return mockProxies\(\)/, 'return window.__proxyFixture')
+          .replace('const delay = mockTestDelay(name)', 'const delay = await window.__waitProxyProbe()') })
       })
       await proxiesPage.goto(base + '/proxies', { waitUntil: 'networkidle' })
+      await proxiesPage.waitForFunction(() => typeof window.__finishProxyDelay === 'function')
+      await proxiesPage.getByRole('button', { name: '展开', exact: true }).click()
       await proxiesPage.getByText('previous-timeout', { exact: true }).waitFor()
       const node = (name) => proxiesPage.locator('.node').filter({ hasText: name })
       // mihomo 历史记录中 delay 0 不区分超时与其他失败, 统一显示 Failed
       assert.match(await node('previous-timeout').innerText(), /Failed/)
-      assert.match(await node('never-tested').innerText(), /— ms/)
+      assert.match(await node('never-tested').innerText(), /测速中/)
       assert.match(await node('previous-success').innerText(), /24 ms/)
+      await proxiesPage.evaluate(() => window.__finishProxyDelay())
+      await node('never-tested').getByText('42 ms', { exact: true }).waitFor()
       assert.equal(await proxiesPage.locator('.testing').count(), 0)
     } finally { await fixture.close() }
   })
@@ -459,7 +468,7 @@ try {
     } finally { await fixture.close() }
   })
 
-  for (const suite of [runTrayBrowser, runSettingsBrowser, runProfilesBrowser, runBackupBrowser, runUpdaterBrowser, runMediaBrowser, runWindowsSettingsBrowser, runDiagnosticsBrowser, runI18nBrowser]) {
+  for (const suite of [runTrayBrowser, runSettingsBrowser, runProfilesBrowser, runProxiesBrowser, runBackupBrowser, runUpdaterBrowser, runMediaBrowser, runWindowsSettingsBrowser, runDiagnosticsBrowser, runI18nBrowser]) {
     const ui = await suite(browser, base)
     passed += ui.passed
     failed += ui.failed

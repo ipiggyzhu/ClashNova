@@ -13,10 +13,10 @@ pub mod script;
 pub mod subscription;
 pub mod tun;
 
-pub use chain::{apply_chain, EnhancerItem};
+pub use chain::{apply_chain, apply_chain_with_profile, EnhancerItem};
 pub use config_gen::{build_runtime_config, RuntimeOverrides};
 pub use merge::deep_merge;
-pub use script::run_script;
+pub use script::{run_script, run_script_with_profile};
 pub use subscription::parse_subscription;
 pub use tun::TunOptions;
 

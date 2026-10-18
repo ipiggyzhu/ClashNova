@@ -23,7 +23,7 @@ import { daysLeft, fmtBytes, fmtRelTime } from '../utils/format'
 /** 新建增强项的初始模板 */
 const ENH_TEMPLATES: Record<EnhancerMeta['kind'], string> = {
   merge: '# YAML 深合并补丁(支持 prepend-X / append-X)\n# 例: 覆写 DNS\ndns:\n  enable: true\n',
-  script: '// 须定义 main(config) 并返回配置对象\nfunction main(config) {\n  return config;\n}\n',
+  script: '// profileName 为当前订阅名称；须返回配置对象\nfunction main(config, profileName) {\n  return config;\n}\n',
 }
 
 const NEW_PROFILE_TEMPLATE = `mixed-port: 7897
@@ -92,6 +92,7 @@ const RULE_TYPES = [
 
 const BASE_TARGETS = ['DIRECT', 'REJECT', 'REJECT-DROP', 'PASS', 'GLOBAL']
 const BUILTIN_ENHANCER_PREFIX = 'builtin-'
+const BUILTIN_PRUNE_ENHANCER_ID = 'builtin-prune-invalid-nodes'
 
 const uniqTargets = (items: string[]): string[] => [
   ...new Set(items.map((item) => item.trim()).filter(Boolean)),
@@ -127,6 +128,8 @@ export default function Profiles() {
   const [profileMenu, setProfileMenu] = useState<ProfileMenuState | null>(null)
   const [confirmDelEnh, setConfirmDelEnh] = useState<string | null>(null)
   const [draggedEnhIndex, setDraggedEnhIndex] = useState<number | null>(null)
+  const [dropEnhIndex, setDropEnhIndex] = useState<number | null>(null)
+  const enhDrag = useRef<{ pointerId: number; from: number; to: number | null; x: number; y: number; profileId: string; ids: string[]; moved: boolean } | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const notify = useNotificationStore((s) => s.add)
   const refreshRevision = useRef(0)
@@ -359,7 +362,9 @@ export default function Profiles() {
   /* ---- 增强链 ---- */
   const currentProfile = profiles.find((p) => p.current) ?? null
   const enhancerProfileId = enhancerScope === 'global' ? '__global__' : currentProfile?.id
-  const enhancers = enhancerScope === 'global' ? globalEnhancers : currentProfile?.enhancers ?? []
+  const enhancers = [...(enhancerScope === 'global' ? globalEnhancers : currentProfile?.enhancers ?? [])]
+    .sort((a, b) => Number(a.id === BUILTIN_PRUNE_ENHANCER_ID) - Number(b.id === BUILTIN_PRUNE_ENHANCER_ID))
+  const movableEnhancers = enhancers.filter((e) => e.id !== BUILTIN_PRUNE_ENHANCER_ID).length
   const newSaving = busyIds.has('new-profile')
   const editorSaving = !!editor && busyIds.has(editor.profile.id)
   const enhancerSaving = !!enhEditor && busyIds.has(enhEditor.pid)
@@ -498,6 +503,7 @@ export default function Profiles() {
 
   const reorderEnhancers = async (fromIndex: number, toIndex: number): Promise<void> => {
     if (!enhancerProfileId || fromIndex === toIndex || busyRef.current.has(enhancerProfileId)) return
+    if (fromIndex < 0 || toIndex < 0 || fromIndex >= movableEnhancers || toIndex >= movableEnhancers) return
     const newEnhancers = [...enhancers]
     const [moved] = newEnhancers.splice(fromIndex, 1)
     newEnhancers.splice(toIndex, 0, moved)
@@ -511,26 +517,38 @@ export default function Profiles() {
     })
   }
 
-  const handleEnhDragStart = (e: React.DragEvent, index: number): void => {
-    setDraggedEnhIndex(index)
-    e.dataTransfer.effectAllowed = 'move'
-  }
-
-  const handleEnhDragOver = (e: React.DragEvent, index: number): void => {
+  const handleEnhPointerDown = (e: React.PointerEvent<HTMLButtonElement>, index: number): void => {
+    if (e.button !== 0 || !enhancerProfileId || currentBusy || index >= movableEnhancers || movableEnhancers < 2) return
     e.preventDefault()
-    if (draggedEnhIndex === null || draggedEnhIndex === index) return
-    e.dataTransfer.dropEffect = 'move'
+    e.currentTarget.focus({ preventScroll: true })
+    e.currentTarget.setPointerCapture(e.pointerId)
+    enhDrag.current = { pointerId: e.pointerId, from: index, to: index, x: e.clientX, y: e.clientY,
+      profileId: enhancerProfileId, ids: enhancers.map((item) => item.id), moved: false }
   }
 
-  const handleEnhDrop = (e: React.DragEvent, dropIndex: number): void => {
-    e.preventDefault()
-    if (draggedEnhIndex === null) return
-    void reorderEnhancers(draggedEnhIndex, dropIndex)
-    setDraggedEnhIndex(null)
+  const handleEnhPointerMove = (e: React.PointerEvent<HTMLButtonElement>): void => {
+    const drag = enhDrag.current
+    if (!drag || drag.pointerId !== e.pointerId) return
+    if (!drag.moved && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < 5) return
+    drag.moved = true
+    const target = document.elementFromPoint(e.clientX, e.clientY)?.closest<HTMLElement>('.enh-row[data-enh-index]')
+    const index = target ? Number(target.dataset.enhIndex) : -1
+    drag.to = index >= 0 && index < movableEnhancers ? index : null
+    setDraggedEnhIndex(drag.from)
+    setDropEnhIndex(drag.to)
   }
 
-  const handleEnhDragEnd = (): void => {
+  const finishEnhDrag = (target: HTMLButtonElement, cancelled = false): void => {
+    const drag = enhDrag.current
+    enhDrag.current = null
     setDraggedEnhIndex(null)
+    setDropEnhIndex(null)
+    if (!drag) return
+    if (target.hasPointerCapture(drag.pointerId)) target.releasePointerCapture(drag.pointerId)
+    if (!cancelled && drag.moved && drag.to !== null && drag.profileId === enhancerProfileId
+      && drag.ids.length === enhancers.length && drag.ids.every((id, index) => enhancers[index].id === id)) {
+      void reorderEnhancers(drag.from, drag.to)
+    }
   }
 
   return (
@@ -690,17 +708,20 @@ export default function Profiles() {
         </div>
         {enhancers.map((e, index) => (
           <div
-            className={`enh-row ${draggedEnhIndex === index ? 'dragging' : ''}`}
+            className={`enh-row ${draggedEnhIndex === index ? 'dragging' : ''} ${dropEnhIndex === index && draggedEnhIndex !== index ? 'drop-target' : ''}`}
             key={e.id}
-            draggable={!currentBusy}
-            onDragStart={(ev) => handleEnhDragStart(ev, index)}
-            onDragOver={(ev) => handleEnhDragOver(ev, index)}
-            onDrop={(ev) => handleEnhDrop(ev, index)}
-            onDragEnd={handleEnhDragEnd}
+            data-enh-index={index}
           >
-            <span className="grip" style={{ cursor: 'grab' }}>
+            <button type="button" className="icon-btn grip" aria-label={`拖动增强项：${e.name}`}
+              title={e.id === BUILTIN_PRUNE_ENHANCER_ID ? '内置清理固定最后执行' : '拖动排序，也可使用上移/下移按钮'}
+              disabled={currentBusy || index >= movableEnhancers || movableEnhancers < 2}
+              onPointerDown={(ev) => handleEnhPointerDown(ev, index)} onPointerMove={handleEnhPointerMove}
+              onPointerUp={(ev) => finishEnhDrag(ev.currentTarget)}
+              onPointerCancel={(ev) => finishEnhDrag(ev.currentTarget, true)}
+              onLostPointerCapture={(ev) => finishEnhDrag(ev.currentTarget, true)}
+              onKeyDown={(ev) => { if (ev.key === 'Escape') finishEnhDrag(ev.currentTarget, true) }}>
               <Icon name="rules" size={13} />
-            </span>
+            </button>
             <span className={`ftype ${e.kind === 'merge' ? 'yaml' : 'js'}`}>
               {e.kind === 'merge' ? 'YML' : 'JS'}
             </span>
@@ -708,9 +729,9 @@ export default function Profiles() {
             {e.id.startsWith(BUILTIN_ENHANCER_PREFIX) && <span className="chip builtin">内置</span>}
             <span className="chip">{e.kind === 'merge' ? 'YAML' : 'JavaScript'}</span>
             <span className="spacer" />
-            <Button size="sm" aria-label={`上移增强项：${e.name}`} disabled={currentBusy || index === 0}
+            <Button size="sm" aria-label={`上移增强项：${e.name}`} disabled={currentBusy || index === 0 || index >= movableEnhancers}
               onClick={() => void reorderEnhancers(index, index - 1)}>↑</Button>
-            <Button size="sm" aria-label={`下移增强项：${e.name}`} disabled={currentBusy || index === enhancers.length - 1}
+            <Button size="sm" aria-label={`下移增强项：${e.name}`} disabled={currentBusy || index >= movableEnhancers - 1}
               onClick={() => void reorderEnhancers(index, index + 1)}>↓</Button>
             <Toggle label={`启用增强项：${e.name}`} on={e.enabled} onChange={(on) => void toggleEnh(e, on)} disabled={currentBusy} />
             <Button size="sm" onClick={() => void openEnhEditor(e, e.kind)} disabled={currentBusy || busyIds.has(`read-enh-${e.id}`)}>编辑</Button>

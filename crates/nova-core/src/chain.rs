@@ -3,14 +3,14 @@
 
 use serde_yaml::Value;
 
-use crate::{deep_merge, script::run_script, CoreError};
+use crate::{deep_merge, script::run_script_with_profile, CoreError};
 
 /// 单个增强项(锁定契约 D 扩展)。
 #[derive(Debug, Clone)]
 pub enum EnhancerItem {
     /// YAML 深合并补丁(支持 `prepend-X` / `append-X`)。
     Merge(Value),
-    /// JS 脚本,须定义 `function main(config)`。
+    /// JS 脚本,须定义 `function main(config, profileName)`；第二参数可省略。
     Script(String),
 }
 
@@ -19,11 +19,20 @@ pub enum EnhancerItem {
 /// 失败时返回 [`CoreError::Script`],信息带上 1 起始的序号,便于前端
 /// 定位是哪一个增强项出错;Merge 项不会失败。
 pub fn apply_chain(base: &mut Value, items: &[EnhancerItem]) -> Result<(), CoreError> {
+    apply_chain_with_profile(base, items, "")
+}
+
+/// 与 apply_chain 相同，并为每个脚本提供同一当前订阅名称。
+pub fn apply_chain_with_profile(
+    base: &mut Value,
+    items: &[EnhancerItem],
+    profile_name: &str,
+) -> Result<(), CoreError> {
     for (idx, item) in items.iter().enumerate() {
         match item {
             EnhancerItem::Merge(patch) => deep_merge(base, patch),
             EnhancerItem::Script(src) => {
-                *base = run_script(src, base)
+                *base = run_script_with_profile(src, base, profile_name)
                     .map_err(|e| CoreError::Script(format!("增强链第 {} 项: {e}", idx + 1)))?;
             }
         }

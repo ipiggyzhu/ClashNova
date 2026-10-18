@@ -1,5 +1,5 @@
 //! Script 增强:在嵌入式 JS 引擎(boa)中执行用户脚本
-//! `function main(config) { ...; return config; }`,对运行时配置做编程式改写。
+//! `function main(config, profileName) { ...; return config; }`,对运行时配置做编程式改写。
 //!
 //! 数据通路:YAML → JSON 字符串字面量注入 → `main(JSON.parse(...))` →
 //! `JSON.stringify` 取回 → YAML。脚本无文件/网络能力,天然沙箱。
@@ -14,10 +14,20 @@ use crate::CoreError;
 /// 失败情形(均为 [`CoreError::Script`]):脚本语法错误、`main` 未定义或
 /// 执行抛异常、返回值不是对象(含 `undefined`/数组/标量)。
 pub fn run_script(script: &str, config: &Value) -> Result<Value, CoreError> {
+    run_script_with_profile(script, config, "")
+}
+
+/// 兼容 Clash Verge 的第二参数：当前订阅名称；无当前订阅时传空字符串。
+pub fn run_script_with_profile(
+    script: &str,
+    config: &Value,
+    profile_name: &str,
+) -> Result<Value, CoreError> {
     // YAML → JSON 文本 → 再编码为 JS 字符串字面量(借 serde_json 转义)
     let json: serde_json::Value = serde_json::to_value(config)?;
     let json_text = serde_json::to_string(&json)?;
     let literal = serde_json::to_string(&json_text)?;
+    let name_literal = serde_json::to_string(profile_name)?;
 
     let mut ctx = Context::default();
     ctx.runtime_limits_mut().set_loop_iteration_limit(1_000_000);
@@ -26,7 +36,7 @@ pub fn run_script(script: &str, config: &Value) -> Result<Value, CoreError> {
     ctx.eval(Source::from_bytes(script.as_bytes()))
         .map_err(|e| CoreError::Script(format!("脚本加载失败: {e}")))?;
 
-    let call = format!("JSON.stringify(main(JSON.parse({literal})))");
+    let call = format!("JSON.stringify(main(JSON.parse({literal}), {name_literal}))");
     let result = ctx
         .eval(Source::from_bytes(call.as_bytes()))
         .map_err(|e| CoreError::Script(format!("main() 执行失败: {e}")))?;

@@ -42,7 +42,7 @@ let configReady = isMock
 let configuring: Promise<void> | null = null
 let configRevision = 0
 const activeRequests = new Set<AbortController>()
-const queueDelay = createTaskQueue<number>(8)
+const queueDelay = createTaskQueue<number>(10)
 
 /** 设置页修改外部控制地址/密钥后调用, 同步 REST/WS 连接参数 */
 export function configureApi(externalController: string, secret: string): void {
@@ -142,25 +142,42 @@ export async function getProxies(): Promise<ProxiesPayload> {
     return mockProxies()
   }
   const rawPayload = await request<Partial<ProxiesPayload> | null>('GET', '/proxies')
+  const rawProxies = recordOrEmpty(rawPayload?.proxies)
   const payload: ProxiesPayload = {
-    proxies: recordOrEmpty(rawPayload?.proxies),
+    proxies: Object.fromEntries(Object.entries(rawProxies).map(([key, value]) => {
+      if (!isProxyLike(value)) return [key, value]
+      const providerName = (value as unknown as { 'provider-name'?: unknown })['provider-name']
+      const provider = typeof providerName === 'string'
+        ? providerName
+        : undefined
+      return [key, {
+        ...value,
+        history: arrayOrEmpty(value.history),
+        ...(provider ? { provider } : {}),
+      }]
+    })) as ProxiesPayload['proxies'],
   }
-  // Some mihomo configs keep provider nodes only under /providers/proxies.
-  // Merge them into the proxy dictionary so groups that reference provider nodes render normally.
+  // /proxies 按名称合并节点；补充 Provider 来源，测速时才能使用对应的 healthcheck 接口。
   try {
     const providersPayload = await request<{ providers?: Record<string, RawProxyProvider> } | null>(
       'GET',
       '/providers/proxies',
     )
-    for (const provider of Object.values(recordOrEmpty<RawProxyProvider>(providersPayload?.providers))) {
+    const sources = new Map<string, string | null>()
+    for (const [providerName, provider] of Object.entries(recordOrEmpty<RawProxyProvider>(providersPayload?.providers))) {
       if (provider.vehicleType === 'Compatible') continue
       for (const proxy of arrayOrEmpty(provider.proxies)) {
-        if (!isProxyLike(proxy) || payload.proxies[proxy.name]) continue
-        payload.proxies[proxy.name] = {
-          ...proxy,
-          history: arrayOrEmpty(proxy.history),
+        if (!isProxyLike(proxy)) continue
+        const previous = sources.get(proxy.name)
+        sources.set(proxy.name, previous === undefined || previous === providerName ? providerName : null)
+        if (!payload.proxies[proxy.name]) {
+          payload.proxies[proxy.name] = { ...proxy, history: arrayOrEmpty(proxy.history) }
         }
       }
+    }
+    for (const [name, provider] of sources) {
+      // 多个 Provider 的同名节点无法从这份按名称索引的快照区分，不猜测来源。
+      if (provider !== null) payload.proxies[name] = { ...payload.proxies[name], provider }
     }
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') throw error
@@ -199,11 +216,11 @@ export function isDelayTimeout(error: unknown): boolean {
   return error instanceof Error && error.message === DELAY_TIMEOUT
 }
 
-/** GET /proxies/{name}/delay — 单节点测延迟(ms); 超时抛 DELAY_TIMEOUT, 其余失败抛普通错误 */
-export async function testDelay(name: string, timeout = 5000, url = DEFAULT_DELAY_TEST_URL): Promise<number> {
+/** 按来源测试普通 / Provider 节点; 所有入口共用并发队列，真正超时才抛 DELAY_TIMEOUT。 */
+export async function testDelay(name: string, timeout = 5000, url = DEFAULT_DELAY_TEST_URL, provider?: string, context?: string): Promise<number> {
   await ensureConfigured()
   const revision = configRevision
-  return queueDelay(`${revision}:${name}`, async () => {
+  return queueDelay(JSON.stringify([revision, context ?? null, provider ?? null, name, url, timeout]), async () => {
     if (revision !== configRevision) throw new DOMException('控制器配置已变更', 'AbortError')
     if (isMock) {
       await new Promise((resolve) => setTimeout(resolve, 150 + Math.random() * 450))
@@ -212,10 +229,13 @@ export async function testDelay(name: string, timeout = 5000, url = DEFAULT_DELA
       return delay
     }
     const qs = `timeout=${timeout}&url=${encodeURIComponent(url)}`
+    // Provider nodes are still runtime proxies. Mihomo exposes per-node delay
+    // only through /proxies/{name}/delay; provider healthcheck has no node path.
+    const endpoint = `/proxies/${encodeURIComponent(name)}/delay`
     let payload: { delay: number }
     try {
       payload = await request<{ delay: number }>(
-        'GET', `/proxies/${encodeURIComponent(name)}/delay?${qs}`, undefined, timeout + 2000,
+        'GET', `${endpoint}?${qs}`, undefined, timeout + 2000,
       )
     } catch (error) {
       if (error instanceof DOMException) {

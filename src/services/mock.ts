@@ -148,9 +148,9 @@ rules:
 `
 
 const BUILTIN_PRUNE_ENHANCER_ID = 'builtin-prune-invalid-nodes'
-const BUILTIN_PRUNE_SCRIPT = `// 去除名称里明显不是节点的项目，并同步清理策略组和订阅提供者引用。
+const BUILTIN_PRUNE_SCRIPT = String.raw`// 去除名称里明显不是节点的项目，并同步清理策略组和订阅提供者引用。
 function main(config) {
-  const invalidNodeFilterBody = '过期|到期|失效|剩余|流量|官网|套餐|订阅|网址|重置|用量|群组|频道|traffic|expire|subscription|remaining|reset|used|total';
+  const invalidNodeFilterBody = '过期|到期|失效|剩余|流量|官网|套餐|订阅(?:[：:]|地址|链接|更新)|网址|重置|用量|群组|频道|traffic|expire|subscription(?:[：:]|[ ]+(?:info|url|link|expire))|remaining|reset|used|total';
   const invalidNodeFilter = '(?i)(' + invalidNodeFilterBody + ')';
   const badName = new RegExp(invalidNodeFilterBody, 'i');
   const removed = {};

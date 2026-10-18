@@ -16,7 +16,7 @@ function main(config, profileName) {
   const healthCheckUrl = 'http://cp.cloudflare.com/generate_204';
   const enableDnsLeakPreset = true;
   const invalidNodeFilterBody =
-    '过期|到期|失效|剩余|流量|官网|套餐|订阅|网址|重置|用量|群组|频道|traffic|expire|subscription|remaining|reset|used|total';
+    '过期|到期|失效|剩余|流量|官网|套餐|订阅(?:[：:]|地址|链接|更新)|网址|重置|用量|群组|频道|traffic|expire|subscription(?:[：:]|[ ]+(?:info|url|link|expire))|remaining|reset|used|total';
   const invalidNodeFilter = `(?i)(${invalidNodeFilterBody})`;
   const invalidNodeName = new RegExp(invalidNodeFilterBody, 'i');
 
@@ -44,7 +44,7 @@ function main(config, profileName) {
     },
   };
 
-  const landingName = '[落地]ldc月卡-US';
+  const landingName = '[落地]示例-US';
   const relayGroup = '🇯🇵 日本中转';
   const landingGroup = '🛬 落地节点';
   const mainGroup = '🚀 节点选择';

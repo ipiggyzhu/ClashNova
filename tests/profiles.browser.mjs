@@ -167,6 +167,55 @@ export async function runProfilesBrowser(browser, base) {
       }
     })
 
+    await check('profiles_pointer_drag_survives_disabled_html_drag_and_persists_once', async () => {
+      await visit()
+      await page.evaluate(() => {
+        window.__profileFeatureFixture.global = ['First', 'Second', 'Third'].map((name, i) => ({ id: `drag-${i}`, kind: 'script', name, enabled: true }))
+        document.addEventListener('dragstart', (event) => event.preventDefault(), true)
+        window.dispatchEvent(new Event('clashnova-profiles-changed'))
+      })
+      await page.getByRole('button', { name: '全局增强', exact: true }).click()
+      await page.locator('.enh-row .nm').filter({ hasText: 'Third' }).waitFor()
+      const from = await page.locator('.enh-row').filter({ hasText: 'First' }).locator('.grip').boundingBox()
+      const to = await page.locator('.enh-row').filter({ hasText: 'Third' }).boundingBox()
+      await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2)
+      await page.mouse.down()
+      await page.mouse.move(to.x + 30, to.y + to.height / 2, { steps: 8 })
+      await page.mouse.up()
+      await page.waitForFunction(() => window.__profileFeatureFixture.calls.some((item) => item.command === 'reorder_enhancers'), null, { timeout: 3000 })
+      const requests = await calls('reorder_enhancers')
+      assert.equal(requests.length, 1)
+      assert.deepEqual(requests[0].args, { profileId: '__global__', enhancerIds: ['drag-1', 'drag-2', 'drag-0'] })
+      await page.waitForFunction(() => document.querySelector('.enh-row .nm')?.textContent === 'Second')
+      assert.deepEqual(await page.locator('.enh-row .nm').allTextContents(), ['Second', 'Third', 'First'])
+    })
+
+    await check('profiles_drag_cancel_and_builtin_boundary_do_not_save_a_reorder', async () => {
+      await visit()
+      await page.evaluate(() => {
+        window.__profileFeatureFixture.global = [
+          { id: 'builtin-prune-invalid-nodes', kind: 'script', name: '内置：去除无效节点', enabled: true },
+          { id: 'user-a', kind: 'script', name: 'First', enabled: true },
+          { id: 'user-b', kind: 'script', name: 'Second', enabled: true },
+        ]
+        window.dispatchEvent(new Event('clashnova-profiles-changed'))
+      })
+      await page.getByRole('button', { name: '全局增强', exact: true }).click()
+      await page.locator('.enh-row .nm').filter({ hasText: 'Second' }).waitFor()
+      assert.deepEqual(await page.locator('.enh-row .nm').allTextContents(), ['First', 'Second', '内置：去除无效节点'])
+      assert.ok(await page.locator('.enh-row').filter({ hasText: '内置：去除无效节点' }).locator('.grip').isDisabled())
+      assert.ok(await page.getByRole('button', { name: '下移增强项：Second', exact: true }).isDisabled())
+      const from = await page.locator('.enh-row').filter({ hasText: 'First' }).locator('.grip').boundingBox()
+      const to = await page.locator('.enh-row').filter({ hasText: 'Second' }).boundingBox()
+      await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2)
+      await page.mouse.down()
+      await page.mouse.move(to.x + 30, to.y + to.height / 2, { steps: 8 })
+      await page.keyboard.press('Escape')
+      await page.mouse.up()
+      assert.equal((await calls('reorder_enhancers')).length, 0)
+      assert.equal(await page.locator('.enh-row.dragging').count(), 0)
+    })
+
     assert.deepEqual(errors, [])
     console.log(`PROFILES BROWSER SUMMARY ${passed} passed, ${failed} failed, pageErrors=${errors.length}`)
     return { passed, failed, errors }

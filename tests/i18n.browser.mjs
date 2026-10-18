@@ -187,15 +187,16 @@ export async function runI18nBrowser(browser, base) {
         await language('en')
         const user = page.locator('.card').filter({ has: page.getByRole('heading', { name: '全部节点', exact: true }) })
         assert.equal(await user.count(), 1)
-        assert.equal(await page.getByRole('heading', { name: 'All nodes', exact: true }).count(), 1)
+        assert.equal(await page.getByRole('heading', { name: 'All nodes', exact: true }).count(), 0)
         assert.equal(await page.locator('.pg-proxies .toolbar > .chip').textContent(), 'Nodes: 2')
+        await user.getByRole('button', { name: 'Expand', exact: true }).click()
         await user.locator('.node').filter({ hasText: '代理' }).click()
         await page.waitForFunction(() => window.__i18nSelections.length === 1)
         assert.deepEqual(await page.evaluate(() => window.__i18nSelections), [{ group: '全部节点', name: '代理' }])
         await page.locator('.pg-proxies input').fill('代理')
         await language('zh')
         assert.equal(await page.locator('.pg-proxies input').inputValue(), '代理')
-        assert.equal(await user.count(), 2, 'Chinese UI may share the same visible title, but both cards remain separate')
+        assert.equal(await user.count(), 1, 'a user group keeps its name without an injected all-nodes group')
       } finally { await page.unroute('**/src/services/api.ts*') }
     })
 

@@ -21,7 +21,7 @@ const BUILTIN_PRUNE_ENHANCER_ID: &str = "builtin-prune-invalid-nodes";
 const BUILTIN_PRUNE_ENHANCER_NAME: &str = "内置：去除无效节点";
 const BUILTIN_PRUNE_SCRIPT: &str = r#"// 去除名称里明显不是节点的项目，并同步清理策略组和订阅提供者引用。
 function main(config) {
-  const invalidNodeFilterBody = '过期|到期|失效|剩余|流量|官网|套餐|订阅|网址|重置|用量|群组|频道|traffic|expire|subscription|remaining|reset|used|total';
+  const invalidNodeFilterBody = '过期|到期|失效|剩余|流量|官网|套餐|订阅(?:[：:]|地址|链接|更新)|网址|重置|用量|群组|频道|traffic|expire|subscription(?:[：:]|[ ]+(?:info|url|link|expire))|remaining|reset|used|total';
   const invalidNodeFilter = '(?i)(' + invalidNodeFilterBody + ')';
   const badName = new RegExp(invalidNodeFilterBody, 'i');
   const removed = {};
@@ -119,6 +119,14 @@ fn is_false(value: &bool) -> bool {
     !*value
 }
 
+/// 只升级原封未改的旧内置脚本，不覆盖用户编辑或改变其启用状态。
+fn should_upgrade_builtin_prune_script(content: &str) -> bool {
+    let previous = BUILTIN_PRUNE_SCRIPT
+        .replace("订阅(?:[：:]|地址|链接|更新)", "订阅")
+        .replace("subscription(?:[：:]|[ ]+(?:info|url|link|expire))", "subscription");
+    content.replace("\r\n", "\n") == previous.replace("\r\n", "\n")
+}
+
 fn ensure_builtin_prune_enhancers(
     app: &AppHandle,
     index: &mut [ProfileMeta],
@@ -147,7 +155,10 @@ fn ensure_builtin_prune_enhancers(
             .any(|e| e.id == BUILTIN_PRUNE_ENHANCER_ID)
         {
             let path = enhancer_file(&state, &profile.id, &builtin);
-            if !path.exists() {
+            if !path.exists()
+                || fs::read_to_string(&path)
+                    .is_ok_and(|content| should_upgrade_builtin_prune_script(&content))
+            {
                 transaction.write(&path, BUILTIN_PRUNE_SCRIPT.as_bytes())?;
             }
         }
@@ -1117,7 +1128,11 @@ fn apply_enhancers(
         } else {
             nova_core::EnhancerItem::Script(content)
         };
-        nova_core::apply_chain(&mut base, std::slice::from_ref(&item))
+        nova_core::apply_chain_with_profile(
+            &mut base,
+            std::slice::from_ref(&item),
+            meta.map(|profile| profile.name.as_str()).unwrap_or_default(),
+        )
             .map_err(|err| format!("增强项 {} 执行失败: {err}", e.name))?;
     }
     serde_yaml::to_string(&base).map_err(|err| format!("序列化增强结果失败: {err}"))
@@ -1522,6 +1537,53 @@ mod tests {
             root["mixed-port"].as_u64(),
             Some(settings.mixed_port as u64)
         );
+    }
+
+    #[test]
+    fn profile_and_global_scripts_receive_the_current_profile_name() {
+        let name = "机场 'quoted' \"name\"\\path\nline";
+        let mut meta: ProfileMeta = serde_json::from_value(serde_json::json!({"id":"p", "name":name, "kind":"local", "current":true, "updatedAt":0})).unwrap();
+        meta.enhancers.push(EnhancerMeta {
+            id: "local".into(), kind: "script".into(), name: "not the profile name".into(), enabled: true,
+        });
+        let global = vec![EnhancerMeta {
+            id: "shared".into(), kind: "script".into(), name: "global script name".into(), enabled: true,
+        }];
+        let files = std::collections::HashMap::from([
+            ("p.yaml", "proxies: []\n"),
+            ("p.local.js", "function main(config, profileName) { config.localName = profileName; return config; }"),
+            ("__global__.shared.js", "function main(config, profileName) { config.globalName = profileName; return config; }"),
+        ]);
+        let runtime = build_runtime_from_files(&AppSettings::default(), &[meta], &global, |file| Ok(files[file].to_string())).unwrap();
+        let root: serde_yaml::Value = serde_yaml::from_str(&runtime).unwrap();
+        assert_eq!(root["localName"].as_str(), Some(name));
+        assert_eq!(root["globalName"].as_str(), Some(name));
+        let runtime = build_runtime_from_files(&AppSettings::default(), &[], &global, |file| Ok(files[file].to_string())).unwrap();
+        let root: serde_yaml::Value = serde_yaml::from_str(&runtime).unwrap();
+        assert_eq!(root["globalName"].as_str(), Some(""));
+    }
+
+    #[test]
+    fn builtin_cleanup_upgrade_only_matches_the_unedited_previous_script() {
+        let previous = include_str!("../../tests/fixtures/prune-invalid-nodes-v1.js");
+        assert!(should_upgrade_builtin_prune_script(previous));
+        assert!(!should_upgrade_builtin_prune_script(BUILTIN_PRUNE_SCRIPT));
+        assert!(!should_upgrade_builtin_prune_script(&format!("{previous}\n// user customization")));
+        assert!(!should_upgrade_builtin_prune_script("function main(config) { return config; }"));
+    }
+
+    #[test]
+    fn builtin_cleanup_keeps_subscription_source_labels_and_removes_information_nodes() {
+        let mut meta: ProfileMeta = serde_json::from_value(serde_json::json!({"id":"p", "name":"fixture", "kind":"local", "current":true, "updatedAt":0})).unwrap();
+        let mut builtin = builtin_prune_enhancer();
+        builtin.enabled = true;
+        meta.enhancers.push(builtin);
+        let base = "proxies:\n  - {name: '[当前订阅] 香港', type: socks5, server: proxy.example.invalid, port: 1080}\n  - {name: 'subscription | Tokyo', type: socks5, server: proxy.example.invalid, port: 1080}\n  - {name: '剩余流量 10GB', type: socks5, server: proxy.example.invalid, port: 1080}\n  - {name: '订阅地址: example.invalid', type: socks5, server: proxy.example.invalid, port: 1080}\nproxy-groups:\n  - name: select\n    type: select\n    proxies: ['[当前订阅] 香港', 'subscription | Tokyo', '剩余流量 10GB', '订阅地址: example.invalid']\n";
+        let enhanced = apply_enhancers(Some(&meta), &[], base, |_| Ok(BUILTIN_PRUNE_SCRIPT.into())).unwrap();
+        let root: serde_yaml::Value = serde_yaml::from_str(&enhanced).unwrap();
+        let names: Vec<_> = root["proxies"].as_sequence().unwrap().iter().map(|node| node["name"].as_str().unwrap()).collect();
+        assert_eq!(names, vec!["[当前订阅] 香港", "subscription | Tokyo"]);
+        assert_eq!(root["proxy-groups"][0]["proxies"].as_sequence().unwrap().len(), 2);
     }
 
     #[test]

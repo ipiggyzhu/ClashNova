@@ -6,10 +6,11 @@ import type { ProfileDownloadOptions } from './profileFeatures'
 import type { TunOptions } from './tun'
 
 export interface ProxyNode { name: string; type: string; udp?: boolean;
-  history: { time: string; delay: number }[]; delay?: number }
+  history: { time: string; delay: number }[]; delay?: number; provider?: string;
+  extra?: Record<string, { alive: boolean; history: { time: string; delay: number }[] }> }
 export interface ProxyGroup { name: string;
   type: 'Selector' | 'URLTest' | 'Fallback' | 'LoadBalance' | string;
-  now: string; all: string[] }
+  now: string; all: string[]; testUrl?: string }
 export interface ProxiesPayload { proxies: Record<string, ProxyNode & Partial<ProxyGroup>> }
 export interface ConnMeta { host: string; destinationIP: string; destinationPort: string;
   sourceIP: string; sourcePort: string; network: 'tcp' | 'udp'; process?: string; processPath?: string

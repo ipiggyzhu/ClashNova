@@ -7,7 +7,8 @@ import Icon from '../components/ui/Icon'
 import Input from '../components/ui/Input'
 import Seg from '../components/ui/Seg'
 import { useT } from '../i18n'
-import { closeGroupConnections, getProxies, isDelayTimeout, selectProxy, testDelay, testGroupDelay } from '../services/api'
+import { closeGroupConnections, DEFAULT_DELAY_TEST_URL, getProxies, isDelayTimeout, selectProxy, testDelay } from '../services/api'
+import { call } from '../services/ipc'
 import { useAppStore } from '../stores/app'
 import type { ProxiesPayload, ProxyGroup, ProxyNode } from '../types/clash'
 import { delayTone } from '../utils/format'
@@ -19,36 +20,41 @@ const isNodeType = (type: string): boolean => !GROUP_TYPES.has(type) && !BUILTIN
 const GROUP_COLORS = ['var(--accent)', 'var(--purple)', 'var(--orange)', 'var(--cyan)', 'var(--pink)']
 /** delays 中表示超时的取值; -1 表示其余失败 */
 const DELAY_TIMEOUT_VALUE = -2
+const DELAY_CACHE_TTL = 30 * 60 * 1000
+interface DelayResult { delay: number; updatedAt: number }
+const delayCache = new Map<string, DelayResult>()
 
 interface GroupView extends ProxyGroup {
   nodes: ProxyNode[]
-  virtual?: true
 }
 
 function groupKey(group: GroupView): string {
-  return group.virtual ? 'virtual:all' : `group:${group.name}`
+  return `group:${group.name}`
 }
 
-function latestDelay(node: ProxyNode): number | undefined {
-  if (node.delay !== undefined) return node.delay
-  const last = node.history[node.history.length - 1]
-  return last?.delay
+function latestDelay(node: ProxyNode, url: string, cached?: DelayResult): number | undefined {
+  const history = node.extra?.[url]?.history ?? node.history
+  const last = history[history.length - 1]
+  if (cached && Date.now() - cached.updatedAt < DELAY_CACHE_TTL
+    && (!last || !(Date.parse(last.time) > cached.updatedAt))) return cached.delay
+  return node.extra?.[url] ? last?.delay : node.delay ?? last?.delay
 }
 
 const COLLAPSED_KEY = 'proxies:collapsed'
 
-function loadCollapsed(): Record<string, boolean> {
+function loadCollapsed(profileId: string): Record<string, boolean> {
   try {
-    const saved = localStorage.getItem(COLLAPSED_KEY)
-    return saved ? JSON.parse(saved) : { Fallback: true }
+    const saved = JSON.parse(localStorage.getItem(`${COLLAPSED_KEY}:${profileId}`) ?? '{}') as unknown
+    if (!saved || typeof saved !== 'object' || Array.isArray(saved)) return {}
+    return Object.fromEntries(Object.entries(saved).filter(([, value]) => typeof value === 'boolean'))
   } catch {
-    return { Fallback: true }
+    return {}
   }
 }
 
-function saveCollapsed(state: Record<string, boolean>): void {
+function saveCollapsed(profileId: string, state: Record<string, boolean>): void {
   try {
-    localStorage.setItem(COLLAPSED_KEY, JSON.stringify(state))
+    localStorage.setItem(`${COLLAPSED_KEY}:${profileId}`, JSON.stringify(state))
   } catch {
     // ignore
   }
@@ -91,11 +97,13 @@ export default function Proxies() {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [keyword, setKeyword] = useState('')
   const [typeFilter, setTypeFilter] = useState('all')
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>(loadCollapsed)
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
+  const profileId = useRef<string | null>(null)
   const [sortMode, setSortMode] = useState<SortMode>(loadSort)
   const [hideTimeout, setHideTimeout] = useState(() => loadPref(HIDE_TIMEOUT_KEY) === '1')
   const delayTestUrl = useAppStore((s) => s.settings.delayTestUrl)
   const delayTestTimeout = useAppStore((s) => s.settings.delayTestTimeout)
+  const externalController = useAppStore((s) => s.settings.externalController)
   const autoCloseConnections = useAppStore((s) => s.settings.autoCloseConnections)
   /** 节点名 → 实测延迟(0 表示测试中, -1 表示失败, -2 表示超时) */
   const [delays, setDelays] = useState<Record<string, number>>({})
@@ -108,6 +116,7 @@ export default function Proxies() {
   const groupTestsRef = useRef(new Set<string>())
   const testingAllRef = useRef(false)
   const generation = useRef(0)
+  const payloadGeneration = useRef(-1)
   const loadGeneration = useRef(0)
   const alive = useRef(true)
   const refreshFlight = useRef<Promise<void> | null>(null)
@@ -116,8 +125,16 @@ export default function Proxies() {
     if (refreshFlight.current) return refreshFlight.current
     if (selectingRef.current.size) return
     const current = loadGeneration.current
-    const task = getProxies().then((value) => {
+    const task = Promise.all([getProxies(), call('list_profiles').catch(() => null)]).then(([value, profiles]) => {
       if (!alive.current || current !== loadGeneration.current) return
+      const nextProfileId = profiles ? profiles.find((profile) => profile.current)?.id ?? '' : profileId.current ?? ''
+      if (profileId.current !== nextProfileId) {
+        profileId.current = nextProfileId
+        generation.current += 1
+        setDelays({})
+        setCollapsed(loadCollapsed(nextProfileId))
+      }
+      payloadGeneration.current = generation.current
       setPayload(value)
       setLoadError(null)
     }, (error: unknown) => {
@@ -138,15 +155,18 @@ export default function Proxies() {
     const reconfigure = (): void => {
       generation.current += 1
       loadGeneration.current += 1
+      delayCache.clear()
       setDelays({})
       void (refreshFlight.current ?? Promise.resolve()).then(refreshWhenVisible)
     }
     window.addEventListener('clashnova-api-config-changed', reconfigure)
+    window.addEventListener('clashnova-profiles-changed', reconfigure)
     document.addEventListener('visibilitychange', refreshWhenVisible)
     return () => {
       alive.current = false
       window.clearInterval(timer)
       window.removeEventListener('clashnova-api-config-changed', reconfigure)
+      window.removeEventListener('clashnova-profiles-changed', reconfigure)
       document.removeEventListener('visibilitychange', refreshWhenVisible)
     }
   }, [refresh])
@@ -154,10 +174,7 @@ export default function Proxies() {
   const groups: GroupView[] = useMemo(() => {
     if (!payload) return []
     const all = payload.proxies
-    // 所有真实节点（非策略组、非 DIRECT/REJECT 等内置项）
-    const realNodes = Object.values(all).filter((p) => isNodeType(p.type)) as ProxyNode[]
-    // 策略组
-    const strategyGroups: GroupView[] = Object.values(all)
+    return Object.values(all)
       .filter((p): p is ProxyNode & ProxyGroup => GROUP_TYPES.has(p.type) && Array.isArray(p.all))
       .filter((g) => g.name !== 'GLOBAL')
       .map((g) => ({
@@ -165,20 +182,9 @@ export default function Proxies() {
         type: g.type,
         now: g.now,
         all: g.all,
+        testUrl: g.testUrl,
         nodes: g.all.map((n) => all[n]).filter((n): n is ProxyNode => n !== undefined),
       }))
-    // 顶部插入"全部节点"虚拟组，确保所有节点都可见
-    if (realNodes.length > 0) {
-      strategyGroups.unshift({
-        name: '全部节点',
-        virtual: true,
-        type: 'Selector',
-        now: '',
-        all: realNodes.map((n) => n.name),
-        nodes: realNodes,
-      })
-    }
-    return strategyGroups
   }, [payload])
 
   const totalNodes = useMemo(() => {
@@ -187,25 +193,27 @@ export default function Proxies() {
   }, [payload])
 
   /** 测速中(0)沿用上一次结果, 避免排序和隐藏在测速过程中来回跳动 */
-  const effectiveDelay = (node: ProxyNode): number | undefined => {
-    const d = delays[node.name]
-    return d === undefined || d === 0 ? latestDelay(node) : d
-  }
+  const delayKey = useCallback((node: ProxyNode, url: string): string =>
+    JSON.stringify([externalController, profileId.current, node.provider ?? null, node.name, url]), [externalController])
+
+  const effectiveDelay = (node: ProxyNode, url: string): number | undefined =>
+    latestDelay(node, url, delayCache.get(delayKey(node, url)))
 
   const visibleGroups = groups
     .filter((g) => typeFilter === 'all' || g.type === typeFilter)
     .map((g) => {
+      const url = g.testUrl || delayTestUrl || DEFAULT_DELAY_TEST_URL
       let nodes = keyword
         ? g.nodes.filter((n) => n.name.toLowerCase().includes(keyword.toLowerCase()))
         : g.nodes
       if (hideTimeout) {
         nodes = nodes.filter((n) => {
-          const d = effectiveDelay(n)
+          const d = effectiveDelay(n, url)
           return n.name === g.now || d === undefined || d > 0
         })
       }
       if (sortMode === 'delay') {
-        nodes = [...nodes].sort((a, b) => delayRank(effectiveDelay(a)) - delayRank(effectiveDelay(b)))
+        nodes = [...nodes].sort((a, b) => delayRank(effectiveDelay(a, url)) - delayRank(effectiveDelay(b, url)))
       } else if (sortMode === 'name') {
         nodes = [...nodes].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
       }
@@ -241,43 +249,46 @@ export default function Proxies() {
     }
   }
 
-  const testNode = (name: string): Promise<void> => {
+  const testNode = useCallback((
+    node: ProxyNode,
+    url = delayTestUrl || DEFAULT_DELAY_TEST_URL,
+    timeout = delayTestTimeout,
+  ): Promise<void> => {
+    const { name, provider } = node
     const current = generation.current
-    const key = `${current}:${name}`
+    const resultKey = delayKey(node, url)
+    const key = JSON.stringify([current, resultKey, timeout])
     const existing = testingRef.current.get(key)
     if (existing) return existing
-    setDelays((d) => ({ ...d, [name]: 0 }))
-    const test = testDelay(name, delayTestTimeout, delayTestUrl).then((ms) => {
-      if (alive.current && current === generation.current) setDelays((d) => ({ ...d, [name]: ms }))
+    setDelays((d) => ({ ...d, [resultKey]: 0 }))
+    const record = (delay: number): void => {
+      if (!alive.current || current !== generation.current) return
+      delayCache.set(resultKey, { delay, updatedAt: Date.now() })
+      setDelays((d) => ({ ...d, [resultKey]: delay }))
+    }
+    const test = testDelay(name, timeout, url, provider, JSON.stringify([profileId.current, current])).then((ms) => {
+      record(ms)
     }, (error: unknown) => {
       const value = isDelayTimeout(error) ? DELAY_TIMEOUT_VALUE : -1
-      if (alive.current && current === generation.current) setDelays((d) => ({ ...d, [name]: value }))
+      record(value)
     }).finally(() => { testingRef.current.delete(key) })
     testingRef.current.set(key, test)
     return test
-  }
+  }, [delayKey, delayTestUrl, delayTestTimeout])
 
-  /** 真实策略组交给内核 /group/{name}/delay 整组测速(URLTest/Fallback 会据此重选); 虚拟组逐节点测 */
-  const runGroupDelay = async (g: GroupView): Promise<void> => {
-    const current = generation.current
-    const members = [...new Set(g.all)]
-    setDelays((d) => ({ ...d, ...Object.fromEntries(members.map((name) => [name, 0])) }))
-    try {
-      const result = await testGroupDelay(g.name, delayTestTimeout, delayTestUrl)
-      if (!alive.current || current !== generation.current) return
-      setDelays((d) => ({ ...d, ...Object.fromEntries(members.map((name) => [name, result[name] ?? -1])) }))
-    } catch (error) {
-      if (!alive.current || current !== generation.current) return
-      setDelays((d) => {
-        const next = { ...d }
-        for (const name of members) if (next[name] === 0) delete next[name]
-        return next
-      })
-      setActionError({ title: '组测速失败：', detail: String(error) })
+  useEffect(() => {
+    if (!payload || loadError || payloadGeneration.current !== generation.current) return
+    for (const group of groups) {
+      const url = group.testUrl || delayTestUrl || DEFAULT_DELAY_TEST_URL
+      for (const node of group.nodes) {
+        if (!isNodeType(node.type)) continue
+        const key = delayKey(node, url)
+        if (delays[key] !== 0 && latestDelay(node, url, delayCache.get(key)) === undefined) {
+          void testNode(node, url)
+        }
+      }
     }
-    await refreshFlight.current
-    await refresh()
-  }
+  }, [payload, loadError, groups, delays, delayKey, delayTestUrl, testNode])
 
   const testGroup = async (g: GroupView): Promise<void> => {
     const key = groupKey(g)
@@ -285,8 +296,10 @@ export default function Proxies() {
     groupTestsRef.current.add(key)
     setTestingGroups((prev) => new Set(prev).add(key))
     try {
-      if (g.virtual) await Promise.all([...new Set(g.nodes.map((n) => n.name))].map(testNode))
-      else await runGroupDelay(g)
+      const url = g.testUrl || delayTestUrl || DEFAULT_DELAY_TEST_URL
+      await Promise.all(g.nodes.map((node) => testNode(node, url)))
+      await refreshFlight.current
+      await refresh()
     } finally {
       groupTestsRef.current.delete(key)
       setTestingGroups((prev) => {
@@ -302,8 +315,18 @@ export default function Proxies() {
     testingAllRef.current = true
     setTestingAll(true)
     try {
-      // 所有组共用同一队列和节点结果；同名节点只测一次，含双击测速也受全局 8 并发限制。
-      await Promise.all([...new Set(groups.flatMap((g) => g.all))].map(testNode))
+      // 所有入口共用 10 并发队列；跨组重复出现的节点只测一次。
+      const settings = useAppStore.getState().settings
+      const url = settings.delayTestUrl || DEFAULT_DELAY_TEST_URL
+      const timeout = settings.delayTestTimeout
+      const targets = groups.flatMap((group) => group.nodes
+        .filter((node) => isNodeType(node.type))
+        .map((node) => ({ node, url: group.testUrl || url })))
+      const groupedNames = new Set(targets.map(({ node }) => node.name))
+      for (const node of Object.values(payload?.proxies ?? {})) {
+        if (isNodeType(node.type) && !groupedNames.has(node.name)) targets.push({ node, url })
+      }
+      await Promise.all(targets.map(({ node, url }) => testNode(node, url, timeout)))
     } finally {
       testingAllRef.current = false
       setTestingAll(false)
@@ -316,9 +339,9 @@ export default function Proxies() {
     target?.focus({ preventScroll: true })
   }
 
-  const renderDelay = (node: ProxyNode) => {
-    const d = delays[node.name] ?? latestDelay(node)
-    if (delays[node.name] === 0) return <span className="testing">{t('测速中…')}</span>
+  const renderDelay = (node: ProxyNode, url: string) => {
+    const d = effectiveDelay(node, url)
+    if (delays[delayKey(node, url)] === 0) return <span className="testing">{t('测速中…')}</span>
     if (d === undefined) return <Badge tone="gray">— ms</Badge>
     if (d === DELAY_TIMEOUT_VALUE) return <Badge tone="red">Timeout</Badge>
     if (d <= 0) return <Badge tone="red">Failed</Badge>
@@ -380,21 +403,20 @@ export default function Proxies() {
         </Card>
       ) : visibleGroups.map((g, i) => {
         const key = groupKey(g)
-        const isOpen = !(collapsed[key] ?? collapsed[g.name])
+        const isOpen = collapsed[key] === false
         const isTestingGroup = testingGroups.has(key)
-        const isVirtualGroup = Boolean(g.virtual)
         return (
           <Card
             key={key}
             icon={<Icon name="proxies" />}
             iconColor={GROUP_COLORS[i % GROUP_COLORS.length]}
-            title={isVirtualGroup ? t('全部节点') : g.name}
+            title={g.name}
             actions={
               <>
-                {!isVirtualGroup && <span className="chip">{g.type}</span>}
-                {!isVirtualGroup && <span className="grp-now">{t('当前:')} <b>{g.now}</b></span>}
+                <span className="chip">{g.type}</span>
+                <span className="grp-now">{t('当前:')} <b>{g.now}</b></span>
                 <Badge tone="green">{t('{count} 个节点', { count: g.all.length })}</Badge>
-                {!isVirtualGroup && isOpen && (
+                {isOpen && (
                   <Button size="sm" title={t('滚动到当前选中的节点')} onClick={() => locate(g.name)}>{t('定位')}</Button>
                 )}
                 <Button size="sm" onClick={() => void testGroup(g)} disabled={isTestingGroup || testingAll}>
@@ -403,9 +425,10 @@ export default function Proxies() {
                 <button
                   className="icon-btn"
                   title={isOpen ? t('折叠') : t('展开')}
+                  aria-expanded={isOpen}
                   onClick={() => setCollapsed((c) => {
                     const next = { ...c, [key]: isOpen }
-                    saveCollapsed(next)
+                    saveCollapsed(profileId.current ?? '', next)
                     return next
                   })}
                 >
@@ -426,21 +449,20 @@ export default function Proxies() {
                       key={n.name}
                       className={sel ? 'node sel' : 'node'}
                       aria-busy={selecting.has(g.name)}
-                      aria-pressed={isVirtualGroup ? undefined : sel}
-                      onClick={isVirtualGroup ? undefined : () => void handleSelect(g.name, n.name)}
-                      onDoubleClick={() => void testNode(n.name)}
-                      title={isVirtualGroup ? t('双击测速') : t('单击切换 · 双击测速')}
-                      style={isVirtualGroup ? { cursor: 'default' } : undefined}
+                      aria-pressed={sel}
+                      onClick={() => void handleSelect(g.name, n.name)}
+                      onDoubleClick={() => void testNode(n, g.testUrl || delayTestUrl || DEFAULT_DELAY_TEST_URL)}
+                      title={t('单击切换 · 双击测速')}
                     >
                       <div className="nm">{n.name}</div>
-                      {sel && !isVirtualGroup && (
+                      {sel && (
                         <span className="sel-mark">
                           <Icon name="check" size={13} />
                         </span>
                       )}
                       <div className="meta">
                         <span className="chip">{n.type}</span>
-                        {renderDelay(n)}
+                        {renderDelay(n, g.testUrl || delayTestUrl || DEFAULT_DELAY_TEST_URL)}
                       </div>
                     </button>
                   )

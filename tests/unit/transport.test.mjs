@@ -92,11 +92,67 @@ test('4096 delay calls deduplicate 2048 nodes and retain the concurrency budget 
   const nodes = Array.from({ length: 2048 }, (_, i) => 'node-' + i)
   const results = await Promise.allSettled([...nodes, ...nodes].map((name) => api.testDelay(name)))
   assert.equal(requests, 2048)
-  assert.equal(peak, 8)
+  assert.equal(peak, 10)
   assert.equal(active, 0)
   assert.equal(results.filter((result) => result.status === 'rejected').length, 242)
   assert.equal(await api.testDelay('node-1'), 12)
   assert.equal(requests, 2049)
+})
+
+test('provider nodes retain unambiguous origin even when already present in /proxies', async () => {
+  const entry = (name, extra = {}) => ({ name, type: 'Vless', history: [], ...extra })
+  const api = apiFixture(async () => ({ externalController: '127.0.0.1:9097', secret: '' }), async (url) => ({
+    ok: true, status: 200, text: async () => JSON.stringify(new URL(url).pathname === '/proxies'
+      ? { proxies: { present: entry('present'), ambiguous: entry('ambiguous'), runtime: entry('runtime', { 'provider-name': 'runtime-source' }) } }
+      : { providers: {
+        airport: { name: 'airport', vehicleType: 'HTTP', proxies: [entry('present'), entry('provider-only'), entry('ambiguous')] },
+        second: { name: 'second', vehicleType: 'File', proxies: [entry('ambiguous')] },
+        default: { name: 'default', vehicleType: 'Compatible', proxies: [entry('present')] },
+      } }),
+  }))
+  const { proxies } = await api.getProxies()
+  assert.equal(proxies.present.provider, 'airport')
+  assert.equal(proxies['provider-only'].provider, 'airport')
+  assert.equal(proxies.ambiguous.provider, undefined, 'do not guess which provider a colliding name belongs to')
+  assert.equal(proxies.runtime.provider, 'runtime-source', 'keep Mihomo runtime provider-name metadata')
+})
+
+test('provider delay uses the node delay route and keeps source requests distinct', async () => {
+  const urls = []
+  const api = apiFixture(async () => ({ externalController: '127.0.0.1:9097', secret: '' }), async (url) => {
+    urls.push(new URL(url))
+    await tick()
+    return { ok: true, status: 200, text: async () => '{"delay":25}' }
+  })
+  await Promise.all([
+    api.testDelay('节点/同名', 3000, 'https://group.example.invalid/204', 'provider / A'),
+    api.testDelay('节点/同名', 3000, 'https://group.example.invalid/204', 'provider / A'),
+    api.testDelay('节点/同名', 3000, 'https://other.example.invalid/204', 'provider / A'),
+    api.testDelay('节点/同名', 5000, 'https://group.example.invalid/204', 'provider / A'),
+    api.testDelay('节点/同名', 3000, 'https://group.example.invalid/204', 'provider B'),
+    api.testDelay('节点/同名', 3000, 'https://group.example.invalid/204'),
+  ])
+  assert.equal(urls.length, 5)
+  assert.equal(urls[0].pathname, '/proxies/%E8%8A%82%E7%82%B9%2F%E5%90%8C%E5%90%8D/delay')
+  assert.equal(urls[0].searchParams.get('url'), 'https://group.example.invalid/204')
+  assert.equal(urls[0].searchParams.get('timeout'), '3000')
+  assert.equal(urls.filter((url) => url.pathname.startsWith('/providers/proxies/')).length, 0)
+})
+
+test('delay probes from different subscription contexts do not share pending results', async () => {
+  const pending = []
+  const api = apiFixture(async () => ({ externalController: '127.0.0.1:9097', secret: '' }), () =>
+    new Promise((resolve) => pending.push(resolve)))
+  const first = api.testDelay('same-node', 5000, 'https://fixture.invalid/204', undefined, 'profile-a')
+  const duplicate = api.testDelay('same-node', 5000, 'https://fixture.invalid/204', undefined, 'profile-a')
+  const next = api.testDelay('same-node', 5000, 'https://fixture.invalid/204', undefined, 'profile-b')
+  await tick()
+  const requests = pending.length
+  pending[0]({ ok: true, status: 200, text: async () => '{"delay":999}' })
+  pending[1]?.({ ok: true, status: 200, text: async () => '{"delay":42}' })
+  const results = await Promise.all([first, duplicate, next])
+  assert.equal(requests, 2)
+  assert.deepEqual(results, [999, 999, 42])
 })
 
 test('API setup is single-flight and configuration changes cancel old requests', async () => {
@@ -120,7 +176,7 @@ test('API setup is single-flight and configuration changes cancel old requests',
   assert.equal(pending[0].options.signal.aborted, true)
 })
 
-test('simultaneous group and node delay tests share an eight-request budget', async () => {
+test('simultaneous ordinary and provider delay tests share a ten-request budget', async () => {
   let active = 0, peak = 0, requests = 0
   const api = apiFixture(async () => ({ externalController: '127.0.0.1:9097', secret: '' }), async () => {
     requests += 1
@@ -130,9 +186,9 @@ test('simultaneous group and node delay tests share an eight-request budget', as
     active -= 1
     return { ok: true, status: 200, text: async () => '{"delay":12}' }
   })
-  const results = await Promise.all([...Array.from({ length: 20 }, (_, i) => api.testDelay(`node-${i}`)), api.testDelay('node-0')])
+  const results = await Promise.all([...Array.from({ length: 20 }, (_, i) => api.testDelay(`node-${i}`, 5000, 'https://example.invalid/204', i >= 10 ? 'fixture' : undefined)), api.testDelay('node-0', 5000, 'https://example.invalid/204')])
   assert.equal(requests, 20)
-  assert.equal(peak, 8)
+  assert.equal(peak, 10)
   assert.ok(results.every((value) => value === 12))
 })
 
