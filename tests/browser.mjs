@@ -4,7 +4,6 @@ import path from 'node:path'
 import { chromium } from 'playwright'
 import { createServer, preview } from 'vite'
 import { runSettingsBrowser } from './ui-settings.browser.mjs'
-import { runTrayBrowser } from './tray.browser.mjs'
 import { runProfilesBrowser } from './profiles.browser.mjs'
 import { runProxiesBrowser } from './proxies.browser.mjs'
 import { runBackupBrowser } from './backup.browser.mjs'
@@ -81,6 +80,19 @@ try {
       assert.match(surfaces[1].background, /^rgba\(/)
       assert.equal(surfaces[2].blur, 'none', 'live cards must not each create a blur layer')
       assert.match(surfaces[2].background, /^rgba\(/)
+      // Windows 透明窗口: 页面底透明、应用底色半透明才能透出系统 Acrylic; 其它环境保持不透明
+      const backdrop = await page.evaluate(() => {
+        const read = () => ({ body: getComputedStyle(document.body).backgroundColor, app: getComputedStyle(document.querySelector('.app')).backgroundColor })
+        const opaque = read()
+        document.documentElement.dataset.backdrop = 'acrylic'
+        const acrylic = read()
+        delete document.documentElement.dataset.backdrop
+        return { opaque, acrylic }
+      })
+      assert.notEqual(backdrop.opaque.body, 'rgba(0, 0, 0, 0)')
+      assert.match(backdrop.opaque.app, /^rgb\(/)
+      assert.equal(backdrop.acrylic.body, 'rgba(0, 0, 0, 0)')
+      assert.match(backdrop.acrylic.app, /^rgba\(\d+, \d+, \d+, 0\.\d+\)$/)
 
       await page.getByRole('button', { name: '高级', exact: true }).click()
       const dialog = page.getByRole('dialog', { name: 'DNS 覆写', exact: true })
@@ -456,6 +468,29 @@ try {
     await page.getByRole('alert').filter({ hasText: 'HTTP / HTTPS' }).waitFor()
     assert.equal(await page.getByText('invalid', { exact: true }).count(), 0)
   })
+
+  await check('test_page_summarizes_latency_and_marks_failed_sites', async () => {
+    await page.goto(`${base}/dashboard`, { waitUntil: 'networkidle' })
+    await page.evaluate(async () => {
+      localStorage.removeItem('nova-test-sites')
+      const { mockHandlers } = await import('/src/services/mock.ts')
+      const fixed = { 'captive.apple.com': 80, 'www.gstatic.com': 120, 'github.com': 220, 'www.youtube.com': 300, 'www.baidu.com': 60 }
+      mockHandlers.probe_url = ({ url }) => { const ms = fixed[new URL(url).hostname]; if (!ms) throw new Error('fixture probe failed'); return ms }
+    })
+    await page.getByRole('link', { name: '测试', exact: true }).click()
+    const card = page.locator('.site-latency')
+    await card.getByText('5/6 可达 · 平均 156 ms', { exact: true }).waitFor()
+    const failed = card.locator('.site.failed')
+    assert.equal(await failed.count(), 1)
+    assert.match(await failed.innerText(), /Cloudflare[\s\S]*失败/)
+    await failed.hover()
+    await failed.getByTitle('移除 Cloudflare').click()
+    await card.getByText('5/5 可达 · 平均 156 ms', { exact: true }).waitFor()
+    assert.equal(await card.locator('.site.failed').count(), 0)
+    await page.setViewportSize({ width: 1000, height: 900 })
+    assert.ok(await page.locator('.content').evaluate((node) => node.scrollWidth <= node.clientWidth))
+    await page.setViewportSize({ width: 1280, height: 900 })
+  })
   assert.equal(pageErrors.length, 0, pageErrors.join('\n'))
   await ctx.close()
 
@@ -589,7 +624,7 @@ try {
     } finally { await fixture.close() }
   })
 
-  for (const suite of [runTrayBrowser, runSettingsBrowser, runProfilesBrowser, runProxiesBrowser, runBackupBrowser, runUpdaterBrowser, runMediaBrowser, runWindowsSettingsBrowser, runDiagnosticsBrowser, runI18nBrowser]) {
+  for (const suite of [runSettingsBrowser, runProfilesBrowser, runProxiesBrowser, runBackupBrowser, runUpdaterBrowser, runMediaBrowser, runWindowsSettingsBrowser, runDiagnosticsBrowser, runI18nBrowser]) {
     const ui = await suite(browser, base)
     passed += ui.passed
     failed += ui.failed

@@ -252,18 +252,12 @@ export async function runI18nBrowser(browser, base) {
       assert.equal(translated.filter(label => label === '其他').length, 2)
     })
 
-    await check('i18n_document_language_follows_main_window_and_tray', async () => {
+    await check('i18n_document_language_follows_main_window', async () => {
       await visit('dashboard')
       await language('en')
       assert.equal(await page.locator('html').getAttribute('lang'), 'en')
       await language('zh')
       assert.equal(await page.locator('html').getAttribute('lang'), 'zh-CN')
-      await page.goto(base + '/tray', { waitUntil: 'networkidle' })
-      await page.locator('.tray-panel').waitFor()
-      for (const [lang, tag] of [['en', 'en'], ['zh', 'zh-CN']]) {
-        await language(lang)
-        assert.equal(await page.locator('html').getAttribute('lang'), tag)
-      }
     })
 
     await check('i18n_browser_has_no_page_errors', async () => assert.deepEqual(errors, []))

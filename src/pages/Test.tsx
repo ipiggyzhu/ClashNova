@@ -13,10 +13,10 @@ import type { MediaReport, MediaService, MediaStatus } from '../types/media'
 import NetworkDiagnostics from '../components/NetworkDiagnostics'
 import DnsQuery from '../components/DnsQuery'
 
-const MEDIA_SERVICES: { id: MediaService; name: string }[] = [
-  { id: 'youtube', name: 'YouTube' },
-  { id: 'netflix', name: 'Netflix' },
-  { id: 'disney', name: 'Disney+' },
+const MEDIA_SERVICES: { id: MediaService; name: string; color: string }[] = [
+  { id: 'youtube', name: 'YouTube', color: '#FF0000' },
+  { id: 'netflix', name: 'Netflix', color: '#E50914' },
+  { id: 'disney', name: 'Disney+', color: '#113CCF' },
 ]
 const MEDIA_LABELS: Record<MediaStatus, string> = { reachable: '页面可达', restricted: '明确限制提示', unknown: '未能判定', error: '检测失败' }
 const MEDIA_TONES = { reachable: 'green', restricted: 'orange', unknown: 'gray', error: 'red' } as const
@@ -256,80 +256,101 @@ export default function Test() {
     if (v === undefined) return <span className="delay gray">未测试</span>
     if (v === 0) return <span className="delay gray">测试中…</span>
     if (v === -1) return <span className="delay red">失败</span>
-    return <span className={`delay ${delayTone(v)}`}>{v} ms</span>
+    return <span className={`delay ${delayTone(v)}`}><b>{v}</b> <small>ms</small></span>
   }
+
+  // 摘要只统计已出结果的站点：测试中/未测试不计入分母
+  const settled = sites.map((s) => delays[s.url]).filter((v): v is number => v !== undefined && v !== 0)
+  const reachable = settled.filter((v) => v > 0)
+  const average = reachable.length ? Math.round(reachable.reduce((sum, v) => sum + v, 0) / reachable.length) : null
 
   return (
     <div className="pg-test">
-      <NetworkDiagnostics />
-      <Card className="media-check" title="媒体页面可用性" icon={<Icon name="zap" />} actions={
-        mediaBusy ? <Button size="sm" onClick={cancelMedia}>取消媒体检测</Button>
-          : <Button size="sm" variant="primary" onClick={testMedia} disabled={!coreRunning}>检测媒体服务</Button>
-      }>
-        <p className="media-note">手动检测会向 YouTube、Netflix、Disney+ 官方页面发送不含登录凭据的匿名请求。所有请求经当前 mihomo 混合端口并遵循当前策略，不切换节点、不在失败后直连兜底。</p>
-        <p className="media-note">结果仅代表页面响应，不证明视频播放、账号、地区片库或单个节点的全站解锁。最多并发 3 站、单站 12 秒、响应体上限 512 KiB。</p>
-        {!coreRunning && <p className="media-note">内核已停止，请先启动 mihomo。</p>}
-        {mediaReport && <p className="media-note">本次检测经 127.0.0.1:{mediaReport.proxyPort} · 当前 mihomo 策略</p>}
-        <div className="media-grid" aria-live="polite">
-          {MEDIA_SERVICES.map((service) => {
-            const result = mediaReport?.results.find((result) => result.service === service.id)
-            return <section className="media-result" key={service.id} aria-label={`${service.name} 媒体检测结果`}>
-              <div className="media-result-head"><h4>{service.name}</h4><Badge tone={result ? MEDIA_TONES[result.status] : 'gray'}>
-                {mediaBusy ? '检测中…' : result ? MEDIA_LABELS[result.status] : '未检测'}
-              </Badge></div>
-              {result && <><p className="media-detail">{result.detail}</p><p className="media-metrics">{result.httpStatus != null ? `HTTP ${result.httpStatus} · ` : ''}{result.elapsedMs} ms</p></>}
-            </section>
-          })}
-        </div>
-        {mediaError && <p className="media-error" role="alert">{mediaError}</p>}
-      </Card>
-      <DnsQuery />
-      <div className="toolbar">
-        <Input placeholder="名称" value={name} onChange={(e) => setName(e.target.value)} />
-        <Input
-          className="url"
-          placeholder="测试地址 https://…(204 端点或小资源)"
-          value={url}
-          onChange={(e) => setUrl(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') addSite()
-          }}
-        />
-        <Button onClick={addSite}>
-          <Icon name="plus" size={13} />添加
+      <Card className="site-latency" title="站点延迟" icon={<Icon name="clock" />} actions={<>
+        {settled.length > 0 && <span className="chip latency-summary">{reachable.length}/{settled.length} 可达{average !== null && ` · 平均 ${average} ms`}</span>}
+        <Button size="sm" variant="primary" onClick={() => void testAll()} disabled={testingAll || sites.length === 0}>
+          <Icon name="refresh" size={12} />{testingAll ? '测试中…' : '全部测试'}
         </Button>
-        <Button variant="primary" onClick={() => void testAll()} disabled={testingAll || sites.length === 0}>
-          <Icon name="zap" size={13} />{testingAll ? '测试中…' : '全部测试'}
-        </Button>
-      </div>
-
-      {error && <div role="alert">{error}</div>}
-      <div className="grid">
-        {sites.map((s) => (
-          <div className="site" key={s.url}>
-            <button
-              className="rm"
-              title={`移除 ${s.name}`}
-              onClick={(e) => {
-                e.stopPropagation()
-                removedUrls.current.add(s.url)
-                setSites((prev) => prev.filter((it) => it.url !== s.url))
-                setDelays((previous) => { const next = { ...previous }; delete next[s.url]; return next })
-              }}
-            >
-              <Icon name="x" size={12} />
-            </button>
-            <button className="site-probe" title={`重测 ${s.name}`} onClick={() => void testOne(s)} disabled={delays[s.url] === 0}>
-            <div className={`logo ${s.logo ? `brand-${s.logo}` : ''}`} style={{ background: s.color }}>
-              {s.logo ? <BrandLogo logo={s.logo} label={s.name} /> : s.name.slice(0, 1).toUpperCase()}
+      </>}>
+        <div className="grid">
+          {sites.map((s) => (
+            <div className={`site${delays[s.url] === -1 ? ' failed' : ''}`} key={s.url}>
+              <button className="site-probe" title={`重测 ${s.name}`} onClick={() => void testOne(s)} disabled={delays[s.url] === 0}>
+                <span className={`logo ${s.logo ? `brand-${s.logo}` : ''}`} style={{ background: s.color }}>
+                  {s.logo ? <BrandLogo logo={s.logo} label={s.name} /> : s.name.slice(0, 1).toUpperCase()}
+                </span>
+                <span className="meta">
+                  <span className="nm">{s.name}</span>
+                  <span className="host">{hostOf(s.url)}</span>
+                </span>
+                {renderDelay(s)}
+              </button>
+              <button
+                className="rm"
+                title={`移除 ${s.name}`}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  removedUrls.current.add(s.url)
+                  setSites((prev) => prev.filter((it) => it.url !== s.url))
+                  setDelays((previous) => { const next = { ...previous }; delete next[s.url]; return next })
+                }}
+              >
+                <Icon name="x" size={11} />
+              </button>
             </div>
-            <span className="nm">{s.name}</span>
-            <span className="host">{hostOf(s.url)}</span>
-            {renderDelay(s)}
-            </button>
+          ))}
+        </div>
+        <div className="site-add">
+          <Input placeholder="名称" value={name} onChange={(e) => setName(e.target.value)} />
+          <Input
+            className="url"
+            placeholder="测试地址 https://…(204 端点或小资源)"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') addSite()
+            }}
+          />
+          <Button onClick={addSite}>
+            <Icon name="plus" size={13} />添加
+          </Button>
+        </div>
+        {error && <p className="media-error" role="alert">{error}</p>}
+      </Card>
+      <div className="test-pair">
+        <Card className="media-check" title="媒体页面可用性" icon={<Icon name="zap" />} actions={
+          mediaBusy ? <Button size="sm" onClick={cancelMedia}>取消媒体检测</Button>
+            : <Button size="sm" variant="primary" onClick={testMedia} disabled={!coreRunning}>检测媒体服务</Button>
+        }>
+          <p className="media-note">经当前 mihomo 混合端口并遵循当前策略，不切换节点、不在失败后直连兜底。</p>
+          <details className="test-more">
+            <summary>说明</summary>
+            <p>手动检测会向 YouTube、Netflix、Disney+ 官方页面发送不含登录凭据的匿名请求。</p>
+            <p>结果仅代表页面响应，不证明视频播放、账号、地区片库或单个节点的全站解锁。最多并发 3 站、单站 12 秒、响应体上限 512 KiB。</p>
+          </details>
+          {!coreRunning && <p className="media-note">内核已停止，请先启动 mihomo。</p>}
+          <div className="media-list" aria-live="polite">
+            {MEDIA_SERVICES.map((service) => {
+              const result = mediaReport?.results.find((result) => result.service === service.id)
+              return <section className="media-result" key={service.id} aria-label={`${service.name} 媒体检测结果`}>
+                <span className="media-dot" style={{ background: service.color }} aria-hidden="true" />
+                <div className="media-main">
+                  <h4>{service.name}</h4>
+                  {result && <p className="media-detail">{result.detail}</p>}
+                </div>
+                {result && <span className="media-metrics">{result.httpStatus != null ? `HTTP ${result.httpStatus} · ` : ''}{result.elapsedMs} ms</span>}
+                <Badge tone={result ? MEDIA_TONES[result.status] : 'gray'}>
+                  {mediaBusy ? '检测中…' : result ? MEDIA_LABELS[result.status] : '未检测'}
+                </Badge>
+              </section>
+            })}
           </div>
-        ))}
+          {mediaError && <p className="media-error" role="alert">{mediaError}</p>}
+          <p className="media-foot">{mediaReport && `本次检测经 127.0.0.1:${mediaReport.proxyPort} · 当前 mihomo 策略 · `}仅代表页面响应，不代表播放或解锁。</p>
+        </Card>
+        <DnsQuery />
       </div>
+      <NetworkDiagnostics />
     </div>
   )
 }

@@ -698,10 +698,6 @@ export const mockHandlers: Record<string, MockHandler> = {
     settings = { ...settings, ...(args['patch'] as Partial<AppSettings>) }
     return { ...settings }
   },
-  tray_panel_visible: () => true,
-  hide_tray_panel: () => undefined,
-  tray_open_main: () => undefined,
-  tray_quit_app: () => undefined,
   core_status: () => coreStatus(),
   start_core: () => {
     core.running = true

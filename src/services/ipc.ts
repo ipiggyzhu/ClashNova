@@ -27,10 +27,6 @@ export const isMock =
 
 /** 契约 B: 命令名 → { 参数, 返回值 } */
 export interface IpcCommands {
-  tray_panel_visible: { args: undefined; result: boolean }
-  hide_tray_panel: { args: undefined; result: void }
-  tray_open_main: { args: undefined; result: void }
-  tray_quit_app: { args: undefined; result: void }
   get_settings: { args: undefined; result: AppSettings }
   save_settings: { args: { settings: AppSettings }; result: void }
   patch_settings: { args: { patch: Partial<AppSettings> }; result: AppSettings }

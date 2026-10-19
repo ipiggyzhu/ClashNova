@@ -1,32 +1,44 @@
 /* 共享材质、颜色与圆角；透明度只作用于背景，不影响文字。 */
+/* 液态玻璃：半透明着色 + 顶部高光(sheen/gloss) + 内描边高光 + 柔和投影；模糊只用于壳层和浮层。 */
 :root{
   color-scheme:dark;
-  --bg:#151924; --bg-deep:#10131c;
-  --card:rgba(37,43,57,.68); --card-2:rgba(184,200,230,.08); --card-3:rgba(194,210,240,.14);
-  --glass:rgba(29,35,48,.62); --glass-strong:rgba(30,36,49,.90);
-  --glass-filter:blur(22px) saturate(150%); --scrim:rgba(6,10,18,.34);
-  --line:rgba(213,226,249,.09); --line-2:rgba(221,233,255,.17);
+  --bg:#151924; --bg-deep:#10131c; --well:rgba(9,12,20,.42);
+  --card:rgba(37,43,57,.58); --card-2:rgba(184,200,230,.08); --card-3:rgba(194,210,240,.15);
+  --glass:rgba(29,35,48,.50); --glass-strong:rgba(28,34,47,.80);
+  --glass-filter:blur(28px) saturate(180%); --scrim:rgba(6,10,18,.30);
+  --line:rgba(213,226,249,.10); --line-2:rgba(221,233,255,.18);
   --text:#edf1f8; --text-2:#b7c0d0; --text-3:#8996ac;
   --accent:#0A84FF; --accent-dim:rgba(10,132,255,.16);
   --green:#32D74B; --red:#FF453A; --orange:#FF9F0A; --yellow:#FFD60A;
   --purple:#BF5AF2; --cyan:#64D2FF; --pink:#FF375F; --teal:#40C8E0;
   --radius:18px; --radius-sm:10px; --radius-md:14px; --radius-lg:24px;
-  --shadow:0 8px 24px rgba(0,0,0,.14),inset 0 1px 0 rgba(255,255,255,.05);
-  --shadow-xl:0 24px 64px rgba(0,0,0,.32),inset 0 1px 0 rgba(255,255,255,.10);
+  --sheen:linear-gradient(180deg,rgba(255,255,255,.07),rgba(255,255,255,0) 120px);
+  --gloss:linear-gradient(180deg,rgba(255,255,255,.10),rgba(255,255,255,.02));
+  --shadow:0 10px 30px rgba(0,0,0,.18),inset 0 1px 0 rgba(255,255,255,.09),inset 0 -1px 0 rgba(255,255,255,.03);
+  --shadow-xl:0 28px 72px rgba(0,0,0,.36),inset 0 1px 0 rgba(255,255,255,.14),inset 0 -1px 0 rgba(255,255,255,.04);
+  --shadow-ctl:0 1px 2px rgba(0,0,0,.20),inset 0 1px 0 rgba(255,255,255,.10);
+  --shadow-well:inset 0 1px 2px rgba(0,0,0,.22);
   --sans:-apple-system,"SF Pro Display","SF Pro Text","Segoe UI Variable Display","Segoe UI","PingFang SC","Microsoft YaHei UI",sans-serif;
   --mono:"SF Mono","Cascadia Code","JetBrains Mono",Consolas,monospace;
 }
 [data-theme="light"]{
   color-scheme:light;
-  --bg:#edf1f7; --bg-deep:#e6ebf3;
-  --card:rgba(255,255,255,.68); --card-2:rgba(113,135,166,.08); --card-3:rgba(113,135,166,.14);
-  --glass:rgba(250,252,255,.62); --glass-strong:rgba(250,252,255,.92);
-  --scrim:rgba(44,58,83,.18);
-  --line:rgba(44,62,92,.09); --line-2:rgba(44,62,92,.16);
+  --bg:#edf1f7; --bg-deep:#e6ebf3; --well:rgba(236,241,248,.58);
+  --card:rgba(255,255,255,.56); --card-2:rgba(113,135,166,.08); --card-3:rgba(113,135,166,.15);
+  --glass:rgba(250,252,255,.50); --glass-strong:rgba(250,252,255,.84);
+  --scrim:rgba(44,58,83,.16);
+  --line:rgba(44,62,92,.10); --line-2:rgba(44,62,92,.17);
   --text:#192638; --text-2:#52617a; --text-3:#627089;
   --accent-dim:rgba(10,132,255,.11);
   --green:#208438; --red:#d52e31; --orange:#a86100; --yellow:#8c7100;
   --purple:#9440c9; --cyan:#027da4; --pink:#c92d58; --teal:#007d85;
-  --shadow:0 8px 24px rgba(38,55,88,.06),inset 0 1px 0 rgba(255,255,255,.85);
-  --shadow-xl:0 24px 64px rgba(39,56,85,.16),inset 0 1px 0 rgba(255,255,255,.95);
+  --sheen:linear-gradient(180deg,rgba(255,255,255,.55),rgba(255,255,255,0) 120px);
+  --gloss:linear-gradient(180deg,rgba(255,255,255,.65),rgba(255,255,255,.12));
+  --shadow:0 10px 30px rgba(38,55,88,.08),inset 0 1px 0 rgba(255,255,255,.95),inset 0 -1px 0 rgba(255,255,255,.35);
+  --shadow-xl:0 28px 72px rgba(39,56,85,.18),inset 0 1px 0 rgba(255,255,255,1),inset 0 -1px 0 rgba(255,255,255,.40);
+  --shadow-ctl:0 1px 2px rgba(38,55,88,.10),inset 0 1px 0 rgba(255,255,255,.90);
+  --shadow-well:inset 0 1px 2px rgba(38,55,88,.10);
 }
+/* Windows 透明窗口：系统 Acrylic 已把桌面高斯模糊，这里只叠一层半透明底色，让模糊后的壁纸透出来。 */
+[data-backdrop="acrylic"]{--bg:rgba(16,20,30,.52)}
+[data-backdrop="acrylic"][data-theme="light"]{--bg:rgba(240,244,250,.46)}

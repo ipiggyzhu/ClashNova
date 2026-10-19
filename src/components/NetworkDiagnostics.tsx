@@ -9,6 +9,8 @@ import type { DiagnosticReport, DiagnosticStatus } from '../types/diagnostics'
 
 const LABELS: Record<DiagnosticStatus, string> = { pass: '通过', warn: '需注意', fail: '异常', unknown: '未确认', skipped: '未检测' }
 const TONES: Record<DiagnosticStatus, BadgeTone> = { pass: 'green', warn: 'orange', fail: 'red', unknown: 'gray', skipped: 'gray' }
+// 仅影响界面展示顺序；导出报告保持后端原始顺序
+const SEVERITY: Record<DiagnosticStatus, number> = { fail: 0, warn: 1, unknown: 2, skipped: 2, pass: 3 }
 
 export default function NetworkDiagnostics() {
   const [includeInternet, setIncludeInternet] = useState(false)
@@ -53,6 +55,10 @@ export default function NetworkDiagnostics() {
     window.setTimeout(() => URL.revokeObjectURL(url), 1000)
   }
 
+  const count = (...statuses: DiagnosticStatus[]): number => report?.checks.filter((item) => statuses.includes(item.status)).length ?? 0
+  const fails = count('fail')
+  const warns = count('warn')
+
   return <Card className="network-diagnostics" title="一键网络诊断" icon={<Icon name="connections" />} aria-busy={busy} actions={<>
     <Button size="sm" onClick={exportReport} disabled={!report || busy}>导出脱敏报告</Button>
     <Button size="sm" variant="primary" onClick={() => void run()} disabled={busy}>{busy ? '诊断中…' : '开始诊断'}</Button>
@@ -62,16 +68,18 @@ export default function NetworkDiagnostics() {
       <Toggle label="包含外网探测" on={includeInternet} disabled={busy} onChange={(value) => { setIncludeInternet(value); setReport(null) }} />
     </div>
     <p className="diagnostic-note">外网探测会通过内核查询 example.com，并访问 Cloudflare 的 one.one.one.one。IPv4 / IPv6 探测不使用 HTTP 代理，但仍遵循系统路由，可能经过 VPN / TUN；mihomo 探测遵循当前策略且不直连兜底。不发送订阅或日志。</p>
-    <p className="diagnostic-note">报告仅包含检查结论、版本、时间和耗时，不包含密钥、订阅链接、IP、用户名、路径、原始配置或日志。导出仅保存到本机，不自动上传。</p>
+    <details className="test-more">
+      <summary>隐私说明</summary>
+      <p>报告仅包含检查结论、版本、时间和耗时，不包含密钥、订阅链接、IP、用户名、路径、原始配置或日志。导出仅保存到本机，不自动上传。</p>
+    </details>
     {isMock && <p className="diagnostic-note">当前为浏览器模拟模式，结果不代表真实系统检测。</p>}
     {error && <p className="diagnostic-error" role="alert">{error}</p>}
     {report && <div aria-live="polite">
-      <p className="diagnostic-summary" role="status">{report.source === 'mock' ? '模拟结果' : '本次诊断'} · {report.includeInternet ? '包含外网探测' : '仅本机检查'} · {report.checks.filter((item) => item.status === 'fail').length} 项异常 / {report.checks.filter((item) => item.status === 'warn').length} 项需注意 / {report.checks.filter((item) => item.status === 'unknown' || item.status === 'skipped').length} 项未确认或未检测 · {report.durationMs} ms</p>
-      <div className="diagnostic-results">{report.checks.map((item) => <section className="diagnostic-result" key={item.id} aria-label={`${item.title}诊断结果`}>
-        <div className="diagnostic-result-head"><h4>{item.title}</h4><Badge tone={TONES[item.status]}>{LABELS[item.status]}</Badge></div>
+      <p className="diagnostic-summary" role="status"><span>{report.source === 'mock' ? '模拟结果' : '本次诊断'} · {report.includeInternet ? '包含外网探测' : '仅本机检查'} · <b className={fails ? 'red' : undefined}>{fails} 项异常</b> / <b className={warns ? 'orange' : undefined}>{warns} 项需注意</b> / {count('unknown', 'skipped')} 项未确认或未检测</span><span className="diagnostic-duration">{report.durationMs} ms</span></p>
+      <div className="diagnostic-results">{[...report.checks].sort((a, b) => SEVERITY[a.status] - SEVERITY[b.status]).map((item) => <section className={`diagnostic-result diagnostic-${item.status}`} key={item.id} aria-label={`${item.title}诊断结果`}>
+        <div className="diagnostic-result-head"><h4>{item.title}</h4>{item.elapsedMs !== null && <small>{item.elapsedMs} ms</small>}<Badge tone={TONES[item.status]}>{LABELS[item.status]}</Badge></div>
         <p>{item.detail}</p>
-        {item.suggestion && <p className="diagnostic-suggestion">{item.suggestion}</p>}
-        {item.elapsedMs !== null && <small>{item.elapsedMs} ms</small>}
+        {item.suggestion && <p className="diagnostic-suggestion"><Icon name="chevron-right" size={12} />{item.suggestion}</p>}
       </section>)}</div>
     </div>}
   </Card>

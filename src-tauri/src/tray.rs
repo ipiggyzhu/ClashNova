@@ -1,5 +1,5 @@
 //! 托盘:图标 + 菜单(显示主窗口/系统代理/TUN/出站模式/退出),
-//! 菜单勾选态经 `sync_tray` 与设置保持一致;左键单击打开快捷面板。
+//! 菜单勾选态经 `sync_tray` 与设置保持一致;左键单击显示主窗口。
 
 use tauri::menu::{CheckMenuItem, MenuBuilder, MenuItem, PredefinedMenuItem, SubmenuBuilder};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
@@ -24,8 +24,6 @@ pub fn create(app: &AppHandle) -> Result<(), String> {
     let settings = app.state::<AppState>().settings_snapshot();
 
     let show = MenuItem::with_id(app, "tray-show", "显示主窗口", true, None::<&str>)
-        .map_err(|e| e.to_string())?;
-    let panel = MenuItem::with_id(app, "tray-panel", "快捷面板", true, None::<&str>)
         .map_err(|e| e.to_string())?;
     let sys_proxy = CheckMenuItem::with_id(
         app,
@@ -83,7 +81,6 @@ pub fn create(app: &AppHandle) -> Result<(), String> {
 
     let menu = MenuBuilder::new(app)
         .item(&show)
-        .item(&panel)
         .item(&PredefinedMenuItem::separator(app).map_err(|e| e.to_string())?)
         .item(&sys_proxy)
         .item(&tun)
@@ -117,11 +114,10 @@ pub fn create(app: &AppHandle) -> Result<(), String> {
             if let TrayIconEvent::Click {
                 button: MouseButton::Left,
                 button_state: MouseButtonState::Up,
-                position,
                 ..
             } = event
             {
-                crate::tray_panel::toggle(tray.app_handle(), position);
+                show_main_window(tray.app_handle());
             }
         })
         .build(app)
@@ -143,7 +139,6 @@ pub fn sync_tray(app: &AppHandle) {
 }
 
 pub fn show_main_window(app: &AppHandle) {
-    let _ = crate::tray_panel::hide(app);
     if let Some(win) = app.get_webview_window("main") {
         let _ = win.show();
         let _ = win.unminimize();
@@ -157,8 +152,14 @@ pub fn show_main_window(app: &AppHandle) {
         let result = (|| {
             let config = app.config().app.windows.iter().find(|window| window.label == "main")
                 .ok_or_else(|| "主窗口配置缺失".to_string())?;
-            let window = tauri::WebviewWindowBuilder::from_config(&app, config)
-                .map_err(|err| err.to_string())?.visible(true).build().map_err(|err| err.to_string())?;
+            let builder = tauri::WebviewWindowBuilder::from_config(&app, config)
+                .map_err(|err| err.to_string())?.visible(true);
+            // Windows 透明窗口 + 系统 Acrylic：桌面经 DWM 高斯模糊后透到玻璃界面下；Linux 不支持窗口特效，保持不透明。
+            #[cfg(windows)]
+            let builder = builder.transparent(true).effects(
+                tauri::window::EffectsBuilder::new().effect(tauri::window::Effect::Acrylic).build(),
+            );
+            let window = builder.build().map_err(|err| err.to_string())?;
             window.set_focus().map_err(|err| err.to_string())
         })();
         OPENING_WINDOW.store(false, Ordering::Release);
@@ -176,11 +177,6 @@ pub fn quit(app: &AppHandle) {
 fn on_menu(app: &AppHandle, id: &str) {
     match id {
         "tray-show" => show_main_window(app),
-        "tray-panel" => {
-            if let Ok(position) = app.cursor_position() {
-                crate::tray_panel::toggle(app, position);
-            }
-        }
         "tray-quit" => quit(app),
         "tray-sysproxy" => {
             let enable = !app.state::<AppState>().settings_snapshot().sys_proxy;

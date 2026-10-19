@@ -79,7 +79,7 @@
 .pg-profiles .editor .ehead{display:flex;align-items:center;gap:10px;padding:13px 16px;
   border-bottom:1px solid var(--line);font-weight:600;font-size:13px;flex:0 0 auto}
 .pg-profiles .editor .ehead .spacer{flex:1}
-.pg-profiles .editor textarea{flex:1;min-height:420px;margin:14px 16px;background:var(--bg-deep);
+.pg-profiles .editor textarea{flex:1;min-height:420px;margin:14px 16px;background:var(--well);
   border:1px solid var(--line);border-radius:var(--radius-sm);color:var(--text);
   font-family:var(--mono);font-size:11.5px;line-height:1.7;padding:12px;outline:none;resize:none}
 .pg-profiles .editor .efoot{display:flex;justify-content:flex-end;gap:10px;padding:0 16px 14px;flex:0 0 auto}
@@ -101,7 +101,7 @@
 .pg-profiles .rule-form select:focus{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-dim)}
 .pg-profiles .meta-form .input{width:100%;min-width:0}
 .pg-profiles .rule-preview{font-family:var(--mono);font-size:11px;line-height:1.5;color:var(--text-2);
-  background:var(--bg-deep);border:1px solid var(--line);border-radius:var(--radius-sm);
+  background:var(--well);border:1px solid var(--line);border-radius:var(--radius-sm);
   padding:10px;word-break:break-all}
 .pg-profiles .rule-dialog .efoot,.pg-profiles .meta-dialog .efoot{display:flex;justify-content:flex-end;gap:10px;padding:0 16px 16px}
 .pg-profiles .profile-menu{position:fixed;z-index:70;min-width:170px;padding:6px;
@@ -132,7 +132,7 @@
 .pg-profiles .topology-form label{display:grid;gap:6px;font-size:11.5px;color:var(--text-2);min-width:0}
 .pg-profiles .topology-form .input{width:100%;min-width:0}
 .pg-profiles .topology-form textarea{width:100%;min-width:0;padding:9px;border:1px solid var(--line);border-radius:var(--radius-sm);
-  background:var(--bg-deep);color:var(--text);font:inherit;line-height:1.6;resize:vertical}
+  background:var(--well);color:var(--text);font:inherit;line-height:1.6;resize:vertical}
 .pg-profiles .topology-form .topology-json{font-family:var(--mono)}
 .pg-profiles .topology-wide,.pg-profiles .topology-checks{grid-column:1/-1}
 .pg-profiles .topology-checks,.pg-profiles .topology-delete{display:flex;align-items:center;gap:12px}

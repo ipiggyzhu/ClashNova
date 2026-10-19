@@ -3,10 +3,6 @@
  * 缺失键回退中文原文,新增文案先写中文再补译。
  */
 export const EN: Record<string, string> = {
-  /* 托盘快捷面板 */
-  快捷面板: 'Quick panel', '关闭快捷面板': 'Close quick panel',
-  '关闭快捷面板失败': 'Could not close quick panel', '快捷面板初始化失败': 'Could not initialize quick panel',
-  '快捷面板同步失败': 'Could not synchronize quick panel',
   实时流量: 'Live traffic', 下载: 'Download', 上传: 'Upload', 内核内存: 'Core memory',
   出站模式: 'Outbound mode', 策略组: 'Proxy groups', 自动选择: 'Automatic',
   '内核未运行，启动后可切换策略组': 'Start the core to select proxies',

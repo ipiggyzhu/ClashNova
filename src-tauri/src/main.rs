@@ -21,7 +21,6 @@ mod state;
 mod stats;
 mod sysproxy_win;
 mod tray;
-mod tray_panel;
 mod update_io;
 mod updater;
 
@@ -150,10 +149,6 @@ fn main() {
         .manage(media::MediaProbes::default())
         .manage(diagnostics::Diagnostics::default())
         .invoke_handler(tauri::generate_handler![
-            tray_panel::tray_panel_visible,
-            tray_panel::hide_tray_panel,
-            tray_panel::tray_open_main,
-            tray_panel::tray_quit_app,
             commands::get_settings,
             commands::save_settings,
             commands::patch_settings,
@@ -296,17 +291,6 @@ fn main() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            if window.label() == "tray" {
-                match event {
-                    WindowEvent::Focused(false) => { let _ = tray_panel::hide(window.app_handle()); }
-                    WindowEvent::CloseRequested { api, .. } => {
-                        api.prevent_close();
-                        let _ = tray_panel::hide(window.app_handle());
-                    }
-                    _ => {}
-                }
-                return;
-            }
             // 普通驻留保留窗口；轻量驻留销毁 WebView，由托盘/热键/协议重新创建。
             if let WindowEvent::CloseRequested { api, .. } = event {
                 if window.label() == "main" && !window.state::<AppState>().settings_snapshot().lightweight_on_close {

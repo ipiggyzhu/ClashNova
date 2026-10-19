@@ -13,8 +13,18 @@ export default function App() {
   const customCss = useAppStore((s) => s.settings.customCss)
   const language = useAppStore((s) => s.settings.language)
   const logLevel = useAppStore((s) => s.settings.logLevel)
+  const theme = useAppStore((s) => s.settings.theme)
+  const loaded = useAppStore((s) => s.loaded)
 
   useEffect(() => { document.documentElement.lang = language === 'en' ? 'en' : 'zh-CN' }, [language])
+
+  // Acrylic 明暗由窗口主题决定; 跟随应用主题, 避免浅色玻璃叠在深色 Acrylic 上发灰。
+  useEffect(() => {
+    if (!loaded || document.documentElement.dataset['backdrop'] !== 'acrylic') return
+    void import('@tauri-apps/api/window')
+      .then(({ getCurrentWindow }) => getCurrentWindow().setTheme(theme === 'system' ? null : theme))
+      .catch(() => undefined)
+  }, [loaded, theme])
 
   useEffect(watchSystemTheme, [])
 

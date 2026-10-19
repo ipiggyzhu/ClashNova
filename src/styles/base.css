@@ -5,6 +5,8 @@
 html,body{height:100%}
 body{font-family:var(--sans);background:var(--bg-deep);color:var(--text);
   font-size:13px;line-height:1.5;-webkit-font-smoothing:antialiased;overflow:hidden}
+/* 透明窗口下页面底不能是实色，否则挡住系统 Acrylic。 */
+[data-backdrop="acrylic"] body{background:transparent}
 ::-webkit-scrollbar{width:8px;height:8px}
 ::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:4px}
 ::-webkit-scrollbar-track{background:transparent}
@@ -15,11 +17,12 @@ svg{display:block}
 /* ============ 应用框架 ============ */
 .app{display:flex;height:100vh;background:
   radial-gradient(ellipse at 90% 0%,color-mix(in srgb,var(--accent) 18%,transparent),transparent 55%),
-  radial-gradient(ellipse at 0% 100%,color-mix(in srgb,var(--purple) 10%,transparent),transparent 55%),var(--bg)}
-/* 只在壳层和浮层使用模糊，避免每张实时卡片都创建合成层。 */
+  radial-gradient(ellipse at 0% 100%,color-mix(in srgb,var(--purple) 10%,transparent),transparent 55%),
+  radial-gradient(ellipse at 45% 60%,color-mix(in srgb,var(--teal) 7%,transparent),transparent 50%),var(--bg)}
+/* 只在壳层和浮层使用模糊，避免每张实时卡片都创建合成层；卡片靠半透明着色 + 高光透出底下的 Acrylic。 */
 .sidebar,.notif-panel,.profile-menu{backdrop-filter:var(--glass-filter)}
 /* ---- 侧边栏 ---- */
-.sidebar{width:200px;flex-shrink:0;margin:10px 0 10px 10px;background:var(--glass);
+.sidebar{width:200px;flex-shrink:0;margin:10px 0 10px 10px;background:var(--sheen),var(--glass);
   border:1px solid var(--line);border-radius:var(--radius-lg);box-shadow:var(--shadow);
   display:flex;flex-direction:column;padding:14px 9px 12px}
 .brand{display:flex;align-items:center;gap:10px;padding:4px 8px 14px}
@@ -37,8 +40,8 @@ svg{display:block}
 .nav-item svg{width:16px;height:16px;stroke:currentColor;stroke-width:1.8;fill:none;
   stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
 .nav-item:hover{background:var(--card);color:var(--text)}
-.nav-item.on{background:var(--accent-dim);color:var(--accent);
-  box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--accent) 18%,transparent)}
+.nav-item.on{background:var(--gloss),var(--accent-dim);color:var(--accent);
+  box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--accent) 22%,transparent),0 2px 10px color-mix(in srgb,var(--accent) 14%,transparent)}
 .side-foot{border-top:1px solid var(--line);padding:10px 8px 2px;margin-top:8px}
 .kernel-chip{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:var(--radius-sm);
   background:var(--card-2);border:1px solid var(--line)}
@@ -50,7 +53,7 @@ svg{display:block}
 /* ---- 主区 ---- */
 .main{flex:1;display:flex;flex-direction:column;min-width:0}
 .topbar{height:44px;flex-shrink:0;display:flex;align-items:center;gap:14px;position:relative;z-index:10;
-  margin:8px 20px 0;padding:0 12px 0 16px;background:var(--glass);border:1px solid var(--line);
+  margin:8px 20px 0;padding:0 12px 0 16px;background:var(--sheen),var(--glass);border:1px solid var(--line);
   border-radius:var(--radius-lg);box-shadow:var(--shadow)}
 .topbar h1{font-size:15px;font-weight:700;flex-shrink:0}
 .topbar .spacer{flex:1}
@@ -70,7 +73,7 @@ svg{display:block}
 @keyframes pagein{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 
 /* ============ 通用组件 ============ */
-.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+.card{background:var(--sheen),var(--card);border:1px solid var(--line);border-radius:var(--radius);
   box-shadow:var(--shadow);overflow:hidden}
 .card-head{display:flex;align-items:center;gap:9px;padding:13px 16px;border-bottom:1px solid var(--line)}
 .card-head h3{font-size:13px;font-weight:600;flex-shrink:0}
@@ -84,26 +87,27 @@ svg{display:block}
 .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}
 
 .dialog-mask{position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;
-  background:var(--scrim);backdrop-filter:blur(6px)}
-.dialog-panel,.notif-panel,.profile-menu{background:var(--glass-strong);border:1px solid var(--line-2);
+  background:var(--scrim);backdrop-filter:blur(14px) saturate(140%)}
+.dialog-panel,.notif-panel,.profile-menu{background:var(--sheen),var(--glass-strong);border:1px solid var(--line-2);
   box-shadow:var(--shadow-xl)}
 .dialog-panel,.notif-panel{border-radius:var(--radius-lg);overflow:hidden}
 
-.seg{display:inline-flex;background:var(--card-2);border:1px solid var(--line);
+.seg{display:inline-flex;background:var(--card-2);border:1px solid var(--line);box-shadow:var(--shadow-well);
   border-radius:calc(var(--radius-sm) + 3px);padding:2px;gap:2px}
 .seg-item{border:none;background:transparent;color:var(--text-2);font-size:12px;font-weight:500;
   padding:4px 12px;border-radius:var(--radius-sm);cursor:pointer;font-family:var(--sans);transition:background .15s,color .15s;white-space:nowrap}
 .seg-item:hover{color:var(--text)}
-.seg-item.on{background:var(--card-3);color:var(--text);box-shadow:0 1px 4px rgba(0,0,0,.25)}
-[data-theme="light"] .seg-item.on{background:rgba(255,255,255,.92);box-shadow:0 1px 4px rgba(38,55,88,.12)}
+.seg-item.on{background:var(--gloss),var(--card-3);color:var(--text);box-shadow:0 1px 4px rgba(0,0,0,.25),inset 0 1px 0 rgba(255,255,255,.12)}
+[data-theme="light"] .seg-item.on{background:var(--gloss),rgba(255,255,255,.92);box-shadow:0 1px 4px rgba(38,55,88,.12),inset 0 1px 0 #fff}
 
 .btn{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line-2);
-  background:var(--card-2);color:var(--text);font-size:12px;font-weight:500;font-family:var(--sans);
-  padding:5px 12px;border-radius:var(--radius-sm);cursor:pointer;transition:background .15s,border-color .15s;white-space:nowrap}
-.btn:hover{background:var(--card-3)}
+  background:var(--gloss),var(--card-2);box-shadow:var(--shadow-ctl);color:var(--text);font-size:12px;font-weight:500;font-family:var(--sans);
+  padding:5px 12px;border-radius:var(--radius-sm);cursor:pointer;transition:background-color .15s,border-color .15s;white-space:nowrap}
+.btn:hover{background-color:var(--card-3)}
 .btn svg{width:13px;height:13px;stroke:currentColor;stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round}
-.btn-primary{background:var(--accent);border-color:transparent;color:#fff}
-.btn-primary:hover{background:#2b94ff}
+.btn-primary{background:linear-gradient(180deg,rgba(255,255,255,.22),rgba(255,255,255,0)),var(--accent);border-color:transparent;color:#fff;
+  box-shadow:0 4px 14px color-mix(in srgb,var(--accent) 32%,transparent),inset 0 1px 0 rgba(255,255,255,.28)}
+.btn-primary:hover{background-color:#2b94ff}
 .btn-danger{color:var(--red)}
 .btn-sm{padding:3px 9px;font-size:11.5px}
 .btn:disabled,.icon-btn:disabled{opacity:.5;cursor:not-allowed}
@@ -126,11 +130,11 @@ svg{display:block}
 .stat-label{font-size:11px;color:var(--text-2);display:flex;align-items:center;gap:5px}
 .stat-label svg{width:12px;height:12px;stroke:currentColor;stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round}
 
-.toggle{width:38px;height:22px;border-radius:11px;background:var(--card-3);position:relative;
+.toggle{width:38px;height:22px;border-radius:11px;background:var(--card-3);position:relative;box-shadow:var(--shadow-well);
   cursor:pointer;transition:background .2s;flex-shrink:0;border:1px solid var(--line)}
-.toggle .knob{width:18px;height:18px;border-radius:50%;background:#fff;position:absolute;top:1px;left:1px;
-  transition:left .2s;box-shadow:0 1px 4px rgba(0,0,0,.3)}
-.toggle.on{background:var(--green);border-color:transparent}
+.toggle .knob{width:18px;height:18px;border-radius:50%;background:linear-gradient(180deg,#fff,#eef1f6);position:absolute;top:1px;left:1px;
+  transition:left .2s;box-shadow:0 1px 4px rgba(0,0,0,.3),inset 0 -1px 1px rgba(0,0,0,.06)}
+.toggle.on{background:linear-gradient(180deg,rgba(255,255,255,.22),rgba(255,255,255,0)),var(--green);border-color:transparent}
 .toggle.on .knob{left:17px}
 
 .tbl{width:100%;border-collapse:collapse;font-size:12px}
@@ -142,11 +146,11 @@ svg{display:block}
 .tbl tbody tr:hover{background:var(--card-2)}
 
 .input{background:var(--card-2);border:1px solid var(--line);border-radius:var(--radius-sm);color:var(--text);
-  font-size:12.5px;font-family:var(--sans);padding:6px 11px;outline:none;transition:border .15s}
-.input:focus{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-dim)}
+  font-size:12.5px;font-family:var(--sans);padding:6px 11px;outline:none;transition:border .15s;box-shadow:var(--shadow-well)}
+.input:focus{border-color:var(--accent);box-shadow:var(--shadow-well),0 0 0 2px var(--accent-dim)}
 .input::placeholder{color:var(--text-3)}
 .select{background:var(--card-2);border:1px solid var(--line);border-radius:var(--radius-sm);color:var(--text);
-  font-size:12px;font-family:var(--sans);padding:5px 9px;outline:none;cursor:pointer}
+  font-size:12px;font-family:var(--sans);padding:5px 9px;outline:none;cursor:pointer;box-shadow:var(--shadow-well)}
 .search-wrap{position:relative;display:inline-flex;align-items:center}
 .search-wrap svg{position:absolute;left:9px;width:13px;height:13px;stroke:var(--text-3);
   stroke-width:2;fill:none;stroke-linecap:round}
@@ -170,7 +174,7 @@ svg{display:block}
 .route-error{min-height:100vh;background:var(--bg);padding:32px;display:flex;align-items:flex-start;justify-content:center}
 .route-error .card{width:min(760px,100%)}
 .route-error p{color:var(--text-2);font-size:12.5px;margin-bottom:12px}
-.route-error pre{max-height:220px;overflow:auto;background:var(--bg-deep);border:1px solid var(--line);
+.route-error pre{max-height:220px;overflow:auto;background:var(--well);border:1px solid var(--line);
   border-radius:var(--radius-sm);padding:12px;color:var(--text-2);font-family:var(--mono);font-size:11px;
   white-space:pre-wrap;word-break:break-word}
 

@@ -40,6 +40,8 @@ export async function runDiagnosticsBrowser(browser, base) {
     await test('diagnostics_are_manual_opt_out_of_internet_and_work_with_core_stopped', async () => {
       await fixture()
       assert.equal(await card().getByRole('switch', { name: '包含外网探测' }).getAttribute('aria-checked'), 'false')
+      // 外网探测的目标说明须在开关旁常显，不能折叠
+      assert.ok(await card().getByText(/one\.one\.one\.one/).isVisible())
       assert.deepEqual(await page.evaluate(() => window.__diagnosticFixture.calls), [])
       assert.ok(await start().isEnabled())
       assert.ok(await card().getByRole('button', { name: '导出脱敏报告' }).isDisabled())
@@ -48,6 +50,8 @@ export async function runDiagnosticsBrowser(browser, base) {
       assert.deepEqual(await page.evaluate(() => window.__diagnosticFixture.calls), [{ includeInternet: false }])
       assert.match(await card().getByRole('status').innerText(), /1 项异常 \/ 1 项需注意 \/ 2 项未确认或未检测/)
       for (const status of ['通过', '需注意', '异常', '未确认', '未检测']) assert.equal(await card().getByText(status, { exact: true }).count(), 1)
+      // 界面按严重度展示：异常 > 需注意 > 未确认/未检测 > 通过
+      assert.deepEqual(await card().locator('.diagnostic-result h4').allInnerTexts(), ['检查 2', '检查 1', '检查 3', '检查 4', '检查 0'])
     })
 
     await test('diagnostic_internet_opt_in_is_explicit_and_invalidates_previous_report', async () => {
@@ -78,6 +82,7 @@ export async function runDiagnosticsBrowser(browser, base) {
       assert.equal(exported.source, 'mock')
       assert.equal(exported.includeInternet, false)
       assert.equal(exported.checks.length, 5)
+      assert.deepEqual(exported.checks.map((item) => item.status), ['pass', 'warn', 'fail', 'unknown', 'skipped'])
       assert.doesNotMatch(JSON.stringify(exported), /secret|password|token|subscription|processPath/i)
     })
 

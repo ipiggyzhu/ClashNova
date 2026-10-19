@@ -42,7 +42,7 @@
   font-size:12px;line-height:1.6;flex:0 0 auto}
 .pg-settings .drawer-error{padding:10px 16px;color:var(--red);font-size:12px;line-height:1.5;overflow-wrap:anywhere}
 .pg-settings .set-drawer textarea{flex:1;resize:none;border:none;outline:none;
-  background:var(--bg);color:var(--text);padding:14px 16px;font-size:12px;line-height:1.6}
+  background:var(--well);color:var(--text);padding:14px 16px;font-size:12px;line-height:1.6}
 .pg-settings .set-drawer textarea.mono{font-family:ui-monospace,"SF Mono","Cascadia Mono",Consolas,monospace}
 .pg-settings .set-drawer .dfoot{display:flex;justify-content:flex-end;gap:8px;
   padding:12px 16px;border-top:1px solid var(--line);flex:0 0 auto}

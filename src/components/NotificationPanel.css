@@ -109,7 +109,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--bg-deep);
+  background: var(--well);
   border-radius: var(--radius-md);
 }
 
@@ -163,7 +163,7 @@
 }
 
 .notif-remove:hover {
-  background: var(--bg-deep);
+  background: var(--well);
   color: var(--text);
 }
 
